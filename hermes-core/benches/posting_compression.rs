@@ -83,7 +83,7 @@ fn generate_postings(count: usize, dist: Distribution) -> (Vec<u32>, Vec<u32>) {
         Distribution::Clustered => {
             // Create clusters of ~100 docs with gaps between clusters
             let cluster_size = 100;
-            let num_clusters = (count + cluster_size - 1) / cluster_size;
+            let num_clusters = count.div_ceil(cluster_size);
             let cluster_gap = 10000u32; // gap between clusters
             let mut current_doc = 0u32;
 
