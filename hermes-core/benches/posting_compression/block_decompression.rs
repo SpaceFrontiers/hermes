@@ -215,15 +215,6 @@ pub fn bench_raw_throughput(_c: &mut Criterion) {
         iterations / 1000
     );
     println!("{table}");
-
-    println!();
-    println!("📖 LEGEND:");
-    println!("  Bits          Bit width for packing (* = SIMD-optimized: 8/16/32)");
-    println!("  Unpack Only   Pure bitpacking decode, no delta reconstruction");
-    println!("  Unpack+Scalar Bitpacking + scalar prefix sum (sequential loop)");
-    println!("  Unpack+SIMD   Bitpacking + SIMD prefix sum (Hillis-Steele parallel)");
-    println!();
-    println!("Expected: 4-6 Gints/s with full SIMD pipeline on modern CPUs");
 }
 
 /// Benchmark rounded bitpacking vs exact bitpacking
@@ -339,15 +330,6 @@ pub fn bench_rounded_bitpacking(_c: &mut Criterion) {
         iterations / 1000
     );
     println!("{table}");
-
-    println!();
-    println!("📖 EXPLANATION:");
-    println!("  Rounded bitpacking rounds bit widths to 8/16/32 for SIMD-friendly decoding.");
-    println!(
-        "  This eliminates bit-shifting across byte boundaries, enabling direct SIMD widening."
-    );
-    println!("  Trade-off: ~10-100% more space for 2-5x faster decoding.");
-    println!();
 }
 
 /// Benchmark fused rounded unpack + delta decode
@@ -445,10 +427,4 @@ pub fn bench_rounded_fused_delta(_c: &mut Criterion) {
         iterations / 1000
     );
     println!("{table}");
-
-    println!();
-    println!("📖 EXPLANATION:");
-    println!("  Fused operations combine unpack + delta decode in a single pass.");
-    println!("  This improves cache utilization by avoiding intermediate buffer writes.");
-    println!();
 }

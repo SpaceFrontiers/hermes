@@ -312,21 +312,6 @@ pub fn bench_all_formats_compression_summary(_c: &mut Criterion) {
     println!("\n🎯 ACCESS PATTERNS (50K docs, K=1000 ops/μs, higher is better)");
     println!("{access_table}");
 
-    // Legend
-    println!("\n📖 DISTRIBUTION LEGEND:");
-    println!("  • sparse_1pct  : 1% density - rare terms");
-    println!("  • medium_10pct : 10% density - typical terms");
-    println!("  • dense_50pct  : 50% density - common terms");
-    println!("  • clustered    : docs grouped in ranges");
-    println!("  • sequential   : consecutive doc_ids");
-
-    println!("\n📖 ACCESS PATTERN LEGEND:");
-    println!("  • full_scan     : Iterate all docs (OR queries, phrase search)");
-    println!("  • top_100       : Read first 100 docs (top-K with early stop)");
-    println!("  • random_seek   : 100 random seeks (worst case)");
-    println!("  • skip_interval : Skip every 10th doc (AND query simulation)");
-    println!("  • galloping     : Seek to 100 targets (list intersection)");
-
     // Raw throughput table
     bench_raw_throughput(_c);
 }
