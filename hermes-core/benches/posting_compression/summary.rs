@@ -1,8 +1,10 @@
 //! Summary table benchmarks with formatted output
 
-use comfy_table::{Table, modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL};
+use comfy_table::{Cell, Color, Table, modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL};
 use criterion::Criterion;
 
+use super::access_patterns::{AccessPattern, measure_access_pattern};
+use super::block_decompression::bench_raw_throughput;
 use super::common::{
     Distribution, FORMAT_NAMES, FORMAT_SHORT, find_best_idx, find_min_idx, format_rate,
     generate_postings, measure_compression,
@@ -188,7 +190,7 @@ pub fn bench_all_formats_compression_summary(_c: &mut Criterion) {
         FORMAT_SHORT[best_enc_idx],
     ]);
 
-    println!("\n⚡ ENCODING SPEED (ints/μs - higher is better)");
+    println!("\n⚡ ENCODING SPEED (K=1000 ints/μs, higher is better)");
     println!("{encoding_table}");
 
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -267,8 +269,49 @@ pub fn bench_all_formats_compression_summary(_c: &mut Criterion) {
         FORMAT_SHORT[best_dec_idx],
     ]);
 
-    println!("\n🔄 DECODING SPEED (ints/μs - higher is better)");
+    println!("\n🔄 DECODING SPEED (K=1000 ints/μs, higher is better)");
     println!("{decoding_table}");
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // ACCESS PATTERNS TABLE
+    // ═══════════════════════════════════════════════════════════════════════════════
+    let mut access_table = Table::new();
+    access_table
+        .load_preset(UTF8_FULL)
+        .apply_modifier(UTF8_ROUND_CORNERS)
+        .set_header(vec![
+            "Pattern", "HorizBP", "VertBP", "EF", "PEF", "Roaring", "OptP4D", "Best",
+        ]);
+
+    let (access_doc_ids, access_term_freqs) = generate_postings(50_000, Distribution::Medium);
+    let patterns = [
+        (AccessPattern::FullScan, 100),
+        (AccessPattern::TopN(100), 5000),
+        (AccessPattern::RandomSeek, 1000),
+        (AccessPattern::SkipInterval, 500),
+        (AccessPattern::Galloping, 1000),
+    ];
+
+    for (pattern, iterations) in &patterns {
+        let rates =
+            measure_access_pattern(&access_doc_ids, &access_term_freqs, *pattern, *iterations);
+        let best_idx = find_best_idx(&rates);
+
+        let mut row: Vec<Cell> = vec![Cell::new(pattern.name())];
+        for (i, &rate) in rates.iter().enumerate() {
+            let cell = if i == best_idx {
+                Cell::new(format_rate(rate)).fg(Color::Green)
+            } else {
+                Cell::new(format_rate(rate))
+            };
+            row.push(cell);
+        }
+        row.push(Cell::new(FORMAT_SHORT[best_idx]));
+        access_table.add_row(row);
+    }
+
+    println!("\n🎯 ACCESS PATTERNS (50K docs, K=1000 ops/μs, higher is better)");
+    println!("{access_table}");
 
     // Legend
     println!("\n📖 DISTRIBUTION LEGEND:");
@@ -277,4 +320,14 @@ pub fn bench_all_formats_compression_summary(_c: &mut Criterion) {
     println!("  • dense_50pct  : 50% density - common terms");
     println!("  • clustered    : docs grouped in ranges");
     println!("  • sequential   : consecutive doc_ids");
+
+    println!("\n📖 ACCESS PATTERN LEGEND:");
+    println!("  • full_scan     : Iterate all docs (OR queries, phrase search)");
+    println!("  • top_100       : Read first 100 docs (top-K with early stop)");
+    println!("  • random_seek   : 100 random seeks (worst case)");
+    println!("  • skip_interval : Skip every 10th doc (AND query simulation)");
+    println!("  • galloping     : Seek to 100 targets (list intersection)");
+
+    // Raw throughput table
+    bench_raw_throughput(_c);
 }

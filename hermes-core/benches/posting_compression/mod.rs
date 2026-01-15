@@ -16,6 +16,7 @@
 //! - Seek speed (seeks/sec)
 //! - Serialization/deserialization speed
 
+mod access_patterns;
 mod block_decompression;
 mod common;
 mod encoding;
@@ -25,6 +26,7 @@ mod summary;
 mod distribution;
 mod deserialization;
 
+pub use access_patterns::*;
 pub use block_decompression::*;
 pub use common::*;
 pub use encoding::*;
