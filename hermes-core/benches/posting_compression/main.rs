@@ -2,6 +2,7 @@
 
 use criterion::{criterion_group, criterion_main};
 
+mod block_decompression;
 mod common;
 mod deserialization;
 mod distribution;
@@ -10,6 +11,7 @@ mod iteration;
 mod seek;
 mod summary;
 
+use block_decompression::{bench_block_decompress_full, bench_block_unpack, bench_raw_throughput};
 use deserialization::bench_deserialization_speed;
 use distribution::{bench_by_distribution, bench_unified_format};
 use encoding::{bench_all_formats_encoding, bench_encoding_speed};
@@ -28,5 +30,8 @@ criterion_group!(
     bench_all_formats_encoding,
     bench_all_formats_iteration,
     bench_all_formats_compression_summary,
+    bench_block_unpack,
+    bench_block_decompress_full,
+    bench_raw_throughput,
 );
 criterion_main!(benches);
