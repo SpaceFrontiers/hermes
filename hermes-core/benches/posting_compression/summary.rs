@@ -14,10 +14,18 @@ use super::iteration::measure_decoding_speed;
 
 /// Comprehensive benchmark summary with formatted tables
 pub fn bench_all_formats_compression_summary(_c: &mut Criterion) {
-    println!("\n🚀 POSTING LIST COMPRESSION BENCHMARK RESULTS");
-    println!(
-        "Formats: HorizBP, VertBP128, EF (Elias-Fano), PEF (Partitioned EF), Roaring, OptP4D\n"
-    );
+    println!("\n🚀 POSTING LIST COMPRESSION BENCHMARK RESULTS\n");
+    println!("┌─────────────────────────────────────────────────────────────────────────────┐");
+    println!("│ FORMAT LEGEND                                                               │");
+    println!("├─────────────────────────────────────────────────────────────────────────────┤");
+    println!("│ BP128   - Bitpacking with 128-int blocks, exact bit widths                  │");
+    println!("│ BP-Rnd  - Bitpacking with rounded bit widths (8/16/32) for faster SIMD      │");
+    println!("│ VBP128  - Vertical bitpacking (SIMD-optimized bit-interleaved layout)       │");
+    println!("│ EF      - Elias-Fano encoding for monotone integer sequences                │");
+    println!("│ PEF     - Partitioned Elias-Fano (better compression & skip performance)    │");
+    println!("│ Roaring - Roaring bitmaps (hybrid: sorted arrays / bitmaps / RLE)           │");
+    println!("│ OptP4D  - Optimized PFor-Delta with SIMD (patched frame-of-reference)       │");
+    println!("└─────────────────────────────────────────────────────────────────────────────┘\n");
 
     // ═══════════════════════════════════════════════════════════════════════════════
     // COMPRESSION RATIO TABLE
@@ -29,9 +37,9 @@ pub fn bench_all_formats_compression_summary(_c: &mut Criterion) {
         .set_header(vec![
             "Distribution",
             "Size",
-            "HorizBP",
-            "HorizRnd",
-            "VertBP",
+            "BP128",
+            "BP-Rnd",
+            "VBP128",
             "EF",
             "PEF",
             "Roaring",
@@ -105,7 +113,6 @@ pub fn bench_all_formats_compression_summary(_c: &mut Criterion) {
 
     println!("📊 COMPRESSION RATIO (% of raw size - lower is better)");
     println!("{compression_table}");
-    println!("  HorizRnd = HorizontalBP128 with rounded bitpacking (8/16/32 bits)");
 
     // ═══════════════════════════════════════════════════════════════════════════════
     // ENCODING SPEED TABLE
@@ -117,9 +124,9 @@ pub fn bench_all_formats_compression_summary(_c: &mut Criterion) {
         .set_header(vec![
             "Distribution",
             "Size",
-            "HorizBP",
-            "RndBP",
-            "VertBP",
+            "BP128",
+            "BP-Rnd",
+            "VBP128",
             "EF",
             "PEF",
             "Roaring",
@@ -199,9 +206,9 @@ pub fn bench_all_formats_compression_summary(_c: &mut Criterion) {
         .set_header(vec![
             "Distribution",
             "Size",
-            "HorizBP",
-            "RndBP",
-            "VertBP",
+            "BP128",
+            "BP-Rnd",
+            "VBP128",
             "EF",
             "PEF",
             "Roaring",

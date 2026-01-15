@@ -233,9 +233,22 @@ pub fn find_min_idx(values: &[f64]) -> usize {
         .unwrap_or(0)
 }
 
-/// Format names for all posting list types
-pub const FORMAT_NAMES: [&str; 6] = ["HorizBP", "VertBP", "EF", "PEF", "Roaring", "OptP4D"];
-pub const FORMAT_SHORT: [&str; 6] = ["Horiz", "Vert", "EF", "PEF", "Roar", "P4D"];
+/// Format names for all posting list types (8 formats total)
+pub const FORMAT_NAMES: [&str; 8] = [
+    "BP128",     // Horizontal bitpacking, 128-int blocks
+    "BP128-Rnd", // Horizontal bitpacking with rounded bit widths (8/16/32)
+    "VBP128",    // Vertical (SIMD) bitpacking, 128-int blocks
+    "EF",        // Elias-Fano monotone sequence encoding
+    "PEF",       // Partitioned Elias-Fano (better for skipping)
+    "Roaring",   // Roaring bitmaps (hybrid array/bitmap/RLE)
+    "OptP4D",    // Optimized Patched Frame-of-Reference Delta
+    "Simple16",  // Simple-16 variable-length encoding (placeholder)
+];
 
-/// Format names including rounded bitpacking variant
-pub const FORMAT_SHORT_7: [&str; 7] = ["Horiz", "HRnd", "Vert", "EF", "PEF", "Roar", "P4D"];
+/// Short format names for table headers
+pub const FORMAT_SHORT: [&str; 6] = ["BP128", "VBP128", "EF", "PEF", "Roaring", "OptP4D"];
+
+/// Short format names including rounded bitpacking variant (7 formats)
+pub const FORMAT_SHORT_7: [&str; 7] = [
+    "BP128", "BP-Rnd", "VBP128", "EF", "PEF", "Roaring", "OptP4D",
+];
