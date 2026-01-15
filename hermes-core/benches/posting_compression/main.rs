@@ -12,7 +12,10 @@ mod iteration;
 mod seek;
 mod summary;
 
-use block_decompression::{bench_block_decompress_full, bench_block_unpack};
+use block_decompression::{
+    bench_block_decompress_full, bench_block_unpack, bench_rounded_bitpacking,
+    bench_rounded_fused_delta,
+};
 use deserialization::bench_deserialization_speed;
 use distribution::{bench_by_distribution, bench_unified_format};
 use encoding::{bench_all_formats_encoding, bench_encoding_speed};
@@ -33,5 +36,7 @@ criterion_group!(
     bench_all_formats_compression_summary,
     bench_block_unpack,
     bench_block_decompress_full,
+    bench_rounded_bitpacking,
+    bench_rounded_fused_delta,
 );
 criterion_main!(benches);

@@ -5,6 +5,7 @@
 
 use comfy_table::{Cell, Color, Table, presets::UTF8_FULL};
 use criterion::{Criterion, Throughput, black_box};
+use hermes_core::structures::simd::RoundedBitWidth;
 use hermes_core::structures::{HORIZONTAL_BP128_BLOCK_SIZE, pack_block, simd, unpack_block};
 use std::time::Instant;
 
@@ -223,4 +224,231 @@ pub fn bench_raw_throughput(_c: &mut Criterion) {
     println!("  Unpack+SIMD   Bitpacking + SIMD prefix sum (Hillis-Steele parallel)");
     println!();
     println!("Expected: 4-6 Gints/s with full SIMD pipeline on modern CPUs");
+}
+
+/// Benchmark rounded bitpacking vs exact bitpacking
+///
+/// Rounded bitpacking rounds bit widths to 8/16/32 for faster SIMD decoding.
+/// Trades ~10-20% more space for significantly faster decode.
+pub fn bench_rounded_bitpacking(_c: &mut Criterion) {
+    let iterations = 100_000;
+    let total_ints = BLOCK_SIZE * iterations;
+
+    // Collect results: (exact_bits, rounded_bits, exact_rate, rounded_rate, space_overhead)
+    let mut results: Vec<(u8, u8, f64, f64, f64)> = Vec::new();
+
+    for exact_bits in [4u8, 6, 8, 10, 12, 14, 16, 20, 24] {
+        let rounded = simd::round_bit_width(exact_bits);
+        let rounded_width = RoundedBitWidth::from_exact(exact_bits);
+
+        // Create test data that fits in exact_bits
+        let max_val = if exact_bits >= 32 {
+            u32::MAX
+        } else {
+            (1u32 << exact_bits) - 1
+        };
+        let mut values = [0u32; BLOCK_SIZE];
+        for (i, v) in values.iter_mut().enumerate() {
+            *v = (i as u32 * 7) % (max_val + 1);
+        }
+
+        // Pack with exact bitpacking
+        let mut packed_exact = Vec::new();
+        pack_block(&values, exact_bits, &mut packed_exact);
+
+        // Pack with rounded bitpacking
+        let mut packed_rounded = vec![0u8; BLOCK_SIZE * rounded_width.bytes_per_value()];
+        simd::pack_rounded(&values[..], rounded_width, &mut packed_rounded);
+
+        // Space overhead
+        let exact_size = packed_exact.len();
+        let rounded_size = packed_rounded.len();
+        let space_overhead = if exact_size > 0 {
+            (rounded_size as f64 / exact_size as f64 - 1.0) * 100.0
+        } else {
+            0.0
+        };
+
+        // Benchmark exact bitpacking decode
+        let mut output = [0u32; BLOCK_SIZE];
+        let start = Instant::now();
+        for _ in 0..iterations {
+            unpack_block(black_box(&packed_exact), exact_bits, &mut output);
+            black_box(&output);
+        }
+        let exact_rate = total_ints as f64 / start.elapsed().as_secs_f64() / 1e9;
+
+        // Benchmark rounded bitpacking decode
+        let start = Instant::now();
+        for _ in 0..iterations {
+            simd::unpack_rounded(
+                black_box(&packed_rounded),
+                rounded_width,
+                &mut output,
+                BLOCK_SIZE,
+            );
+            black_box(&output);
+        }
+        let rounded_rate = total_ints as f64 / start.elapsed().as_secs_f64() / 1e9;
+
+        results.push((
+            exact_bits,
+            rounded,
+            exact_rate,
+            rounded_rate,
+            space_overhead,
+        ));
+    }
+
+    // Build table
+    let mut table = Table::new();
+    table.load_preset(UTF8_FULL);
+    table.set_header(vec![
+        Cell::new("Exact\nBits"),
+        Cell::new("Rounded\nBits"),
+        Cell::new("Exact\n(Gints/s)"),
+        Cell::new("Rounded\n(Gints/s)"),
+        Cell::new("Speedup"),
+        Cell::new("Space\nOverhead"),
+    ]);
+
+    for (exact, rounded, exact_rate, rounded_rate, overhead) in &results {
+        let speedup = rounded_rate / exact_rate;
+        let speedup_cell = if speedup > 1.5 {
+            Cell::new(format!("{:.2}x", speedup)).fg(Color::Green)
+        } else if speedup > 1.1 {
+            Cell::new(format!("{:.2}x", speedup)).fg(Color::Yellow)
+        } else {
+            Cell::new(format!("{:.2}x", speedup))
+        };
+
+        table.add_row(vec![
+            Cell::new(format!("{}", exact)),
+            Cell::new(format!("{}", rounded)),
+            Cell::new(format!("{:.2}", exact_rate)),
+            Cell::new(format!("{:.2}", rounded_rate)),
+            speedup_cell,
+            Cell::new(format!("+{:.0}%", overhead)),
+        ]);
+    }
+
+    println!("\n📊 ROUNDED vs EXACT BITPACKING THROUGHPUT");
+    println!(
+        "Block size: {} integers | Iterations: {}K blocks\n",
+        BLOCK_SIZE,
+        iterations / 1000
+    );
+    println!("{table}");
+
+    println!();
+    println!("📖 EXPLANATION:");
+    println!("  Rounded bitpacking rounds bit widths to 8/16/32 for SIMD-friendly decoding.");
+    println!(
+        "  This eliminates bit-shifting across byte boundaries, enabling direct SIMD widening."
+    );
+    println!("  Trade-off: ~10-100% more space for 2-5x faster decoding.");
+    println!();
+}
+
+/// Benchmark fused rounded unpack + delta decode
+pub fn bench_rounded_fused_delta(_c: &mut Criterion) {
+    let iterations = 100_000;
+    let total_ints = BLOCK_SIZE * iterations;
+
+    // Collect results
+    let mut results: Vec<(u8, f64, f64, f64)> = Vec::new();
+
+    for rounded_bits in [8u8, 16] {
+        let rounded_width = RoundedBitWidth::from_exact(rounded_bits);
+
+        // Create delta-encoded test data
+        let max_delta = (1u32 << rounded_bits) - 1;
+        let mut deltas = [0u32; BLOCK_SIZE];
+        for (i, d) in deltas.iter_mut().enumerate() {
+            *d = ((i as u32 * 3) % max_delta).max(1);
+        }
+
+        // Pack with rounded bitpacking
+        let mut packed = vec![0u8; BLOCK_SIZE * rounded_width.bytes_per_value()];
+        simd::pack_rounded(&deltas[..], rounded_width, &mut packed);
+
+        // Benchmark: unpack only
+        let mut output = [0u32; BLOCK_SIZE];
+        let start = Instant::now();
+        for _ in 0..iterations {
+            simd::unpack_rounded(black_box(&packed), rounded_width, &mut output, BLOCK_SIZE);
+            black_box(&output);
+        }
+        let unpack_rate = total_ints as f64 / start.elapsed().as_secs_f64() / 1e9;
+
+        // Benchmark: unpack + separate delta decode
+        let mut doc_ids = [0u32; BLOCK_SIZE];
+        let start = Instant::now();
+        for block_idx in 0..iterations {
+            simd::unpack_rounded(black_box(&packed), rounded_width, &mut output, BLOCK_SIZE);
+            let first_doc = block_idx as u32 * 1000;
+            simd::delta_decode(&mut doc_ids, &output, first_doc, BLOCK_SIZE);
+            black_box(&doc_ids);
+        }
+        let separate_rate = total_ints as f64 / start.elapsed().as_secs_f64() / 1e9;
+
+        // Benchmark: fused unpack + delta decode
+        let start = Instant::now();
+        for block_idx in 0..iterations {
+            let first_doc = block_idx as u32 * 1000;
+            simd::unpack_rounded_delta_decode(
+                black_box(&packed),
+                rounded_width,
+                &mut doc_ids,
+                first_doc,
+                BLOCK_SIZE,
+            );
+            black_box(&doc_ids);
+        }
+        let fused_rate = total_ints as f64 / start.elapsed().as_secs_f64() / 1e9;
+
+        results.push((rounded_bits, unpack_rate, separate_rate, fused_rate));
+    }
+
+    // Build table
+    let mut table = Table::new();
+    table.load_preset(UTF8_FULL);
+    table.set_header(vec![
+        Cell::new("Rounded\nBits"),
+        Cell::new("Unpack Only\n(Gints/s)"),
+        Cell::new("Unpack+Delta\n(separate)"),
+        Cell::new("Fused\n(Gints/s)"),
+        Cell::new("Fused vs\nSeparate"),
+    ]);
+
+    for (bits, unpack, separate, fused) in &results {
+        let speedup = fused / separate;
+        let speedup_cell = if speedup > 1.1 {
+            Cell::new(format!("{:.2}x", speedup)).fg(Color::Green)
+        } else {
+            Cell::new(format!("{:.2}x", speedup))
+        };
+
+        table.add_row(vec![
+            Cell::new(format!("{}", bits)),
+            Cell::new(format!("{:.2}", unpack)),
+            Cell::new(format!("{:.2}", separate)),
+            Cell::new(format!("{:.2}", fused)),
+            speedup_cell,
+        ]);
+    }
+
+    println!("\n📊 FUSED vs SEPARATE ROUNDED DECODE");
+    println!(
+        "Block size: {} integers | Iterations: {}K blocks\n",
+        BLOCK_SIZE,
+        iterations / 1000
+    );
+    println!("{table}");
+
+    println!();
+    println!("📖 EXPLANATION:");
+    println!("  Fused operations combine unpack + delta decode in a single pass.");
+    println!("  This improves cache utilization by avoiding intermediate buffer writes.");
+    println!();
 }

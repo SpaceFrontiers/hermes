@@ -3,7 +3,7 @@
 use criterion::{BenchmarkId, Criterion, Throughput, black_box};
 use hermes_core::structures::{
     EliasFanoPostingList, HorizontalBP128PostingList, OptP4DPostingList, PartitionedEFPostingList,
-    RoaringPostingList, VerticalBP128PostingList,
+    RoaringPostingList, RoundedBP128PostingList, VerticalBP128PostingList,
 };
 use std::time::Instant;
 
@@ -179,9 +179,11 @@ pub fn bench_all_formats_iteration(c: &mut Criterion) {
 }
 
 /// Measure decoding/iteration speed (returns elements per microsecond)
-pub fn measure_decoding_speed(doc_ids: &[u32], term_freqs: &[u32], iterations: usize) -> [f64; 6] {
+/// Returns [HorizBP, RoundedBP, VertBP, EF, PEF, Roaring, OptP4D]
+pub fn measure_decoding_speed(doc_ids: &[u32], term_freqs: &[u32], iterations: usize) -> [f64; 7] {
     let n = doc_ids.len();
     let bp = HorizontalBP128PostingList::from_postings(doc_ids, term_freqs, 1.0);
+    let rounded = RoundedBP128PostingList::from_postings(doc_ids, term_freqs, 1.0);
     let simd = VerticalBP128PostingList::from_postings(doc_ids, term_freqs, 1.0);
     let ef = EliasFanoPostingList::from_postings(doc_ids, term_freqs);
     let pef = PartitionedEFPostingList::from_postings(doc_ids, term_freqs);
@@ -201,6 +203,20 @@ pub fn measure_decoding_speed(doc_ids: &[u32], term_freqs: &[u32], iterations: u
     }
     let bp_time = start.elapsed().as_micros() as f64;
     let bp_rate = (n * iterations) as f64 / bp_time;
+
+    // RoundedBP128
+    let start = Instant::now();
+    for _ in 0..iterations {
+        let mut iter = rounded.iterator();
+        let mut sum = 0u64;
+        while iter.doc() != u32::MAX {
+            sum += iter.doc() as u64;
+            iter.advance();
+        }
+        black_box(sum);
+    }
+    let rounded_time = start.elapsed().as_micros() as f64;
+    let rounded_rate = (n * iterations) as f64 / rounded_time;
 
     // VertBP128
     let start = Instant::now();
@@ -275,6 +291,7 @@ pub fn measure_decoding_speed(doc_ids: &[u32], term_freqs: &[u32], iterations: u
 
     [
         bp_rate,
+        rounded_rate,
         simd_rate,
         ef_rate,
         pef_rate,

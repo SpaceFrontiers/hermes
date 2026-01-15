@@ -4,7 +4,7 @@
 
 use hermes_core::structures::{
     EliasFanoPostingList, HorizontalBP128PostingList, OptP4DPostingList, PartitionedEFPostingList,
-    RoaringPostingList, VerticalBP128PostingList,
+    RoaringPostingList, RoundedBP128PostingList, VerticalBP128PostingList,
 };
 
 /// Distribution types for doc_id generation
@@ -125,6 +125,7 @@ pub fn generate_postings(count: usize, dist: Distribution) -> (Vec<u32>, Vec<u32
 pub struct CompressionResult {
     pub raw_bytes: usize,
     pub horiz_bp128_bytes: usize,
+    pub horiz_bp128_rounded_bytes: usize,
     pub vert_bp128_bytes: usize,
     pub elias_fano_bytes: usize,
     pub partitioned_ef_bytes: usize,
@@ -135,6 +136,9 @@ pub struct CompressionResult {
 impl CompressionResult {
     pub fn horiz_bp128_ratio(&self) -> f64 {
         self.horiz_bp128_bytes as f64 / self.raw_bytes as f64 * 100.0
+    }
+    pub fn horiz_bp128_rounded_ratio(&self) -> f64 {
+        self.horiz_bp128_rounded_bytes as f64 / self.raw_bytes as f64 * 100.0
     }
     pub fn vert_bp128_ratio(&self) -> f64 {
         self.vert_bp128_bytes as f64 / self.raw_bytes as f64 * 100.0
@@ -161,6 +165,11 @@ pub fn measure_compression(doc_ids: &[u32], term_freqs: &[u32]) -> CompressionRe
     let mut bp_buf = Vec::new();
     horiz_bp128.serialize(&mut bp_buf).unwrap();
 
+    // Rounded bitpacking version (trades space for speed)
+    let rounded_bp128 = RoundedBP128PostingList::from_postings(doc_ids, term_freqs, 1.0);
+    let mut bp_rounded_buf = Vec::new();
+    rounded_bp128.serialize(&mut bp_rounded_buf).unwrap();
+
     let vert_bp128 = VerticalBP128PostingList::from_postings(doc_ids, term_freqs, 1.0);
     let mut simd_buf = Vec::new();
     vert_bp128.serialize(&mut simd_buf).unwrap();
@@ -184,6 +193,7 @@ pub fn measure_compression(doc_ids: &[u32], term_freqs: &[u32]) -> CompressionRe
     CompressionResult {
         raw_bytes,
         horiz_bp128_bytes: bp_buf.len(),
+        horiz_bp128_rounded_bytes: bp_rounded_buf.len(),
         vert_bp128_bytes: simd_buf.len(),
         elias_fano_bytes: ef_buf.len(),
         partitioned_ef_bytes: pef_buf.len(),
@@ -226,3 +236,6 @@ pub fn find_min_idx(values: &[f64]) -> usize {
 /// Format names for all posting list types
 pub const FORMAT_NAMES: [&str; 6] = ["HorizBP", "VertBP", "EF", "PEF", "Roaring", "OptP4D"];
 pub const FORMAT_SHORT: [&str; 6] = ["Horiz", "Vert", "EF", "PEF", "Roar", "P4D"];
+
+/// Format names including rounded bitpacking variant
+pub const FORMAT_SHORT_7: [&str; 7] = ["Horiz", "HRnd", "Vert", "EF", "PEF", "Roar", "P4D"];

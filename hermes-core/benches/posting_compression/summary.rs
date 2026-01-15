@@ -6,7 +6,7 @@ use criterion::Criterion;
 use super::access_patterns::{AccessPattern, measure_access_pattern};
 use super::block_decompression::bench_raw_throughput;
 use super::common::{
-    Distribution, FORMAT_NAMES, FORMAT_SHORT, find_best_idx, find_min_idx, format_rate,
+    Distribution, FORMAT_SHORT, FORMAT_SHORT_7, find_best_idx, find_min_idx, format_rate,
     generate_postings, measure_compression,
 };
 use super::encoding::measure_encoding_speed;
@@ -30,13 +30,13 @@ pub fn bench_all_formats_compression_summary(_c: &mut Criterion) {
             "Distribution",
             "Size",
             "HorizBP",
+            "HorizRnd",
             "VertBP",
             "EF",
             "PEF",
             "Roaring",
             "OptP4D",
             "Best",
-            "Bits/Doc",
         ]);
 
     let distributions = [
@@ -48,7 +48,7 @@ pub fn bench_all_formats_compression_summary(_c: &mut Criterion) {
     ];
     let sizes = [1000, 10000, 50000];
 
-    let mut total_ratios = [0.0f64; 6];
+    let mut total_ratios = [0.0f64; 7];
     let mut count = 0;
 
     for dist in &distributions {
@@ -58,6 +58,7 @@ pub fn bench_all_formats_compression_summary(_c: &mut Criterion) {
 
             let ratios = [
                 result.horiz_bp128_ratio(),
+                result.horiz_bp128_rounded_ratio(),
                 result.vert_bp128_ratio(),
                 result.elias_fano_ratio(),
                 result.partitioned_ef_ratio(),
@@ -65,21 +66,12 @@ pub fn bench_all_formats_compression_summary(_c: &mut Criterion) {
                 result.opt_p4d_ratio(),
             ];
 
-            for i in 0..6 {
+            for i in 0..7 {
                 total_ratios[i] += ratios[i];
             }
             count += 1;
 
             let best_idx = find_min_idx(&ratios);
-            let best_bytes = match best_idx {
-                0 => result.horiz_bp128_bytes,
-                1 => result.vert_bp128_bytes,
-                2 => result.elias_fano_bytes,
-                3 => result.partitioned_ef_bytes,
-                4 => result.roaring_bytes,
-                _ => result.opt_p4d_bytes,
-            };
-            let bits_per_doc = (best_bytes * 8) as f64 / size as f64;
 
             compression_table.add_row(vec![
                 dist.name(),
@@ -90,8 +82,8 @@ pub fn bench_all_formats_compression_summary(_c: &mut Criterion) {
                 &format!("{:.1}%", ratios[3]),
                 &format!("{:.1}%", ratios[4]),
                 &format!("{:.1}%", ratios[5]),
-                FORMAT_SHORT[best_idx],
-                &format!("{:.2}", bits_per_doc),
+                &format!("{:.1}%", ratios[6]),
+                FORMAT_SHORT_7[best_idx],
             ]);
         }
     }
@@ -107,12 +99,13 @@ pub fn bench_all_formats_compression_summary(_c: &mut Criterion) {
         &format!("{:.1}%", avg[3]),
         &format!("{:.1}%", avg[4]),
         &format!("{:.1}%", avg[5]),
-        FORMAT_SHORT[best_avg_idx],
-        &format!("Winner: {}", FORMAT_NAMES[best_avg_idx]),
+        &format!("{:.1}%", avg[6]),
+        FORMAT_SHORT_7[best_avg_idx],
     ]);
 
     println!("📊 COMPRESSION RATIO (% of raw size - lower is better)");
     println!("{compression_table}");
+    println!("  HorizRnd = HorizontalBP128 with rounded bitpacking (8/16/32 bits)");
 
     // ═══════════════════════════════════════════════════════════════════════════════
     // ENCODING SPEED TABLE
@@ -125,6 +118,7 @@ pub fn bench_all_formats_compression_summary(_c: &mut Criterion) {
             "Distribution",
             "Size",
             "HorizBP",
+            "RndBP",
             "VertBP",
             "EF",
             "PEF",
@@ -133,7 +127,7 @@ pub fn bench_all_formats_compression_summary(_c: &mut Criterion) {
             "Fastest",
         ]);
 
-    let mut total_enc_rates = [0.0f64; 6];
+    let mut total_enc_rates = [0.0f64; 7];
     let mut enc_count = 0;
 
     for dist in &[
@@ -152,7 +146,7 @@ pub fn bench_all_formats_compression_summary(_c: &mut Criterion) {
             };
             let rates = measure_encoding_speed(&doc_ids, &term_freqs, iterations);
 
-            for i in 0..6 {
+            for i in 0..7 {
                 total_enc_rates[i] += rates[i];
             }
             enc_count += 1;
@@ -168,7 +162,8 @@ pub fn bench_all_formats_compression_summary(_c: &mut Criterion) {
                 &format_rate(rates[3]),
                 &format_rate(rates[4]),
                 &format_rate(rates[5]),
-                FORMAT_SHORT[best_idx],
+                &format_rate(rates[6]),
+                FORMAT_SHORT_7[best_idx],
             ]);
         }
     }
@@ -187,7 +182,8 @@ pub fn bench_all_formats_compression_summary(_c: &mut Criterion) {
         &format_rate(avg_enc[3]),
         &format_rate(avg_enc[4]),
         &format_rate(avg_enc[5]),
-        FORMAT_SHORT[best_enc_idx],
+        &format_rate(avg_enc[6]),
+        FORMAT_SHORT_7[best_enc_idx],
     ]);
 
     println!("\n⚡ ENCODING SPEED (K=1000 ints/μs, higher is better)");
@@ -204,6 +200,7 @@ pub fn bench_all_formats_compression_summary(_c: &mut Criterion) {
             "Distribution",
             "Size",
             "HorizBP",
+            "RndBP",
             "VertBP",
             "EF",
             "PEF",
@@ -212,7 +209,7 @@ pub fn bench_all_formats_compression_summary(_c: &mut Criterion) {
             "Fastest",
         ]);
 
-    let mut total_dec_rates = [0.0f64; 6];
+    let mut total_dec_rates = [0.0f64; 7];
     let mut dec_count = 0;
 
     for dist in &[
@@ -231,7 +228,7 @@ pub fn bench_all_formats_compression_summary(_c: &mut Criterion) {
             };
             let rates = measure_decoding_speed(&doc_ids, &term_freqs, iterations);
 
-            for i in 0..6 {
+            for i in 0..7 {
                 total_dec_rates[i] += rates[i];
             }
             dec_count += 1;
@@ -247,7 +244,8 @@ pub fn bench_all_formats_compression_summary(_c: &mut Criterion) {
                 &format_rate(rates[3]),
                 &format_rate(rates[4]),
                 &format_rate(rates[5]),
-                FORMAT_SHORT[best_idx],
+                &format_rate(rates[6]),
+                FORMAT_SHORT_7[best_idx],
             ]);
         }
     }
@@ -266,7 +264,8 @@ pub fn bench_all_formats_compression_summary(_c: &mut Criterion) {
         &format_rate(avg_dec[3]),
         &format_rate(avg_dec[4]),
         &format_rate(avg_dec[5]),
-        FORMAT_SHORT[best_dec_idx],
+        &format_rate(avg_dec[6]),
+        FORMAT_SHORT_7[best_dec_idx],
     ]);
 
     println!("\n🔄 DECODING SPEED (K=1000 ints/μs, higher is better)");

@@ -3,7 +3,7 @@
 use criterion::{BenchmarkId, Criterion, Throughput, black_box};
 use hermes_core::structures::{
     EliasFanoPostingList, HorizontalBP128PostingList, OptP4DPostingList, PartitionedEFPostingList,
-    RoaringPostingList, VerticalBP128PostingList,
+    RoaringPostingList, RoundedBP128PostingList, VerticalBP128PostingList,
 };
 use std::time::Instant;
 
@@ -20,6 +20,16 @@ pub fn bench_encoding_speed(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("horiz_bp128", size), &size, |b, _| {
             b.iter(|| {
                 black_box(HorizontalBP128PostingList::from_postings(
+                    &doc_ids,
+                    &term_freqs,
+                    1.0,
+                ))
+            })
+        });
+
+        group.bench_with_input(BenchmarkId::new("rounded_bp128", size), &size, |b, _| {
+            b.iter(|| {
+                black_box(RoundedBP128PostingList::from_postings(
                     &doc_ids,
                     &term_freqs,
                     1.0,
@@ -67,6 +77,16 @@ pub fn bench_all_formats_encoding(c: &mut Criterion) {
                 })
             });
 
+            group.bench_with_input(BenchmarkId::new("rounded_bp128", &name), &size, |b, _| {
+                b.iter(|| {
+                    black_box(RoundedBP128PostingList::from_postings(
+                        &doc_ids,
+                        &term_freqs,
+                        1.0,
+                    ))
+                })
+            });
+
             group.bench_with_input(BenchmarkId::new("vert_bp128", &name), &size, |b, _| {
                 b.iter(|| {
                     black_box(VerticalBP128PostingList::from_postings(
@@ -104,7 +124,8 @@ pub fn bench_all_formats_encoding(c: &mut Criterion) {
 }
 
 /// Measure encoding speed (returns elements per microsecond)
-pub fn measure_encoding_speed(doc_ids: &[u32], term_freqs: &[u32], iterations: usize) -> [f64; 6] {
+/// Returns [HorizBP, RoundedBP, VertBP, EF, PEF, Roaring, OptP4D]
+pub fn measure_encoding_speed(doc_ids: &[u32], term_freqs: &[u32], iterations: usize) -> [f64; 7] {
     let n = doc_ids.len();
 
     // HorizBP
@@ -116,6 +137,16 @@ pub fn measure_encoding_speed(doc_ids: &[u32], term_freqs: &[u32], iterations: u
     }
     let bp_time = start.elapsed().as_micros() as f64;
     let bp_rate = (n * iterations) as f64 / bp_time;
+
+    // RoundedBP128
+    let start = Instant::now();
+    for _ in 0..iterations {
+        black_box(RoundedBP128PostingList::from_postings(
+            doc_ids, term_freqs, 1.0,
+        ));
+    }
+    let rounded_time = start.elapsed().as_micros() as f64;
+    let rounded_rate = (n * iterations) as f64 / rounded_time;
 
     // VertBP128
     let start = Instant::now();
@@ -161,6 +192,7 @@ pub fn measure_encoding_speed(doc_ids: &[u32], term_freqs: &[u32], iterations: u
 
     [
         bp_rate,
+        rounded_rate,
         simd_rate,
         ef_rate,
         pef_rate,
