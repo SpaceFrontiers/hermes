@@ -73,6 +73,10 @@ harness = false
 name = "vector_indexing"
 harness = false
 
+[[bench]]
+name = "large_benchmark"
+harness = false
+
 [features]
 default = ["native"]
 native = ["dep:tokio", "dep:crossbeam-channel", "dep:num_cpus", "dep:rayon", "dep:bumpalo", "dep:lasso", "dep:memmap2", "dep:uuid", "dep:bincode", "dep:kmeans"]
