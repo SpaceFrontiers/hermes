@@ -60,11 +60,11 @@ fn load_embeddings(path: &Path) -> Option<(Vec<Vec<f32>>, usize)> {
 /// Get vectors - either from file or generate random
 fn get_vectors(n: usize, dim: usize, seed: u64) -> (Vec<Vec<f32>>, usize) {
     // Check for EMBEDDINGS_FILE environment variable
-    if let Ok(path) = std::env::var("EMBEDDINGS_FILE") {
-        if let Some((vecs, loaded_dim)) = load_embeddings(Path::new(&path)) {
-            let actual_n = n.min(vecs.len());
-            return (vecs.into_iter().take(actual_n).collect(), loaded_dim);
-        }
+    if let Ok(path) = std::env::var("EMBEDDINGS_FILE")
+        && let Some((vecs, loaded_dim)) = load_embeddings(Path::new(&path))
+    {
+        let actual_n = n.min(vecs.len());
+        return (vecs.into_iter().take(actual_n).collect(), loaded_dim);
     }
 
     // Fall back to random vectors
