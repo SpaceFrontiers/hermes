@@ -1,6 +1,6 @@
 //! Vector Indexing Benchmark
 //!
-//! Measures recall and latency for RaBitQ and IVF-RaBitQ vector search.
+//! Measures recall and latency for RaBitQ, IVF-RaBitQ, and ScaNN (IVF-PQ) vector search.
 //! Can use synthetic random vectors or real embeddings from a binary file.
 //!
 //! To generate real embeddings using Qwen3-Embedding:
@@ -18,7 +18,8 @@ use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use rand::prelude::*;
 
 use hermes_core::structures::{
-    CoarseCentroids, IVFConfig, IVFRaBitQIndex, RaBitQConfig, RaBitQIndex,
+    CoarseCentroids, CoarseConfig, IVFPQConfig, IVFPQIndex, IVFRaBitQConfig, IVFRaBitQIndex,
+    PQCodebook, PQConfig, RaBitQCodebook, RaBitQConfig, RaBitQIndex,
 };
 
 const DEFAULT_DIM: usize = 128; // Matryoshka truncated dimension
@@ -179,17 +180,24 @@ fn bench_ivf_rabitq(c: &mut Criterion) {
     // Train centroids
     println!("\n=== IVF-RaBitQ Training (dim={}) ===", dim);
     let train_start = Instant::now();
-    let centroids = CoarseCentroids::train(&vectors, num_clusters, 10, 42);
+    let coarse_config = CoarseConfig::new(dim, num_clusters)
+        .with_max_iters(10)
+        .with_seed(42);
+    let centroids = CoarseCentroids::train(&coarse_config, &vectors);
     let train_time = train_start.elapsed();
     println!(
         "Centroid training time ({} clusters): {:?}",
         num_clusters, train_time
     );
 
+    // Create RaBitQ codebook
+    let rabitq_config = RaBitQConfig::new(dim);
+    let codebook = RaBitQCodebook::new(rabitq_config);
+
     // Build index
     let build_start = Instant::now();
-    let config = IVFConfig::new(dim);
-    let index = IVFRaBitQIndex::build(config, &centroids, &vectors, None);
+    let config = IVFRaBitQConfig::new(dim);
+    let index = IVFRaBitQIndex::build(config, &centroids, &codebook, &vectors, None);
     let build_time = build_start.elapsed();
     println!("Index build time: {:?}", build_time);
 
@@ -203,7 +211,7 @@ fn bench_ivf_rabitq(c: &mut Criterion) {
         let search_start = Instant::now();
 
         for (i, query) in queries.iter().enumerate() {
-            let results = index.search(&centroids, query, k, nprobe);
+            let results = index.search(&centroids, &codebook, query, k, Some(nprobe));
             let predicted: Vec<usize> = results.iter().map(|(idx, _)| *idx as usize).collect();
             total_recall += compute_recall(&predicted, &ground_truths[i]);
         }
@@ -221,7 +229,7 @@ fn bench_ivf_rabitq(c: &mut Criterion) {
         c.bench_function(&bench_name, |b| {
             b.iter(|| {
                 let q = &queries[0];
-                black_box(index.search(&centroids, q, k, nprobe))
+                black_box(index.search(&centroids, &codebook, q, k, Some(nprobe)))
             })
         });
     }
@@ -237,14 +245,21 @@ fn bench_ivf_merge(c: &mut Criterion) {
 
     // Train shared centroids
     let (all_vectors, dim) = get_vectors(n_per_segment, DEFAULT_DIM, 42);
-    let centroids = CoarseCentroids::train(&all_vectors, num_clusters, 10, 42);
+    let coarse_config = CoarseConfig::new(dim, num_clusters)
+        .with_max_iters(10)
+        .with_seed(42);
+    let centroids = CoarseCentroids::train(&coarse_config, &all_vectors);
+
+    // Create RaBitQ codebook
+    let rabitq_config = RaBitQConfig::new(dim);
+    let codebook = RaBitQCodebook::new(rabitq_config);
 
     // Build multiple segments
     let mut segments = Vec::new();
     for i in 0..num_segments {
         let vectors = generate_vectors(n_per_segment, dim, 100 + i as u64);
-        let config = IVFConfig::new(dim);
-        let index = IVFRaBitQIndex::build(config, &centroids, &vectors, None);
+        let config = IVFRaBitQConfig::new(dim);
+        let index = IVFRaBitQIndex::build(config, &centroids, &codebook, &vectors, None);
         segments.push(index);
     }
 
@@ -269,7 +284,102 @@ fn bench_ivf_merge(c: &mut Criterion) {
     println!("Total vectors in merged index: {}", merged.len());
 }
 
-/// Compare RaBitQ vs IVF-RaBitQ
+/// Benchmark Matryoshka/MRL dimension trimming recall
+/// Tests how recall degrades as we use fewer dimensions for indexing
+fn bench_mlr_recall(_c: &mut Criterion) {
+    let n = 50_000;
+    let full_dim = 1024; // Full embedding dimension
+    let k = 10;
+    let num_queries = 100;
+
+    // MRL dimensions to test (typical matryoshka dimensions)
+    let mrl_dims = [64, 128, 256, 512, 768, 1024];
+
+    println!("\n========================================");
+    println!(
+        "Matryoshka/MRL Recall Benchmark (n={}, full_dim={})",
+        n, full_dim
+    );
+    println!("========================================");
+
+    // Generate full-dimension vectors
+    let vectors = generate_vectors(n, full_dim, 42);
+    let queries = generate_vectors(num_queries, full_dim, 123);
+
+    // Ground truth using full dimensions
+    let ground_truths_full: Vec<Vec<usize>> =
+        queries.iter().map(|q| exact_knn(q, &vectors, k)).collect();
+
+    println!(
+        "\n{:<10} {:>12} {:>12} {:>15} {:>12}",
+        "mrl_dim", "Recall@10", "vs Full", "Latency (µs)", "Speedup"
+    );
+    println!("{}", "-".repeat(65));
+
+    let mut full_dim_latency = 0.0;
+
+    for &mrl_dim in &mrl_dims {
+        // Trim vectors to mrl_dim
+        let trimmed_vectors: Vec<Vec<f32>> =
+            vectors.iter().map(|v| v[..mrl_dim].to_vec()).collect();
+        let trimmed_queries: Vec<Vec<f32>> =
+            queries.iter().map(|q| q[..mrl_dim].to_vec()).collect();
+
+        // Build index with trimmed vectors
+        let config = RaBitQConfig::new(mrl_dim);
+        let index = RaBitQIndex::build(config, &trimmed_vectors, true);
+
+        // Ground truth for trimmed dimension (what the index actually returns)
+        let ground_truths_trimmed: Vec<Vec<usize>> = trimmed_queries
+            .iter()
+            .map(|q| exact_knn(q, &trimmed_vectors, k))
+            .collect();
+
+        // Measure recall against full-dimension ground truth
+        // This shows how much recall we lose by using fewer dimensions
+        let mut recall_vs_full = 0.0;
+        let mut recall_vs_trimmed = 0.0;
+        let search_start = Instant::now();
+
+        for (i, query) in trimmed_queries.iter().enumerate() {
+            let results = index.search(query, k, 3);
+            let predicted: Vec<usize> = results.iter().map(|(idx, _)| *idx).collect();
+            recall_vs_full += compute_recall(&predicted, &ground_truths_full[i]);
+            recall_vs_trimmed += compute_recall(&predicted, &ground_truths_trimmed[i]);
+        }
+
+        let search_time = search_start.elapsed();
+        let avg_latency_us = search_time.as_micros() as f64 / num_queries as f64;
+        let avg_recall_vs_full = recall_vs_full / num_queries as f32 * 100.0;
+        let _avg_recall_vs_trimmed = recall_vs_trimmed / num_queries as f32 * 100.0;
+
+        if mrl_dim == full_dim {
+            full_dim_latency = avg_latency_us;
+        }
+
+        let speedup = if full_dim_latency > 0.0 && mrl_dim < full_dim {
+            full_dim_latency / avg_latency_us
+        } else {
+            1.0
+        };
+
+        let recall_diff = if mrl_dim == full_dim {
+            "baseline".to_string()
+        } else {
+            format!("{:+.1}%", avg_recall_vs_full - 100.0)
+        };
+
+        println!(
+            "{:<10} {:>11.1}% {:>12} {:>14.1} {:>11.2}x",
+            mrl_dim, avg_recall_vs_full, recall_diff, avg_latency_us, speedup
+        );
+    }
+
+    println!("\nNote: Recall is measured against full-dimension ground truth.");
+    println!("Lower mrl_dim = faster search but potentially lower recall.");
+}
+
+/// Compare RaBitQ vs IVF-RaBitQ vs ScaNN
 fn bench_comparison(_c: &mut Criterion) {
     let n = 50_000;
     let k = 10;
@@ -283,13 +393,13 @@ fn bench_comparison(_c: &mut Criterion) {
         queries.iter().map(|q| exact_knn(q, &vectors, k)).collect();
 
     println!("\n========================================");
-    println!("Comparison: RaBitQ vs IVF-RaBitQ (n={})", n);
+    println!("Comparison: RaBitQ vs IVF-RaBitQ vs ScaNN (n={})", n);
     println!("========================================");
 
     // RaBitQ
     let rabitq_config = RaBitQConfig::new(dim);
     let rabitq_build_start = Instant::now();
-    let rabitq_index = RaBitQIndex::build(rabitq_config, &vectors, true);
+    let rabitq_index = RaBitQIndex::build(rabitq_config.clone(), &vectors, true);
     let rabitq_build_time = rabitq_build_start.elapsed();
 
     let mut rabitq_recall = 0.0;
@@ -315,18 +425,22 @@ fn bench_comparison(_c: &mut Criterion) {
 
     // IVF-RaBitQ
     let num_clusters = 128;
-    let centroids = CoarseCentroids::train(&vectors, num_clusters, 10, 42);
+    let coarse_config = CoarseConfig::new(dim, num_clusters)
+        .with_max_iters(10)
+        .with_seed(42);
+    let centroids = CoarseCentroids::train(&coarse_config, &vectors);
+    let rabitq_codebook = RaBitQCodebook::new(rabitq_config);
 
-    let ivf_config = IVFConfig::new(dim);
+    let ivf_config = IVFRaBitQConfig::new(dim);
     let ivf_build_start = Instant::now();
-    let ivf_index = IVFRaBitQIndex::build(ivf_config, &centroids, &vectors, None);
+    let ivf_index = IVFRaBitQIndex::build(ivf_config, &centroids, &rabitq_codebook, &vectors, None);
     let ivf_build_time = ivf_build_start.elapsed();
 
     for nprobe in [16, 32] {
         let mut ivf_recall = 0.0;
         let ivf_search_start = Instant::now();
         for (i, query) in queries.iter().enumerate() {
-            let results = ivf_index.search(&centroids, query, k, nprobe);
+            let results = ivf_index.search(&centroids, &rabitq_codebook, query, k, Some(nprobe));
             let predicted: Vec<usize> = results.iter().map(|(idx, _)| *idx as usize).collect();
             ivf_recall += compute_recall(&predicted, &ground_truths[i]);
         }
@@ -349,11 +463,137 @@ fn bench_comparison(_c: &mut Criterion) {
     }
 }
 
+/// Benchmark ScaNN (IVF-PQ) indexing and search
+fn bench_scann(c: &mut Criterion) {
+    let n = 100_000;
+    let k = 10;
+    let num_queries = 100;
+    let num_clusters = 256;
+
+    let (vectors, dim) = get_vectors(n, DEFAULT_DIM, 42);
+    let queries = generate_vectors(num_queries, dim, 123);
+
+    println!("\n=== ScaNN (IVF-PQ) Training (dim={}) ===", dim);
+
+    // Train coarse centroids
+    let train_start = Instant::now();
+    let coarse_config = CoarseConfig::new(dim, num_clusters)
+        .with_max_iters(10)
+        .with_seed(42);
+    let centroids = CoarseCentroids::train(&coarse_config, &vectors);
+    let centroid_time = train_start.elapsed();
+    println!(
+        "Centroid training time ({} clusters): {:?}",
+        num_clusters, centroid_time
+    );
+
+    // Train PQ codebook (balanced config: 16 subspaces for 128D = 8 dims each)
+    let pq_config = PQConfig::new_balanced(dim);
+    println!(
+        "PQ config: {} subspaces, {} dims each",
+        pq_config.num_subspaces, pq_config.dims_per_block
+    );
+    let codebook_start = Instant::now();
+    let pq_codebook = PQCodebook::train(pq_config, &vectors, 25);
+    let codebook_time = codebook_start.elapsed();
+    println!("PQ codebook training time: {:?}", codebook_time);
+
+    // Build index
+    let build_start = Instant::now();
+    let config = IVFPQConfig::new(dim);
+    let index = IVFPQIndex::build(config, &centroids, &pq_codebook, &vectors, None);
+    let build_time = build_start.elapsed();
+    println!("Index build time: {:?}", build_time);
+
+    // Compute ground truth
+    let ground_truths: Vec<Vec<usize>> =
+        queries.iter().map(|q| exact_knn(q, &vectors, k)).collect();
+
+    // Test different nprobe values
+    for nprobe in [8, 16, 32, 64] {
+        let mut total_recall = 0.0;
+        let search_start = Instant::now();
+
+        for (i, query) in queries.iter().enumerate() {
+            let results = index.search(&centroids, &pq_codebook, query, k, Some(nprobe));
+            let predicted: Vec<usize> = results.iter().map(|(idx, _)| *idx as usize).collect();
+            total_recall += compute_recall(&predicted, &ground_truths[i]);
+        }
+
+        let search_time = search_start.elapsed();
+        let avg_recall = total_recall / num_queries as f32;
+        let avg_latency_us = search_time.as_micros() as f64 / num_queries as f64;
+
+        println!("\n--- ScaNN (nprobe={}) ---", nprobe);
+        println!("Avg search latency: {:.1} µs", avg_latency_us);
+        println!("Recall@{}: {:.2}%", k, avg_recall * 100.0);
+
+        // Criterion benchmark
+        let bench_name = format!("scann_search_nprobe{}", nprobe);
+        c.bench_function(&bench_name, |b| {
+            b.iter(|| {
+                let q = &queries[0];
+                black_box(index.search(&centroids, &pq_codebook, q, k, Some(nprobe)))
+            })
+        });
+    }
+}
+
+/// Benchmark ScaNN merge performance
+fn bench_scann_merge(c: &mut Criterion) {
+    let n_per_segment = 10_000;
+    let num_segments = 10;
+    let num_clusters = 128;
+
+    println!("\n=== ScaNN Merge Benchmark ===");
+
+    // Train shared centroids and codebook
+    let (all_vectors, dim) = get_vectors(n_per_segment, DEFAULT_DIM, 42);
+    let coarse_config = CoarseConfig::new(dim, num_clusters)
+        .with_max_iters(10)
+        .with_seed(42);
+    let centroids = CoarseCentroids::train(&coarse_config, &all_vectors);
+    let pq_config = PQConfig::new_balanced(dim);
+    let pq_codebook = PQCodebook::train(pq_config, &all_vectors, 25);
+
+    // Build multiple segments
+    let mut segments = Vec::new();
+    for i in 0..num_segments {
+        let vectors = generate_vectors(n_per_segment, dim, 100 + i as u64);
+        let config = IVFPQConfig::new(dim);
+        let index = IVFPQIndex::build(config, &centroids, &pq_codebook, &vectors, None);
+        segments.push(index);
+    }
+
+    let refs: Vec<&IVFPQIndex> = segments.iter().collect();
+    let offsets: Vec<u32> = (0..num_segments)
+        .map(|i| (i * n_per_segment) as u32)
+        .collect();
+
+    // Benchmark merge
+    c.bench_function("scann_merge_10_segments", |b| {
+        b.iter(|| black_box(IVFPQIndex::merge(&refs, &offsets).unwrap()))
+    });
+
+    let merge_start = Instant::now();
+    let merged = IVFPQIndex::merge(&refs, &offsets).unwrap();
+    let merge_time = merge_start.elapsed();
+
+    println!(
+        "Merged {} segments ({} vectors each) in {:?}",
+        num_segments, n_per_segment, merge_time
+    );
+    println!("Total vectors in merged index: {}", merged.len());
+}
+
 criterion_group!(
     benches,
     bench_rabitq,
     bench_ivf_rabitq,
     bench_ivf_merge,
+    bench_scann,
+    bench_scann_merge,
+    bench_mlr_recall,
     bench_comparison,
 );
 
