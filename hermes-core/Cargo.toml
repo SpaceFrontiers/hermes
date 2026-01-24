@@ -45,7 +45,19 @@ bincode = { version = "2.0", optional = true }
 memmap2 = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
 kmeans = { version = "2.0", optional = true }
-nalgebra = { version = "0.33", optional = true }
+nalgebra = { version = "0.34", optional = true }
+# Native tokenizers with onig (C library) for full regex support
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies.tokenizers]
+version = "0.21"
+default-features = false
+features = ["onig", "http"]
+optional = true
+
+# WASM tokenizers without onig (pure Rust)
+[target.'cfg(target_arch = "wasm32")'.dependencies.tokenizers]
+version = "0.21"
+default-features = false
+optional = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "test-util"] }
@@ -85,8 +97,8 @@ harness = false
 
 [features]
 default = ["native"]
-native = ["dep:tokio", "dep:crossbeam-channel", "dep:num_cpus", "dep:rayon", "dep:bumpalo", "dep:lasso", "dep:memmap2", "dep:uuid", "dep:bincode", "dep:kmeans", "dep:nalgebra"]
-wasm = []
+native = ["dep:tokio", "dep:crossbeam-channel", "dep:num_cpus", "dep:rayon", "dep:bumpalo", "dep:lasso", "dep:memmap2", "dep:uuid", "dep:bincode", "dep:kmeans", "dep:nalgebra", "dep:tokenizers"]
+wasm = ["dep:tokenizers"]
 http = ["dep:reqwest", "dep:instant"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.reqwest]
