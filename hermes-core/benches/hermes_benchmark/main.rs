@@ -169,14 +169,14 @@ async fn run_benchmarks() {
         let mut total_recall = 0.0f32;
 
         for (i, query) in dense_queries.vectors.iter().enumerate() {
-            let query_obj = DenseVectorQuery::new(embedding_field, query.clone(), k);
+            let query_obj = DenseVectorQuery::new(embedding_field, query.clone());
 
             let start = Instant::now();
             let results = index.search(&query_obj, k).await.expect("Search failed");
             latencies.push(start.elapsed());
 
             // Compute recall against full-dim ground truth
-            let predicted: Vec<u32> = results.iter().map(|r| r.doc_id).collect();
+            let predicted: Vec<u32> = results.hits.iter().map(|r| r.address.doc_id).collect();
             let gt = &ground_truth_full.neighbors[i];
             let correct = predicted.iter().filter(|&p| gt.contains(p)).count();
             total_recall += correct as f32 / k.min(gt.len()) as f32;
@@ -242,7 +242,7 @@ async fn run_benchmarks() {
 
         for (i, query) in dense_queries.vectors.iter().enumerate() {
             let query_obj =
-                DenseVectorQuery::new(embedding_field, query.clone(), k).with_nprobe(nprobe);
+                DenseVectorQuery::new(embedding_field, query.clone()).with_nprobe(nprobe);
 
             let start = Instant::now();
             let results = dense_index
@@ -251,7 +251,7 @@ async fn run_benchmarks() {
                 .expect("Search failed");
             latencies.push(start.elapsed());
 
-            let predicted: Vec<u32> = results.iter().map(|r| r.doc_id).collect();
+            let predicted: Vec<u32> = results.hits.iter().map(|r| r.address.doc_id).collect();
             let gt = &ground_truth_full.neighbors[i];
             let correct = predicted.iter().filter(|&p| gt.contains(p)).count();
             total_recall += correct as f32 / k.min(gt.len()) as f32;
@@ -287,7 +287,12 @@ async fn run_benchmarks() {
 
         for (i, (indices, values)) in sparse_docs.vectors.iter().enumerate() {
             let mut doc = Document::new();
-            doc.add_sparse_vector(sparse_field, indices.clone(), values.clone());
+            let entries: Vec<(u32, f32)> = indices
+                .iter()
+                .copied()
+                .zip(values.iter().copied())
+                .collect();
+            doc.add_sparse_vector(sparse_field, entries);
             writer
                 .add_document(doc)
                 .await
@@ -369,7 +374,7 @@ async fn run_benchmarks() {
 
             for (i, query) in dense_queries.vectors.iter().enumerate() {
                 if let Some(relevant) = qrels.relevance.get(&(i as u32)) {
-                    let query_obj = DenseVectorQuery::new(embedding_field, query.clone(), k);
+                    let query_obj = DenseVectorQuery::new(embedding_field, query.clone());
                     let start = Instant::now();
                     let results = dense_index
                         .search(&query_obj, k)
@@ -377,7 +382,11 @@ async fn run_benchmarks() {
                         .expect("Search failed");
                     latencies.push(start.elapsed());
 
-                    let predicted: Vec<usize> = results.iter().map(|r| r.doc_id as usize).collect();
+                    let predicted: Vec<usize> = results
+                        .hits
+                        .iter()
+                        .map(|r| r.address.doc_id as usize)
+                        .collect();
                     total_mrr += mrr(&predicted, relevant);
                     total_ndcg += ndcg_at_k(&predicted, relevant, 10);
                     let relevant_found = predicted
@@ -411,13 +420,23 @@ async fn run_benchmarks() {
 
             for (i, (indices, values)) in sparse_queries.vectors.iter().enumerate() {
                 if let Some(relevant) = qrels.relevance.get(&(i as u32)) {
-                    let query_obj =
-                        SparseVectorQuery::new(sparse_field, indices.clone(), values.clone(), k);
+                    let query_obj = SparseVectorQuery::new(
+                        sparse_field,
+                        indices
+                            .iter()
+                            .zip(values.iter())
+                            .map(|(&i, &v)| (i, v))
+                            .collect(),
+                    );
                     let start = Instant::now();
                     let results = index.search(&query_obj, k).await.expect("Search failed");
                     latencies.push(start.elapsed());
 
-                    let predicted: Vec<usize> = results.iter().map(|r| r.doc_id as usize).collect();
+                    let predicted: Vec<usize> = results
+                        .hits
+                        .iter()
+                        .map(|r| r.address.doc_id as usize)
+                        .collect();
                     total_mrr += mrr(&predicted, relevant);
                     total_ndcg += ndcg_at_k(&predicted, relevant, 10);
                     let relevant_found = predicted
@@ -464,7 +483,11 @@ async fn run_benchmarks() {
                     let results = index.search(&query_obj, k).await.expect("Search failed");
                     latencies.push(start.elapsed());
 
-                    let predicted: Vec<usize> = results.iter().map(|r| r.doc_id as usize).collect();
+                    let predicted: Vec<usize> = results
+                        .hits
+                        .iter()
+                        .map(|r| r.address.doc_id as usize)
+                        .collect();
                     total_mrr += mrr(&predicted, relevant);
                     total_ndcg += ndcg_at_k(&predicted, relevant, 10);
                     let relevant_found = predicted
@@ -554,7 +577,12 @@ async fn run_benchmarks() {
         let start = Instant::now();
         for (indices, values) in sparse_docs.vectors.iter().take(subset_size) {
             let mut doc = Document::new();
-            doc.add_sparse_vector(field, indices.clone(), values.clone());
+            let entries: Vec<(u32, f32)> = indices
+                .iter()
+                .copied()
+                .zip(values.iter().copied())
+                .collect();
+            doc.add_sparse_vector(field, entries);
             writer
                 .add_document(doc)
                 .await
