@@ -140,10 +140,7 @@ async fn run_benchmarks() {
         for (i, vector) in dense_docs.vectors.iter().enumerate() {
             let mut doc = Document::new();
             doc.add_dense_vector(embedding_field, vector.clone());
-            writer
-                .add_document(doc)
-                .await
-                .expect("Failed to add document");
+            writer.add_document(doc).expect("Failed to add document");
 
             if (i + 1) % 10000 == 0 {
                 print!("\r    Indexed {}/{} docs", i + 1, num_docs);
@@ -217,10 +214,7 @@ async fn run_benchmarks() {
     for (i, vector) in dense_docs.vectors.iter().enumerate() {
         let mut doc = Document::new();
         doc.add_dense_vector(embedding_field, vector.clone());
-        writer
-            .add_document(doc)
-            .await
-            .expect("Failed to add document");
+        writer.add_document(doc).expect("Failed to add document");
         if (i + 1) % 10000 == 0 {
             print!("\r    Indexed {}/{} docs", i + 1, num_docs);
         }
@@ -293,10 +287,7 @@ async fn run_benchmarks() {
                 .zip(values.iter().copied())
                 .collect();
             doc.add_sparse_vector(sparse_field, entries);
-            writer
-                .add_document(doc)
-                .await
-                .expect("Failed to add document");
+            writer.add_document(doc).expect("Failed to add document");
             if (i + 1) % 10000 == 0 {
                 print!("\r    Indexed {}/{} docs", i + 1, num_docs);
             }
@@ -334,10 +325,7 @@ async fn run_benchmarks() {
         for (i, text) in passages.texts.iter().enumerate() {
             let mut doc = Document::new();
             doc.add_text(text_field, text);
-            writer
-                .add_document(doc)
-                .await
-                .expect("Failed to add document");
+            writer.add_document(doc).expect("Failed to add document");
             if (i + 1) % 10000 == 0 {
                 print!("\r    Indexed {}/{} docs", i + 1, passages.texts.len());
             }
@@ -546,10 +534,7 @@ async fn run_benchmarks() {
         for vector in dense_docs.vectors.iter().take(subset_size) {
             let mut doc = Document::new();
             doc.add_dense_vector(field, vector.clone());
-            writer
-                .add_document(doc)
-                .await
-                .expect("Failed to add document");
+            writer.add_document(doc).expect("Failed to add document");
         }
         writer.commit().await.expect("Failed to commit");
         writer.wait_for_merges().await;
@@ -583,10 +568,7 @@ async fn run_benchmarks() {
                 .zip(values.iter().copied())
                 .collect();
             doc.add_sparse_vector(field, entries);
-            writer
-                .add_document(doc)
-                .await
-                .expect("Failed to add document");
+            writer.add_document(doc).expect("Failed to add document");
         }
         writer.commit().await.expect("Failed to commit");
         writer.wait_for_merges().await;
@@ -615,10 +597,7 @@ async fn run_benchmarks() {
         for text in passages.texts.iter().take(subset_size) {
             let mut doc = Document::new();
             doc.add_text(field, text);
-            writer
-                .add_document(doc)
-                .await
-                .expect("Failed to add document");
+            writer.add_document(doc).expect("Failed to add document");
         }
         writer.commit().await.expect("Failed to commit");
         writer.wait_for_merges().await;

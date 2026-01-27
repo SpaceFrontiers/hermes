@@ -80,7 +80,7 @@ fn bench_document_indexing(c: &mut Criterion) {
                         .unwrap();
 
                     for doc in docs {
-                        writer.add_document(black_box(doc.clone())).await.unwrap();
+                        writer.add_document(black_box(doc.clone())).unwrap();
                     }
 
                     writer.commit().await.unwrap();
@@ -110,7 +110,7 @@ fn bench_segment_build(c: &mut Criterion) {
                     .unwrap();
 
                 for doc in &documents {
-                    writer.add_document(black_box(doc.clone())).await.unwrap();
+                    writer.add_document(black_box(doc.clone())).unwrap();
                 }
 
                 writer.commit().await.unwrap();
@@ -132,8 +132,8 @@ fn bench_fs_indexing(c: &mut Criterion) {
 
     group.bench_function("fs_directory", |b| {
         b.iter(|| {
-            let temp_dir = TempDir::new().unwrap();
             rt.block_on(async {
+                let temp_dir = TempDir::new().unwrap();
                 let dir = FsDirectory::new(temp_dir.path());
                 let config = IndexConfig::default();
                 let writer = IndexWriter::create(dir, test_schema.schema.clone(), config)
@@ -141,7 +141,7 @@ fn bench_fs_indexing(c: &mut Criterion) {
                     .unwrap();
 
                 for doc in &documents {
-                    writer.add_document(black_box(doc.clone())).await.unwrap();
+                    writer.add_document(black_box(doc.clone())).unwrap();
                 }
 
                 writer.commit().await.unwrap();
