@@ -27,7 +27,6 @@ import os
 import struct
 import sys
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 from tqdm import tqdm
@@ -197,7 +196,7 @@ async def generate_dense_embeddings_triton(
     texts: list[str],
     batch_size: int = 32,
     is_query: bool = False,
-    output_path: Optional[Path] = None,
+    output_path: Path | None = None,
     checkpoint_interval: int = 1000,
 ) -> np.ndarray:
     """Generate dense embeddings using remote Triton server.
@@ -268,7 +267,7 @@ async def generate_dense_embeddings_triton(
 
 
 def load_msmarco_data(
-    num_docs: int, num_queries: int, cache_dir: Optional[Path] = None
+    num_docs: int, num_queries: int, cache_dir: Path | None = None
 ) -> tuple[list[str], list[str], list[str], list[str], dict[int, list[int]]]:
     """Load MS MARCO passage ranking dataset with qrels.
 
@@ -439,7 +438,7 @@ def load_msmarco_data(
     return passages, passage_ids, queries, query_ids_out, valid_qrels
 
 
-def load_msmarco_passages(num_docs: int, cache_dir: Optional[Path] = None) -> list[str]:
+def load_msmarco_passages(num_docs: int, cache_dir: Path | None = None) -> list[str]:
     """Load MS MARCO passages dataset (legacy interface)."""
     print(f"Loading MS MARCO passages (requesting {num_docs} documents)...")
 
@@ -472,9 +471,7 @@ def load_msmarco_passages(num_docs: int, cache_dir: Optional[Path] = None) -> li
     return passages
 
 
-def load_msmarco_queries(
-    num_queries: int, cache_dir: Optional[Path] = None
-) -> list[str]:
+def load_msmarco_queries(num_queries: int, cache_dir: Path | None = None) -> list[str]:
     """Load MS MARCO queries (legacy interface)."""
     print(f"Loading MS MARCO queries (requesting {num_queries})...")
 
@@ -615,7 +612,7 @@ def generate_sparse_embeddings(
     texts: list[str],
     model_name: str = "naver/splade-v3",
     batch_size: int = 32,
-    output_path: Optional[Path] = None,
+    output_path: Path | None = None,
     checkpoint_interval: int = 1000,
 ) -> list[tuple[np.ndarray, np.ndarray]]:
     """Generate sparse embeddings using SPLADE-v3.
@@ -783,7 +780,9 @@ def load_sparse_checkpoint(
         data = np.load(checkpoint_path, allow_pickle=True)
         indices_list = data["indices"]
         values_list = data["values"]
-        vectors = [(idx, val) for idx, val in zip(indices_list, values_list)]
+        vectors = [
+            (idx, val) for idx, val in zip(indices_list, values_list, strict=True)
+        ]
         return vectors, int(data["processed"])
     return None, 0
 
