@@ -70,6 +70,7 @@ comfy-table = "7"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { workspace = true }
 
+
 [[bench]]
 name = "compression"
 harness = false
