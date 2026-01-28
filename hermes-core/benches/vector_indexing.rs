@@ -143,7 +143,10 @@ fn bench_rabitq(c: &mut Criterion) {
 
         for (i, query) in queries.iter().enumerate() {
             let results = index.search(query, k, 3);
-            let predicted: Vec<usize> = results.iter().map(|(idx, _)| *idx).collect();
+            let predicted: Vec<usize> = results
+                .iter()
+                .map(|(doc_id, _, _)| *doc_id as usize)
+                .collect();
             total_recall += compute_recall(&predicted, &ground_truths[i]);
         }
 
@@ -343,7 +346,10 @@ fn bench_mlr_recall(_c: &mut Criterion) {
 
         for (i, query) in trimmed_queries.iter().enumerate() {
             let results = index.search(query, k, 3);
-            let predicted: Vec<usize> = results.iter().map(|(idx, _)| *idx).collect();
+            let predicted: Vec<usize> = results
+                .iter()
+                .map(|(doc_id, _, _)| *doc_id as usize)
+                .collect();
             recall_vs_full += compute_recall(&predicted, &ground_truths_full[i]);
             recall_vs_trimmed += compute_recall(&predicted, &ground_truths_trimmed[i]);
         }
@@ -406,7 +412,10 @@ fn bench_comparison(_c: &mut Criterion) {
     let rabitq_search_start = Instant::now();
     for (i, query) in queries.iter().enumerate() {
         let results = rabitq_index.search(query, k, 3);
-        let predicted: Vec<usize> = results.iter().map(|(idx, _)| *idx).collect();
+        let predicted: Vec<usize> = results
+            .iter()
+            .map(|(doc_id, _, _)| *doc_id as usize)
+            .collect();
         rabitq_recall += compute_recall(&predicted, &ground_truths[i]);
     }
     let rabitq_search_time = rabitq_search_start.elapsed();

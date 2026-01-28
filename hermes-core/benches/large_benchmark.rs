@@ -378,7 +378,10 @@ fn benchmark_dense_rabitq(
         let latency = start.elapsed();
         latencies.push(latency.as_micros() as f64);
 
-        let predicted: Vec<usize> = results.iter().map(|(idx, _)| *idx).collect();
+        let predicted: Vec<usize> = results
+            .iter()
+            .map(|(doc_id, _, _)| *doc_id as usize)
+            .collect();
         total_recall_10 += compute_recall(&predicted, &ground_truth[i], 10);
         total_recall_100 += compute_recall(&predicted, &ground_truth[i], 100);
 
@@ -707,7 +710,12 @@ impl BlockSparseIndex {
         let mut postings = rustc_hash::FxHashMap::default();
         for (dim, mut list) in raw_postings {
             list.sort_by_key(|(doc_id, _)| *doc_id);
-            if let Ok(block_list) = BlockSparsePostingList::from_postings(&list, quantization) {
+            // Convert (doc_id, weight) to (doc_id, ordinal, weight)
+            let with_ordinals: Vec<(u32, u16, f32)> =
+                list.iter().map(|(d, w)| (*d, 0u16, *w)).collect();
+            if let Ok(block_list) =
+                BlockSparsePostingList::from_postings(&with_ordinals, quantization)
+            {
                 postings.insert(dim, block_list);
             }
         }
@@ -1183,7 +1191,10 @@ fn bench_mlr_recall(c: &mut Criterion) {
 
         for (i, query) in trimmed_queries.iter().enumerate() {
             let search_results = index.search(query, k, 3);
-            let predicted: Vec<usize> = search_results.iter().map(|(idx, _)| *idx).collect();
+            let predicted: Vec<usize> = search_results
+                .iter()
+                .map(|(doc_id, _, _)| *doc_id as usize)
+                .collect();
             total_recall += compute_recall(&predicted, &ground_truth[i], k);
         }
 
