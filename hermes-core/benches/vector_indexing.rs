@@ -130,7 +130,7 @@ fn bench_rabitq(c: &mut Criterion) {
         // Build index
         let build_start = Instant::now();
         let config = RaBitQConfig::new(dim);
-        let index = RaBitQIndex::build(config, &vectors, true);
+        let index = RaBitQIndex::build(config, &vectors);
         let build_time = build_start.elapsed();
 
         // Compute ground truth
@@ -330,7 +330,7 @@ fn bench_mlr_recall(_c: &mut Criterion) {
 
         // Build index with trimmed vectors
         let config = RaBitQConfig::new(mrl_dim);
-        let index = RaBitQIndex::build(config, &trimmed_vectors, true);
+        let index = RaBitQIndex::build(config, &trimmed_vectors);
 
         // Ground truth for trimmed dimension (what the index actually returns)
         let ground_truths_trimmed: Vec<Vec<usize>> = trimmed_queries
@@ -405,7 +405,7 @@ fn bench_comparison(_c: &mut Criterion) {
     // RaBitQ
     let rabitq_config = RaBitQConfig::new(dim);
     let rabitq_build_start = Instant::now();
-    let rabitq_index = RaBitQIndex::build(rabitq_config.clone(), &vectors, true);
+    let rabitq_index = RaBitQIndex::build(rabitq_config.clone(), &vectors);
     let rabitq_build_time = rabitq_build_start.elapsed();
 
     let mut rabitq_recall = 0.0;

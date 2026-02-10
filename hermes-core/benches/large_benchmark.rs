@@ -361,7 +361,7 @@ fn benchmark_dense_rabitq(
     // Build index
     let build_start = Instant::now();
     let config = RaBitQConfig::new(dim);
-    let index = RaBitQIndex::build(config, vectors, true);
+    let index = RaBitQIndex::build(config, vectors);
     let build_time = build_start.elapsed();
 
     // Query and measure latency
@@ -1183,7 +1183,7 @@ fn bench_mlr_recall(c: &mut Criterion) {
 
         // Build index with trimmed vectors
         let config = RaBitQConfig::new(mrl_dim);
-        let index = RaBitQIndex::build(config, &trimmed_docs, true);
+        let index = RaBitQIndex::build(config, &trimmed_docs);
 
         // Measure recall against full-dimension ground truth
         let mut total_recall = 0.0f32;
@@ -1276,7 +1276,7 @@ fn bench_mlr_recall(c: &mut Criterion) {
         };
 
         let config = RaBitQConfig::new(mrl_dim);
-        let index = RaBitQIndex::build(config, &trimmed_docs, true);
+        let index = RaBitQIndex::build(config, &trimmed_docs);
 
         c.bench_function(&format!("mlr_rabitq_dim{}", mrl_dim), |b| {
             b.iter(|| black_box(index.search(&trimmed_query, k, 3)))
@@ -1505,7 +1505,7 @@ fn bench_dense_search(c: &mut Criterion) {
 
     // Criterion micro-benchmarks
     let config = RaBitQConfig::new(dim);
-    let rabitq_index = RaBitQIndex::build(config, &doc_vectors, true);
+    let rabitq_index = RaBitQIndex::build(config, &doc_vectors);
 
     c.bench_function("dense_rabitq_search", |b| {
         b.iter(|| {
@@ -1637,7 +1637,7 @@ fn bench_indexing(c: &mut Criterion) {
         c.bench_function("dense_rabitq_build_10k", |b| {
             b.iter(|| {
                 let config = RaBitQConfig::new(dim);
-                black_box(RaBitQIndex::build(config, &subset, true))
+                black_box(RaBitQIndex::build(config, &subset))
             })
         });
 
