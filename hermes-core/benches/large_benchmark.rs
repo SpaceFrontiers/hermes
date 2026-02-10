@@ -464,7 +464,7 @@ fn benchmark_dense_ivf_rabitq(
         let latency = start.elapsed();
         latencies.push(latency.as_micros() as f64);
 
-        let predicted: Vec<usize> = results.iter().map(|(idx, _)| *idx as usize).collect();
+        let predicted: Vec<usize> = results.iter().map(|(idx, _, _)| *idx as usize).collect();
         total_recall_10 += compute_recall(&predicted, &ground_truth[i], 10);
         total_recall_100 += compute_recall(&predicted, &ground_truth[i], 100);
 
@@ -552,7 +552,7 @@ fn benchmark_dense_scann(
         let latency = start.elapsed();
         latencies.push(latency.as_micros() as f64);
 
-        let predicted: Vec<usize> = results.iter().map(|(idx, _)| *idx as usize).collect();
+        let predicted: Vec<usize> = results.iter().map(|(idx, _, _)| *idx as usize).collect();
         total_recall_10 += compute_recall(&predicted, &ground_truth[i], 10);
         total_recall_100 += compute_recall(&predicted, &ground_truth[i], 100);
 

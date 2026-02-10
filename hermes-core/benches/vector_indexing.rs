@@ -215,7 +215,7 @@ fn bench_ivf_rabitq(c: &mut Criterion) {
 
         for (i, query) in queries.iter().enumerate() {
             let results = index.search(&centroids, &codebook, query, k, Some(nprobe));
-            let predicted: Vec<usize> = results.iter().map(|(idx, _)| *idx as usize).collect();
+            let predicted: Vec<usize> = results.iter().map(|(idx, _, _)| *idx as usize).collect();
             total_recall += compute_recall(&predicted, &ground_truths[i]);
         }
 
@@ -450,7 +450,7 @@ fn bench_comparison(_c: &mut Criterion) {
         let ivf_search_start = Instant::now();
         for (i, query) in queries.iter().enumerate() {
             let results = ivf_index.search(&centroids, &rabitq_codebook, query, k, Some(nprobe));
-            let predicted: Vec<usize> = results.iter().map(|(idx, _)| *idx as usize).collect();
+            let predicted: Vec<usize> = results.iter().map(|(idx, _, _)| *idx as usize).collect();
             ivf_recall += compute_recall(&predicted, &ground_truths[i]);
         }
         let ivf_search_time = ivf_search_start.elapsed();
@@ -525,7 +525,7 @@ fn bench_scann(c: &mut Criterion) {
 
         for (i, query) in queries.iter().enumerate() {
             let results = index.search(&centroids, &pq_codebook, query, k, Some(nprobe));
-            let predicted: Vec<usize> = results.iter().map(|(idx, _)| *idx as usize).collect();
+            let predicted: Vec<usize> = results.iter().map(|(idx, _, _)| *idx as usize).collect();
             total_recall += compute_recall(&predicted, &ground_truths[i]);
         }
 
