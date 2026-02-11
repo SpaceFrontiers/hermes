@@ -117,9 +117,9 @@ async fn run_benchmarks() {
     for &mrl_dim in MRL_DIMS.iter().filter(|&&d| d <= full_dim) {
         println!("  Building index with mrl_dim={}...", mrl_dim);
 
-        // Create schema with dense vector field using mrl_dim
+        // Create schema with dense vector field at truncated dimension
         let mut schema_builder = Schema::builder();
-        let dense_config = DenseVectorConfig::new(full_dim).with_mrl_dim(mrl_dim);
+        let dense_config = DenseVectorConfig::new(mrl_dim);
         let embedding_field = schema_builder.add_dense_vector_field_with_config(
             "embedding",
             true,  // indexed
@@ -139,7 +139,9 @@ async fn run_benchmarks() {
         let build_start = Instant::now();
         for (i, vector) in dense_docs.vectors.iter().enumerate() {
             let mut doc = Document::new();
-            doc.add_dense_vector(embedding_field, vector.clone());
+            // Truncate vector to mrl_dim
+            let truncated: Vec<f32> = vector.iter().take(mrl_dim).copied().collect();
+            doc.add_dense_vector(embedding_field, truncated);
             writer.add_document(doc).expect("Failed to add document");
 
             if (i + 1) % 10000 == 0 {
@@ -166,7 +168,9 @@ async fn run_benchmarks() {
         let mut total_recall = 0.0f32;
 
         for (i, query) in dense_queries.vectors.iter().enumerate() {
-            let query_obj = DenseVectorQuery::new(embedding_field, query.clone());
+            // Truncate query to mrl_dim
+            let truncated_query: Vec<f32> = query.iter().take(mrl_dim).copied().collect();
+            let query_obj = DenseVectorQuery::new(embedding_field, truncated_query);
 
             let start = Instant::now();
             let results = index.search(&query_obj, k).await.expect("Search failed");
@@ -199,7 +203,7 @@ async fn run_benchmarks() {
 
     // Build one index and test with different nprobe values
     let mut schema_builder = Schema::builder();
-    let dense_config = DenseVectorConfig::new(full_dim).with_mrl_dim(target_dim);
+    let dense_config = DenseVectorConfig::new(target_dim);
     let embedding_field =
         schema_builder.add_dense_vector_field_with_config("embedding", true, false, dense_config);
     let schema = schema_builder.build();
@@ -210,10 +214,11 @@ async fn run_benchmarks() {
         .await
         .expect("Failed to create index writer");
 
-    println!("  Building dense index (mrl_dim={})...", target_dim);
+    println!("  Building dense index (dim={})...", target_dim);
     for (i, vector) in dense_docs.vectors.iter().enumerate() {
         let mut doc = Document::new();
-        doc.add_dense_vector(embedding_field, vector.clone());
+        let truncated: Vec<f32> = vector.iter().take(target_dim).copied().collect();
+        doc.add_dense_vector(embedding_field, truncated);
         writer.add_document(doc).expect("Failed to add document");
         if (i + 1) % 10000 == 0 {
             print!("\r    Indexed {}/{} docs", i + 1, num_docs);
@@ -235,8 +240,9 @@ async fn run_benchmarks() {
         let mut total_recall = 0.0f32;
 
         for (i, query) in dense_queries.vectors.iter().enumerate() {
+            let truncated_query: Vec<f32> = query.iter().take(target_dim).copied().collect();
             let query_obj =
-                DenseVectorQuery::new(embedding_field, query.clone()).with_nprobe(nprobe);
+                DenseVectorQuery::new(embedding_field, truncated_query).with_nprobe(nprobe);
 
             let start = Instant::now();
             let results = dense_index
@@ -362,7 +368,9 @@ async fn run_benchmarks() {
 
             for (i, query) in dense_queries.vectors.iter().enumerate() {
                 if let Some(relevant) = qrels.relevance.get(&(i as u32)) {
-                    let query_obj = DenseVectorQuery::new(embedding_field, query.clone());
+                    let truncated_query: Vec<f32> =
+                        query.iter().take(target_dim).copied().collect();
+                    let query_obj = DenseVectorQuery::new(embedding_field, truncated_query);
                     let start = Instant::now();
                     let results = dense_index
                         .search(&query_obj, k)
@@ -389,7 +397,7 @@ async fn run_benchmarks() {
             if count > 0 {
                 let stats = LatencyStats::from_durations(&latencies);
                 ir_results.push(IrResult {
-                    name: format!("Dense (mrl_dim={})", target_dim),
+                    name: format!("Dense (dim={})", target_dim),
                     mrr_at_10: total_mrr / count as f32,
                     ndcg_at_10: total_ndcg / count as f32,
                     recall_at_100: total_recall / count as f32,
@@ -516,7 +524,7 @@ async fn run_benchmarks() {
     // Dense indexing throughput
     {
         let mut schema_builder = Schema::builder();
-        let dense_config = DenseVectorConfig::new(full_dim).with_mrl_dim(target_dim);
+        let dense_config = DenseVectorConfig::new(target_dim);
         let field = schema_builder.add_dense_vector_field_with_config(
             "embedding",
             true,
@@ -533,7 +541,8 @@ async fn run_benchmarks() {
         let start = Instant::now();
         for vector in dense_docs.vectors.iter().take(subset_size) {
             let mut doc = Document::new();
-            doc.add_dense_vector(field, vector.clone());
+            let truncated: Vec<f32> = vector.iter().take(target_dim).copied().collect();
+            doc.add_dense_vector(field, truncated);
             writer.add_document(doc).expect("Failed to add document");
         }
         writer.commit().await.expect("Failed to commit");
@@ -541,7 +550,7 @@ async fn run_benchmarks() {
         let elapsed = start.elapsed().as_secs_f64();
 
         indexing_results.push(IndexingResult {
-            name: format!("Dense (mrl_dim={})", target_dim),
+            name: format!("Dense (dim={})", target_dim),
             build_time_secs: elapsed,
             merge_time_secs: None,
             throughput_docs_per_sec: subset_size as f64 / elapsed,
