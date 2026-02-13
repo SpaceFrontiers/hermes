@@ -131,7 +131,7 @@ async fn run_benchmarks() {
         // Create index in RAM
         let directory = RamDirectory::new();
         let index_config = IndexConfig::default();
-        let writer = IndexWriter::create(directory.clone(), schema, index_config.clone())
+        let mut writer = IndexWriter::create(directory.clone(), schema, index_config.clone())
             .await
             .expect("Failed to create index writer");
 
@@ -149,7 +149,7 @@ async fn run_benchmarks() {
             }
         }
         writer.commit().await.expect("Failed to commit");
-        writer.wait_for_merges().await;
+        writer.wait_for_merging_thread().await;
         let build_time = build_start.elapsed();
         println!(
             "\r    Indexed {} docs in {:.2}s",
@@ -210,7 +210,7 @@ async fn run_benchmarks() {
 
     let directory = RamDirectory::new();
     let index_config = IndexConfig::default();
-    let writer = IndexWriter::create(directory.clone(), schema, index_config.clone())
+    let mut writer = IndexWriter::create(directory.clone(), schema, index_config.clone())
         .await
         .expect("Failed to create index writer");
 
@@ -225,7 +225,7 @@ async fn run_benchmarks() {
         }
     }
     writer.commit().await.expect("Failed to commit");
-    writer.wait_for_merges().await;
+    writer.wait_for_merging_thread().await;
     println!("\r    Indexed {} docs", num_docs);
 
     let dense_index = Index::open(directory, index_config)
@@ -281,7 +281,7 @@ async fn run_benchmarks() {
 
         let directory = RamDirectory::new();
         let index_config = IndexConfig::default();
-        let writer = IndexWriter::create(directory.clone(), schema, index_config.clone())
+        let mut writer = IndexWriter::create(directory.clone(), schema, index_config.clone())
             .await
             .expect("Failed to create sparse index writer");
 
@@ -299,7 +299,7 @@ async fn run_benchmarks() {
             }
         }
         writer.commit().await.expect("Failed to commit");
-        writer.wait_for_merges().await;
+        writer.wait_for_merging_thread().await;
         println!("\r    Indexed {} sparse docs", sparse_docs.vectors.len());
 
         let index = Index::open(directory, index_config)
@@ -324,7 +324,7 @@ async fn run_benchmarks() {
 
         let directory = RamDirectory::new();
         let index_config = IndexConfig::default();
-        let writer = IndexWriter::create(directory.clone(), schema, index_config.clone())
+        let mut writer = IndexWriter::create(directory.clone(), schema, index_config.clone())
             .await
             .expect("Failed to create BM25 index writer");
 
@@ -337,7 +337,7 @@ async fn run_benchmarks() {
             }
         }
         writer.commit().await.expect("Failed to commit");
-        writer.wait_for_merges().await;
+        writer.wait_for_merging_thread().await;
         println!("\r    Indexed {} text docs", passages.texts.len());
 
         let index = Index::open(directory, index_config)
@@ -534,7 +534,7 @@ async fn run_benchmarks() {
         let schema = schema_builder.build();
 
         let directory = RamDirectory::new();
-        let writer = IndexWriter::create(directory, schema, IndexConfig::default())
+        let mut writer = IndexWriter::create(directory, schema, IndexConfig::default())
             .await
             .expect("Failed to create index writer");
 
@@ -546,7 +546,7 @@ async fn run_benchmarks() {
             writer.add_document(doc).expect("Failed to add document");
         }
         writer.commit().await.expect("Failed to commit");
-        writer.wait_for_merges().await;
+        writer.wait_for_merging_thread().await;
         let elapsed = start.elapsed().as_secs_f64();
 
         indexing_results.push(IndexingResult {
@@ -564,7 +564,7 @@ async fn run_benchmarks() {
         let schema = schema_builder.build();
 
         let directory = RamDirectory::new();
-        let writer = IndexWriter::create(directory, schema, IndexConfig::default())
+        let mut writer = IndexWriter::create(directory, schema, IndexConfig::default())
             .await
             .expect("Failed to create index writer");
 
@@ -580,7 +580,7 @@ async fn run_benchmarks() {
             writer.add_document(doc).expect("Failed to add document");
         }
         writer.commit().await.expect("Failed to commit");
-        writer.wait_for_merges().await;
+        writer.wait_for_merging_thread().await;
         let elapsed = start.elapsed().as_secs_f64();
 
         indexing_results.push(IndexingResult {
@@ -598,7 +598,7 @@ async fn run_benchmarks() {
         let schema = schema_builder.build();
 
         let directory = RamDirectory::new();
-        let writer = IndexWriter::create(directory, schema, IndexConfig::default())
+        let mut writer = IndexWriter::create(directory, schema, IndexConfig::default())
             .await
             .expect("Failed to create index writer");
 
@@ -609,7 +609,7 @@ async fn run_benchmarks() {
             writer.add_document(doc).expect("Failed to add document");
         }
         writer.commit().await.expect("Failed to commit");
-        writer.wait_for_merges().await;
+        writer.wait_for_merging_thread().await;
         let elapsed = start.elapsed().as_secs_f64();
 
         indexing_results.push(IndexingResult {

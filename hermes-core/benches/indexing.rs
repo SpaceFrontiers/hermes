@@ -2,8 +2,7 @@
 
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use hermes_core::{
-    Document, FsDirectory, IndexConfig, IndexWriter, RamDirectory, Schema,
-    schema::{Field, SchemaBuilder},
+    Document, Field, FsDirectory, IndexConfig, IndexWriter, RamDirectory, Schema, SchemaBuilder,
 };
 use tempfile::TempDir;
 
@@ -75,7 +74,7 @@ fn bench_document_indexing(c: &mut Criterion) {
                 rt.block_on(async {
                     let dir = RamDirectory::new();
                     let config = IndexConfig::default();
-                    let writer = IndexWriter::create(dir, test_schema.schema.clone(), config)
+                    let mut writer = IndexWriter::create(dir, test_schema.schema.clone(), config)
                         .await
                         .unwrap();
 
@@ -105,7 +104,7 @@ fn bench_segment_build(c: &mut Criterion) {
             rt.block_on(async {
                 let dir = RamDirectory::new();
                 let config = IndexConfig::default();
-                let writer = IndexWriter::create(dir, test_schema.schema.clone(), config)
+                let mut writer = IndexWriter::create(dir, test_schema.schema.clone(), config)
                     .await
                     .unwrap();
 
@@ -136,7 +135,7 @@ fn bench_fs_indexing(c: &mut Criterion) {
                 let temp_dir = TempDir::new().unwrap();
                 let dir = FsDirectory::new(temp_dir.path());
                 let config = IndexConfig::default();
-                let writer = IndexWriter::create(dir, test_schema.schema.clone(), config)
+                let mut writer = IndexWriter::create(dir, test_schema.schema.clone(), config)
                     .await
                     .unwrap();
 
