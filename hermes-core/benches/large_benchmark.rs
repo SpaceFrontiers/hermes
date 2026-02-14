@@ -374,7 +374,7 @@ fn benchmark_dense_rabitq(
 
     for (i, query) in queries.iter().enumerate() {
         let start = Instant::now();
-        let results = index.search(query, k, 3);
+        let results = index.search(query, k);
         let latency = start.elapsed();
         latencies.push(latency.as_micros() as f64);
 
@@ -1190,7 +1190,7 @@ fn bench_mlr_recall(c: &mut Criterion) {
         let search_start = Instant::now();
 
         for (i, query) in trimmed_queries.iter().enumerate() {
-            let search_results = index.search(query, k, 3);
+            let search_results = index.search(query, k);
             let predicted: Vec<usize> = search_results
                 .iter()
                 .map(|(doc_id, _, _)| *doc_id as usize)
@@ -1279,7 +1279,7 @@ fn bench_mlr_recall(c: &mut Criterion) {
         let index = RaBitQIndex::build(config, &trimmed_docs);
 
         c.bench_function(&format!("mlr_rabitq_dim{}", mrl_dim), |b| {
-            b.iter(|| black_box(index.search(&trimmed_query, k, 3)))
+            b.iter(|| black_box(index.search(&trimmed_query, k)))
         });
     }
 }
@@ -1510,7 +1510,7 @@ fn bench_dense_search(c: &mut Criterion) {
     c.bench_function("dense_rabitq_search", |b| {
         b.iter(|| {
             let q = &query_vectors[0];
-            black_box(rabitq_index.search(q, 10, 3))
+            black_box(rabitq_index.search(q, 10))
         })
     });
 

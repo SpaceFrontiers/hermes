@@ -142,7 +142,7 @@ fn bench_rabitq(c: &mut Criterion) {
         let search_start = Instant::now();
 
         for (i, query) in queries.iter().enumerate() {
-            let results = index.search(query, k, 3);
+            let results = index.search(query, k);
             let predicted: Vec<usize> = results
                 .iter()
                 .map(|(doc_id, _, _)| *doc_id as usize)
@@ -164,7 +164,7 @@ fn bench_rabitq(c: &mut Criterion) {
         c.bench_function(&bench_name, |b| {
             b.iter(|| {
                 let q = &queries[0];
-                black_box(index.search(q, k, 3))
+                black_box(index.search(q, k))
             })
         });
     }
@@ -345,7 +345,7 @@ fn bench_mlr_recall(_c: &mut Criterion) {
         let search_start = Instant::now();
 
         for (i, query) in trimmed_queries.iter().enumerate() {
-            let results = index.search(query, k, 3);
+            let results = index.search(query, k);
             let predicted: Vec<usize> = results
                 .iter()
                 .map(|(doc_id, _, _)| *doc_id as usize)
@@ -411,7 +411,7 @@ fn bench_comparison(_c: &mut Criterion) {
     let mut rabitq_recall = 0.0;
     let rabitq_search_start = Instant::now();
     for (i, query) in queries.iter().enumerate() {
-        let results = rabitq_index.search(query, k, 3);
+        let results = rabitq_index.search(query, k);
         let predicted: Vec<usize> = results
             .iter()
             .map(|(doc_id, _, _)| *doc_id as usize)
