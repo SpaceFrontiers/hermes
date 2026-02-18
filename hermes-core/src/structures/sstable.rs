@@ -984,6 +984,11 @@ impl BlockCache {
         }
     }
 
+    /// Read-only cache probe — no LRU promotion, safe behind a read lock.
+    fn peek(&self, offset: u64) -> Option<Arc<[u8]>> {
+        self.blocks.get(&offset).map(Arc::clone)
+    }
+
     fn insert(&mut self, offset: u64, block: Arc<[u8]>) {
         if self.blocks.contains_key(&offset) {
             self.promote(offset);
@@ -1307,9 +1312,9 @@ impl<V: SSTableValue> AsyncSSTableReader<V> {
             io::Error::new(io::ErrorKind::InvalidInput, "Block index out of range")
         })?;
 
-        // Check cache (write lock for LRU promotion on hit)
+        // Fast path: read-lock peek (no LRU promotion, zero writer contention)
         {
-            if let Some(block) = self.cache.write().get(addr.offset) {
+            if let Some(block) = self.cache.read().peek(addr.offset) {
                 return Ok(block);
             }
         }
@@ -1334,7 +1339,7 @@ impl<V: SSTableValue> AsyncSSTableReader<V> {
 
         let block: Arc<[u8]> = Arc::from(decompressed);
 
-        // Insert into cache
+        // Insert into cache (write lock, promotes LRU)
         {
             let mut cache = self.cache.write();
             cache.insert(addr.offset, Arc::clone(&block));
@@ -1350,9 +1355,9 @@ impl<V: SSTableValue> AsyncSSTableReader<V> {
             io::Error::new(io::ErrorKind::InvalidInput, "Block index out of range")
         })?;
 
-        // Check cache (write lock for LRU promotion on hit)
+        // Fast path: read-lock peek (no LRU promotion, zero writer contention)
         {
-            if let Some(block) = self.cache.write().get(addr.offset) {
+            if let Some(block) = self.cache.read().peek(addr.offset) {
                 return Ok(block);
             }
         }
@@ -1370,7 +1375,7 @@ impl<V: SSTableValue> AsyncSSTableReader<V> {
 
         let block: Arc<[u8]> = Arc::from(decompressed);
 
-        // Insert into cache
+        // Insert into cache (write lock, promotes LRU)
         {
             let mut cache = self.cache.write();
             cache.insert(addr.offset, Arc::clone(&block));
