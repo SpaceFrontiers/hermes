@@ -99,6 +99,10 @@ name = "large_benchmark"
 harness = false
 
 [[bench]]
+name = "bmp_vs_maxscore"
+harness = false
+
+[[bench]]
 name = "hermes_benchmark"
 path = "benches/hermes_benchmark/main.rs"
 harness = false
