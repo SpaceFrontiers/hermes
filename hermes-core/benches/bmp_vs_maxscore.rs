@@ -759,11 +759,11 @@ fn bench_multi_ordinal(c: &mut Criterion) {
         {
             eprintln!("\n  [multi-ordinal BMP diagnostics]");
             eprintln!(
-                "    blocks={}, block_size={}, total_postings={}, num_ordinals={}",
+                "    blocks={}, block_size={}, total_postings={}, num_virtual_docs={}",
                 bmp_idx.num_blocks,
                 bmp_idx.bmp_block_size,
                 bmp_idx.total_postings(),
-                bmp_idx.num_ordinals,
+                bmp_idx.num_virtual_docs,
             );
             let avg_postings_per_block =
                 bmp_idx.total_postings() as f64 / bmp_idx.num_blocks as f64;
