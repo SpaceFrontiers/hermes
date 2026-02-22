@@ -1926,6 +1926,7 @@ dependencies = [
  "instant",
  "kentro",
  "lasso",
+ "libc",
  "log",
  "memmap2",
  "nalgebra",
