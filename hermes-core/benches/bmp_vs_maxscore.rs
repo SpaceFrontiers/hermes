@@ -798,7 +798,17 @@ fn bench_multi_ordinal(c: &mut Criterion) {
         &rt,
         &docs,
         SparseVectorConfig::splade_bmp(),
-        "BMP-multi",
+        "BMP-multi-64",
+        vectors_per_doc,
+        99999,
+    );
+    let mut bmp256_config = SparseVectorConfig::splade_bmp();
+    bmp256_config.bmp_block_size = 256;
+    let bmp256 = build_index_multi_ordinal(
+        &rt,
+        &docs,
+        bmp256_config,
+        "BMP-multi-256",
         vectors_per_doc,
         99999,
     );
@@ -812,20 +822,20 @@ fn bench_multi_ordinal(c: &mut Criterion) {
     );
 
     eprintln!(
-        "Build times: BMP={:.1}ms, MaxScore={:.1}ms",
-        bmp.build_time_ms, maxscore.build_time_ms
+        "Build times: BMP-64={:.1}ms, BMP-256={:.1}ms, MaxScore={:.1}ms",
+        bmp.build_time_ms, bmp256.build_time_ms, maxscore.build_time_ms
     );
 
     // Print BMP-specific multi-ordinal diagnostics
-    {
-        let bmp_reader = rt.block_on(bmp.index.reader()).unwrap();
-        let bmp_searcher = rt.block_on(bmp_reader.searcher()).unwrap();
-        if let Some(bmp_idx) = bmp_searcher
+    for (label, built) in [("BMP-64", &bmp), ("BMP-256", &bmp256)] {
+        let reader = rt.block_on(built.index.reader()).unwrap();
+        let searcher = rt.block_on(reader.searcher()).unwrap();
+        if let Some(bmp_idx) = searcher
             .segment_readers()
             .first()
-            .and_then(|r| r.bmp_index(bmp.sparse_field))
+            .and_then(|r| r.bmp_index(built.sparse_field))
         {
-            eprintln!("\n  [multi-ordinal BMP diagnostics]");
+            eprintln!("\n  [{} diagnostics]", label);
             eprintln!(
                 "    blocks={}, block_size={}, total_postings={}, num_virtual_docs={}",
                 bmp_idx.num_blocks,
@@ -844,6 +854,9 @@ fn bench_multi_ordinal(c: &mut Criterion) {
     let bmp_reader = rt.block_on(bmp.index.reader()).unwrap();
     let bmp_searcher = Arc::new(rt.block_on(bmp_reader.searcher()).unwrap());
 
+    let bmp256_reader = rt.block_on(bmp256.index.reader()).unwrap();
+    let bmp256_searcher = Arc::new(rt.block_on(bmp256_reader.searcher()).unwrap());
+
     let ms_reader = rt.block_on(maxscore.index.reader()).unwrap();
     let ms_searcher = Arc::new(rt.block_on(ms_reader.searcher()).unwrap());
 
@@ -851,12 +864,25 @@ fn bench_multi_ordinal(c: &mut Criterion) {
         let mut group = c.benchmark_group("multi_ord_top10");
         group.sample_size(50);
 
-        group.bench_function(BenchmarkId::new("BMP", num_docs), |b| {
+        group.bench_function(BenchmarkId::new("BMP-64", num_docs), |b| {
             let mut qi = 0;
             b.iter(|| {
                 let query =
                     SparseVectorQuery::new(bmp.sparse_field, queries[qi % queries.len()].clone());
                 let results = rt.block_on(bmp_searcher.search(&query, 10)).unwrap();
+                qi += 1;
+                results
+            });
+        });
+
+        group.bench_function(BenchmarkId::new("BMP-256", num_docs), |b| {
+            let mut qi = 0;
+            b.iter(|| {
+                let query = SparseVectorQuery::new(
+                    bmp256.sparse_field,
+                    queries[qi % queries.len()].clone(),
+                );
+                let results = rt.block_on(bmp256_searcher.search(&query, 10)).unwrap();
                 qi += 1;
                 results
             });
