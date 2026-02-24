@@ -436,6 +436,74 @@ fn build_index_inner(
     }
 }
 
+/// Build a BMP index split into `num_segments` segments, then force-merge.
+///
+/// When `with_simhash` is true, sets the `simhash` attribute on the sparse
+/// vector field so the builder auto-computes SimHash from the vector data,
+/// and the merger reorders blocks by SimHash similarity during force_merge.
+fn build_bmp_segmented(
+    rt: &tokio::runtime::Runtime,
+    docs: &[Vec<(u32, f32)>],
+    with_simhash: bool,
+    sparse_config: SparseVectorConfig,
+    num_segments: usize,
+    label: &str,
+) -> BuiltIndex {
+    let mut sb = SchemaBuilder::default();
+    let sparse = sb.add_sparse_vector_field_with_config("sparse", true, false, sparse_config);
+
+    if with_simhash {
+        sb.set_simhash(sparse, true);
+    }
+
+    let schema = sb.build();
+    let dir = RamDirectory::new();
+    let config = IndexConfig::default();
+    let commit_interval = (docs.len() / num_segments).max(1);
+
+    let start = Instant::now();
+    rt.block_on(async {
+        let mut writer = IndexWriter::create(dir.clone(), schema.clone(), config.clone())
+            .await
+            .unwrap();
+
+        for (i, entries) in docs.iter().enumerate() {
+            let mut doc = Document::new();
+            doc.add_sparse_vector(sparse, entries.clone());
+            loop {
+                match writer.add_document(doc) {
+                    Ok(()) => break,
+                    Err(hermes_core::Error::QueueFull) => {
+                        tokio::task::yield_now().await;
+                        doc = Document::new();
+                        doc.add_sparse_vector(sparse, entries.clone());
+                    }
+                    Err(e) => panic!("add_document failed: {}", e),
+                }
+            }
+            if (i + 1) % commit_interval == 0 {
+                writer.commit().await.unwrap();
+            }
+        }
+        writer.force_merge().await.unwrap();
+    });
+    let build_time_ms = start.elapsed().as_secs_f64() * 1000.0;
+    eprintln!(
+        "  [{}] built: {:.1}ms ({} segments merged)",
+        label, build_time_ms, num_segments
+    );
+
+    let index = rt
+        .block_on(hermes_core::index::Index::open(dir, config))
+        .unwrap();
+
+    BuiltIndex {
+        index,
+        sparse_field: sparse,
+        build_time_ms,
+    }
+}
+
 // ============================================================================
 // Diagnostics: measure pruning effectiveness
 // ============================================================================
@@ -1036,6 +1104,213 @@ fn bench_approximate(c: &mut Criterion) {
     }
 }
 
+/// Benchmark BMP with and without SimHash-based block reordering.
+///
+/// Uses uniformly random data (worst case for BMP superblock pruning) to
+/// isolate the effect of SimHash reordering. Without reordering, blocks
+/// contain random mixtures of documents and superblock pruning skips
+/// almost nothing. With SimHash reordering, the merger clusters similar
+/// documents within the same blocks/superblocks, enabling effective pruning.
+///
+/// Both indexes are built from the same data, split into the same number
+/// of segments, then force-merged. The only difference is that the SimHash
+/// variant has a u64 simhash fast field that guides block reordering.
+fn bench_simhash_reorder(c: &mut Criterion) {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+
+    let num_docs = std::env::var("BMP_BENCH_DOCS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(10_000);
+
+    let num_queries = 100;
+    let num_segments = 5;
+
+    eprintln!("\n=== SimHash block-reorder benchmark ===");
+    eprintln!(
+        "Generating {} docs and {} queries...",
+        num_docs, num_queries
+    );
+
+    // Use random data — worst case for BMP without reordering
+    let docs = generate_sparse_docs(num_docs, 12345);
+    let queries = generate_queries(num_queries, 67890);
+
+    eprintln!(
+        "Building BMP without SimHash reordering ({} segments)...",
+        num_segments
+    );
+    let bmp_plain = build_bmp_segmented(
+        &rt,
+        &docs,
+        false,
+        SparseVectorConfig::splade_bmp(),
+        num_segments,
+        "BMP-plain",
+    );
+
+    eprintln!(
+        "Building BMP with SimHash reordering ({} segments)...",
+        num_segments
+    );
+    let bmp_simhash = build_bmp_segmented(
+        &rt,
+        &docs,
+        true,
+        SparseVectorConfig::splade_bmp(),
+        num_segments,
+        "BMP-simhash",
+    );
+
+    eprintln!(
+        "Build times: plain={:.1}ms, simhash={:.1}ms",
+        bmp_plain.build_time_ms, bmp_simhash.build_time_ms
+    );
+
+    // Print BMP index diagnostics for both variants
+    {
+        let plain_reader = rt.block_on(bmp_plain.index.reader()).unwrap();
+        let plain_searcher = rt.block_on(plain_reader.searcher()).unwrap();
+        if let Some(bmp_idx) = plain_searcher
+            .segment_readers()
+            .first()
+            .and_then(|r| r.bmp_index(bmp_plain.sparse_field))
+        {
+            eprintln!(
+                "  [plain] blocks={}, superblocks={}",
+                bmp_idx.num_blocks,
+                bmp_idx.num_blocks.div_ceil(64),
+            );
+        }
+
+        let sh_reader = rt.block_on(bmp_simhash.index.reader()).unwrap();
+        let sh_searcher = rt.block_on(sh_reader.searcher()).unwrap();
+        if let Some(bmp_idx) = sh_searcher
+            .segment_readers()
+            .first()
+            .and_then(|r| r.bmp_index(bmp_simhash.sparse_field))
+        {
+            eprintln!(
+                "  [simhash] blocks={}, superblocks={}",
+                bmp_idx.num_blocks,
+                bmp_idx.num_blocks.div_ceil(64),
+            );
+        }
+    }
+
+    // Warmup diagnostics: compare average query latency
+    {
+        let plain_reader = rt.block_on(bmp_plain.index.reader()).unwrap();
+        let plain_searcher = Arc::new(rt.block_on(plain_reader.searcher()).unwrap());
+
+        let sh_reader = rt.block_on(bmp_simhash.index.reader()).unwrap();
+        let sh_searcher = Arc::new(rt.block_on(sh_reader.searcher()).unwrap());
+
+        let sample = &queries[..queries.len().min(20)];
+
+        let plain_start = Instant::now();
+        for q in sample {
+            let query = SparseVectorQuery::new(bmp_plain.sparse_field, q.clone());
+            let _ = rt.block_on(plain_searcher.search(&query, 10)).unwrap();
+        }
+        let plain_avg_us = plain_start.elapsed().as_micros() as f64 / sample.len() as f64;
+
+        let sh_start = Instant::now();
+        for q in sample {
+            let query = SparseVectorQuery::new(bmp_simhash.sparse_field, q.clone());
+            let _ = rt.block_on(sh_searcher.search(&query, 10)).unwrap();
+        }
+        let sh_avg_us = sh_start.elapsed().as_micros() as f64 / sample.len() as f64;
+
+        let speedup = plain_avg_us / sh_avg_us;
+        eprintln!(
+            "\n  [simhash-reorder] Diagnostics (avg over {} queries):",
+            sample.len()
+        );
+        eprintln!("    BMP (plain):    {:.0}µs/query", plain_avg_us);
+        eprintln!("    BMP (simhash):  {:.0}µs/query", sh_avg_us);
+        if speedup >= 1.0 {
+            eprintln!("    SimHash wins:   {:.2}x faster", speedup);
+        } else {
+            eprintln!("    Plain wins:     {:.2}x faster", 1.0 / speedup);
+        }
+    }
+
+    let plain_reader = rt.block_on(bmp_plain.index.reader()).unwrap();
+    let plain_searcher = Arc::new(rt.block_on(plain_reader.searcher()).unwrap());
+
+    let sh_reader = rt.block_on(bmp_simhash.index.reader()).unwrap();
+    let sh_searcher = Arc::new(rt.block_on(sh_reader.searcher()).unwrap());
+
+    // Top-10 benchmark
+    {
+        let mut group = c.benchmark_group("simhash_top10");
+        group.sample_size(50);
+
+        group.bench_function(BenchmarkId::new("BMP-plain", num_docs), |b| {
+            let mut qi = 0;
+            b.iter(|| {
+                let query = SparseVectorQuery::new(
+                    bmp_plain.sparse_field,
+                    queries[qi % queries.len()].clone(),
+                );
+                let results = rt.block_on(plain_searcher.search(&query, 10)).unwrap();
+                qi += 1;
+                results
+            });
+        });
+
+        group.bench_function(BenchmarkId::new("BMP-simhash", num_docs), |b| {
+            let mut qi = 0;
+            b.iter(|| {
+                let query = SparseVectorQuery::new(
+                    bmp_simhash.sparse_field,
+                    queries[qi % queries.len()].clone(),
+                );
+                let results = rt.block_on(sh_searcher.search(&query, 10)).unwrap();
+                qi += 1;
+                results
+            });
+        });
+
+        group.finish();
+    }
+
+    // Top-100 benchmark
+    {
+        let mut group = c.benchmark_group("simhash_top100");
+        group.sample_size(50);
+
+        group.bench_function(BenchmarkId::new("BMP-plain", num_docs), |b| {
+            let mut qi = 0;
+            b.iter(|| {
+                let query = SparseVectorQuery::new(
+                    bmp_plain.sparse_field,
+                    queries[qi % queries.len()].clone(),
+                );
+                let results = rt.block_on(plain_searcher.search(&query, 100)).unwrap();
+                qi += 1;
+                results
+            });
+        });
+
+        group.bench_function(BenchmarkId::new("BMP-simhash", num_docs), |b| {
+            let mut qi = 0;
+            b.iter(|| {
+                let query = SparseVectorQuery::new(
+                    bmp_simhash.sparse_field,
+                    queries[qi % queries.len()].clone(),
+                );
+                let results = rt.block_on(sh_searcher.search(&query, 100)).unwrap();
+                qi += 1;
+                results
+            });
+        });
+
+        group.finish();
+    }
+}
+
 criterion_group!(
     benches,
     bench_query_latency,
@@ -1043,5 +1318,6 @@ criterion_group!(
     bench_multi_ordinal,
     bench_long_queries,
     bench_approximate,
+    bench_simhash_reorder,
 );
 criterion_main!(benches);
