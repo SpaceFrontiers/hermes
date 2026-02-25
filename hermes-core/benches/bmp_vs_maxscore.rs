@@ -280,47 +280,19 @@ fn build_index(
     build_index_inner(rt, docs, sparse_config, label, 1)
 }
 
-/// Build index with multiple sparse vectors per document (multi-ordinal).
-fn build_index_multi_ordinal(
+/// Build index by grouping a flat list of sparse vectors into documents.
+///
+/// Takes `all_vectors` and groups every `vectors_per_doc` consecutive vectors
+/// into a single document. For `vectors_per_doc=1` this is equivalent to
+/// `build_index`. Use this to compare single- vs multi-ordinal at the same
+/// total vector count.
+fn build_index_grouped(
     rt: &tokio::runtime::Runtime,
-    docs: &[Vec<(u32, f32)>],
+    all_vectors: &[Vec<(u32, f32)>],
+    vectors_per_doc: usize,
     sparse_config: SparseVectorConfig,
     label: &str,
-    vectors_per_doc: usize,
-    seed: u64,
 ) -> BuiltIndex {
-    // For multi-ordinal, we generate extra vectors as slight variations of the original
-    let mut rng = Rng::new(seed);
-    let vocab_size = 30000u32;
-    let mut multi_docs: Vec<Vec<Vec<(u32, f32)>>> = Vec::with_capacity(docs.len());
-
-    for doc in docs {
-        let mut vectors = Vec::with_capacity(vectors_per_doc);
-        vectors.push(doc.clone());
-        for _ in 1..vectors_per_doc {
-            // Generate a variation: shift some dimensions, add noise to weights
-            let num_dims = 40 + (rng.next_u32() % 80) as usize;
-            let mut entries = Vec::with_capacity(num_dims);
-            for _ in 0..num_dims {
-                let raw = rng.next_f32();
-                let dim = ((raw * raw) * vocab_size as f32) as u32;
-                let weight = rng.next_f32() * rng.next_f32() * 1.5 + 0.01;
-                entries.push((dim.min(vocab_size - 1), weight));
-            }
-            entries.sort_by_key(|&(d, _)| d);
-            entries.dedup_by(|a, b| {
-                if a.0 == b.0 {
-                    b.1 = b.1.max(a.1);
-                    true
-                } else {
-                    false
-                }
-            });
-            vectors.push(entries);
-        }
-        multi_docs.push(vectors);
-    }
-
     let mut sb = SchemaBuilder::default();
     let sparse = sb.add_sparse_vector_field_with_config("sparse", true, false, sparse_config);
     let schema = sb.build();
@@ -328,8 +300,8 @@ fn build_index_multi_ordinal(
     let dir = RamDirectory::new();
     let config = IndexConfig::default();
 
-    // Commit interval scales with doc count: at most ~5 segments
-    let commit_interval = (docs.len() / 5).max(20_000);
+    let num_docs = all_vectors.len() / vectors_per_doc;
+    let commit_interval = (num_docs / 5).max(20_000);
 
     let start = Instant::now();
     rt.block_on(async {
@@ -337,9 +309,9 @@ fn build_index_multi_ordinal(
             .await
             .unwrap();
 
-        for (i, vectors) in multi_docs.iter().enumerate() {
+        for (i, chunk) in all_vectors.chunks(vectors_per_doc).enumerate() {
             let mut doc = Document::new();
-            for v in vectors {
+            for v in chunk {
                 doc.add_sparse_vector(sparse, v.clone());
             }
             loop {
@@ -348,7 +320,7 @@ fn build_index_multi_ordinal(
                     Err(hermes_core::Error::QueueFull) => {
                         tokio::task::yield_now().await;
                         doc = Document::new();
-                        for v in vectors {
+                        for v in chunk {
                             doc.add_sparse_vector(sparse, v.clone());
                         }
                     }
@@ -363,8 +335,12 @@ fn build_index_multi_ordinal(
     });
     let build_time_ms = start.elapsed().as_secs_f64() * 1000.0;
     eprintln!(
-        "  [{}] built: {:.1}ms ({} vectors/doc)",
-        label, build_time_ms, vectors_per_doc
+        "  [{}] built: {:.1}ms ({} docs, {} vectors/doc, {} total vectors)",
+        label,
+        build_time_ms,
+        num_docs,
+        vectors_per_doc,
+        all_vectors.len(),
     );
 
     let index = rt
@@ -385,8 +361,21 @@ fn build_index_inner(
     label: &str,
     _vectors_per_doc: usize,
 ) -> BuiltIndex {
+    build_index_reorder(rt, docs, sparse_config, label, false)
+}
+
+fn build_index_reorder(
+    rt: &tokio::runtime::Runtime,
+    docs: &[Vec<(u32, f32)>],
+    sparse_config: SparseVectorConfig,
+    label: &str,
+    reorder: bool,
+) -> BuiltIndex {
     let mut sb = SchemaBuilder::default();
     let sparse = sb.add_sparse_vector_field_with_config("sparse", true, false, sparse_config);
+    if reorder {
+        sb.set_reorder(sparse, true);
+    }
     let schema = sb.build();
 
     let dir = RamDirectory::new();
@@ -424,74 +413,6 @@ fn build_index_inner(
     let build_time_ms = start.elapsed().as_secs_f64() * 1000.0;
 
     eprintln!("  [{}] built: {:.1}ms", label, build_time_ms);
-
-    let index = rt
-        .block_on(hermes_core::index::Index::open(dir, config))
-        .unwrap();
-
-    BuiltIndex {
-        index,
-        sparse_field: sparse,
-        build_time_ms,
-    }
-}
-
-/// Build a BMP index split into `num_segments` segments, then force-merge.
-///
-/// When `with_simhash` is true, sets the `simhash` attribute on the sparse
-/// vector field so the builder auto-computes SimHash from the vector data,
-/// and the merger reorders blocks by SimHash similarity during force_merge.
-fn build_bmp_segmented(
-    rt: &tokio::runtime::Runtime,
-    docs: &[Vec<(u32, f32)>],
-    with_simhash: bool,
-    sparse_config: SparseVectorConfig,
-    num_segments: usize,
-    label: &str,
-) -> BuiltIndex {
-    let mut sb = SchemaBuilder::default();
-    let sparse = sb.add_sparse_vector_field_with_config("sparse", true, false, sparse_config);
-
-    if with_simhash {
-        sb.set_simhash(sparse, true);
-    }
-
-    let schema = sb.build();
-    let dir = RamDirectory::new();
-    let config = IndexConfig::default();
-    let commit_interval = (docs.len() / num_segments).max(1);
-
-    let start = Instant::now();
-    rt.block_on(async {
-        let mut writer = IndexWriter::create(dir.clone(), schema.clone(), config.clone())
-            .await
-            .unwrap();
-
-        for (i, entries) in docs.iter().enumerate() {
-            let mut doc = Document::new();
-            doc.add_sparse_vector(sparse, entries.clone());
-            loop {
-                match writer.add_document(doc) {
-                    Ok(()) => break,
-                    Err(hermes_core::Error::QueueFull) => {
-                        tokio::task::yield_now().await;
-                        doc = Document::new();
-                        doc.add_sparse_vector(sparse, entries.clone());
-                    }
-                    Err(e) => panic!("add_document failed: {}", e),
-                }
-            }
-            if (i + 1) % commit_interval == 0 {
-                writer.commit().await.unwrap();
-            }
-        }
-        writer.force_merge().await.unwrap();
-    });
-    let build_time_ms = start.elapsed().as_secs_f64() * 1000.0;
-    eprintln!(
-        "  [{}] built: {:.1}ms ({} segments merged)",
-        label, build_time_ms, num_segments
-    );
 
     let index = rt
         .block_on(hermes_core::index::Index::open(dir, config))
@@ -771,63 +692,81 @@ fn bench_clustered(c: &mut Criterion) {
     }
 }
 
+/// Benchmark single- vs multi-ordinal with the same total sparse vector count.
+///
+/// Generates N total sparse vectors, then indexes them two ways:
+/// - Single-ordinal: N documents with 1 vector each
+/// - Multi-ordinal:  N/5 documents with 5 vectors each
+///
+/// Both indexes contain the same vectors — the only difference is how they're
+/// grouped into documents. This isolates multi-ordinal overhead (doc_map
+/// indirection, virtual-to-real mapping) from the raw vector count.
 fn bench_multi_ordinal(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
 
-    let num_docs = std::env::var("BMP_BENCH_DOCS")
+    let total_vectors = std::env::var("BMP_BENCH_DOCS")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(10_000);
 
-    let vectors_per_doc = 5; // 5 sparse vectors per document
+    let vectors_per_doc = 5;
     let num_queries = 100;
 
+    // Round down to multiple of vectors_per_doc for clean grouping
+    let total_vectors = (total_vectors / vectors_per_doc) * vectors_per_doc;
+    let multi_num_docs = total_vectors / vectors_per_doc;
+
+    eprintln!("\n=== Multi-ordinal benchmark (same total vectors) ===");
     eprintln!(
-        "\n=== Multi-ordinal benchmark ({} vectors/doc) ===",
-        vectors_per_doc
+        "Total sparse vectors: {} (single: {} docs × 1, multi: {} docs × {})",
+        total_vectors, total_vectors, multi_num_docs, vectors_per_doc
     );
-    eprintln!(
-        "Generating {} docs and {} queries...",
-        num_docs, num_queries
-    );
-    let docs = generate_sparse_docs(num_docs, 12345);
+
+    let all_vectors = generate_sparse_docs(total_vectors, 12345);
     let queries = generate_queries(num_queries, 67890);
 
-    eprintln!("Building multi-ordinal indexes...");
-    let bmp = build_index_multi_ordinal(
+    // Single-ordinal: each vector is a separate document
+    eprintln!("Building single-ordinal indexes...");
+    let bmp_single = build_index(
         &rt,
-        &docs,
+        &all_vectors,
         SparseVectorConfig::splade_bmp(),
-        "BMP-multi-64",
-        vectors_per_doc,
-        99999,
+        "BMP-1ord",
     );
-    let mut bmp256_config = SparseVectorConfig::splade_bmp();
-    bmp256_config.bmp_block_size = 256;
-    let bmp256 = build_index_multi_ordinal(
+    let ms_single = build_index(
         &rt,
-        &docs,
-        bmp256_config,
-        "BMP-multi-256",
-        vectors_per_doc,
-        99999,
-    );
-    let maxscore = build_index_multi_ordinal(
-        &rt,
-        &docs,
+        &all_vectors,
         SparseVectorConfig::splade(),
-        "MaxScore-multi",
+        "MaxScore-1ord",
+    );
+
+    // Multi-ordinal: group consecutive vectors into documents
+    eprintln!("Building multi-ordinal indexes...");
+    let bmp_multi = build_index_grouped(
+        &rt,
+        &all_vectors,
         vectors_per_doc,
-        99999,
+        SparseVectorConfig::splade_bmp(),
+        "BMP-5ord",
+    );
+    let ms_multi = build_index_grouped(
+        &rt,
+        &all_vectors,
+        vectors_per_doc,
+        SparseVectorConfig::splade(),
+        "MaxScore-5ord",
     );
 
     eprintln!(
-        "Build times: BMP-64={:.1}ms, BMP-256={:.1}ms, MaxScore={:.1}ms",
-        bmp.build_time_ms, bmp256.build_time_ms, maxscore.build_time_ms
+        "\nBuild times: BMP-1ord={:.1}ms, BMP-5ord={:.1}ms, MaxScore-1ord={:.1}ms, MaxScore-5ord={:.1}ms",
+        bmp_single.build_time_ms,
+        bmp_multi.build_time_ms,
+        ms_single.build_time_ms,
+        ms_multi.build_time_ms,
     );
 
-    // Print BMP-specific multi-ordinal diagnostics
-    for (label, built) in [("BMP-64", &bmp), ("BMP-256", &bmp256)] {
+    // Print BMP diagnostics for both variants
+    for (label, built) in [("BMP-1ord", &bmp_single), ("BMP-5ord", &bmp_multi)] {
         let reader = rt.block_on(built.index.reader()).unwrap();
         let searcher = rt.block_on(reader.searcher()).unwrap();
         if let Some(bmp_idx) = searcher
@@ -845,57 +784,164 @@ fn bench_multi_ordinal(c: &mut Criterion) {
             );
             let avg_postings_per_block =
                 bmp_idx.total_postings() as f64 / bmp_idx.num_blocks as f64;
-            eprintln!("    avg_postings/block={:.0}", avg_postings_per_block,);
+            eprintln!("    avg_postings/block={:.0}", avg_postings_per_block);
         }
     }
 
-    print_pruning_diagnostics(&rt, &bmp, &maxscore, &queries, "multi-ordinal");
+    // Warmup diagnostics
+    {
+        let sample = &queries[..queries.len().min(20)];
 
-    let bmp_reader = rt.block_on(bmp.index.reader()).unwrap();
-    let bmp_searcher = Arc::new(rt.block_on(bmp_reader.searcher()).unwrap());
+        let bmp_s_reader = rt.block_on(bmp_single.index.reader()).unwrap();
+        let bmp_s_searcher = Arc::new(rt.block_on(bmp_s_reader.searcher()).unwrap());
+        let bmp_m_reader = rt.block_on(bmp_multi.index.reader()).unwrap();
+        let bmp_m_searcher = Arc::new(rt.block_on(bmp_m_reader.searcher()).unwrap());
 
-    let bmp256_reader = rt.block_on(bmp256.index.reader()).unwrap();
-    let bmp256_searcher = Arc::new(rt.block_on(bmp256_reader.searcher()).unwrap());
+        let start = Instant::now();
+        for q in sample {
+            let query = SparseVectorQuery::new(bmp_single.sparse_field, q.clone());
+            let _ = rt.block_on(bmp_s_searcher.search(&query, 10)).unwrap();
+        }
+        let bmp_1_us = start.elapsed().as_micros() as f64 / sample.len() as f64;
 
-    let ms_reader = rt.block_on(maxscore.index.reader()).unwrap();
-    let ms_searcher = Arc::new(rt.block_on(ms_reader.searcher()).unwrap());
+        let start = Instant::now();
+        for q in sample {
+            let query = SparseVectorQuery::new(bmp_multi.sparse_field, q.clone());
+            let _ = rt.block_on(bmp_m_searcher.search(&query, 10)).unwrap();
+        }
+        let bmp_5_us = start.elapsed().as_micros() as f64 / sample.len() as f64;
 
+        eprintln!(
+            "\n  [multi-ordinal] Diagnostics (avg over {} queries):",
+            sample.len()
+        );
+        eprintln!("    BMP-1ord: {:.0}µs/query", bmp_1_us);
+        eprintln!("    BMP-5ord: {:.0}µs/query", bmp_5_us);
+        let ratio = bmp_5_us / bmp_1_us;
+        eprintln!("    Ratio:    {:.2}x (1.0 = no overhead)", ratio);
+    }
+
+    let bmp_s_reader = rt.block_on(bmp_single.index.reader()).unwrap();
+    let bmp_s_searcher = Arc::new(rt.block_on(bmp_s_reader.searcher()).unwrap());
+    let bmp_m_reader = rt.block_on(bmp_multi.index.reader()).unwrap();
+    let bmp_m_searcher = Arc::new(rt.block_on(bmp_m_reader.searcher()).unwrap());
+    let ms_s_reader = rt.block_on(ms_single.index.reader()).unwrap();
+    let ms_s_searcher = Arc::new(rt.block_on(ms_s_reader.searcher()).unwrap());
+    let ms_m_reader = rt.block_on(ms_multi.index.reader()).unwrap();
+    let ms_m_searcher = Arc::new(rt.block_on(ms_m_reader.searcher()).unwrap());
+
+    // Top-10 benchmark: single vs multi for both BMP and MaxScore
     {
         let mut group = c.benchmark_group("multi_ord_top10");
         group.sample_size(50);
 
-        group.bench_function(BenchmarkId::new("BMP-64", num_docs), |b| {
+        group.bench_function(BenchmarkId::new("BMP-1ord", total_vectors), |b| {
             let mut qi = 0;
             b.iter(|| {
-                let query =
-                    SparseVectorQuery::new(bmp.sparse_field, queries[qi % queries.len()].clone());
-                let results = rt.block_on(bmp_searcher.search(&query, 10)).unwrap();
+                let query = SparseVectorQuery::new(
+                    bmp_single.sparse_field,
+                    queries[qi % queries.len()].clone(),
+                );
+                let results = rt.block_on(bmp_s_searcher.search(&query, 10)).unwrap();
                 qi += 1;
                 results
             });
         });
 
-        group.bench_function(BenchmarkId::new("BMP-256", num_docs), |b| {
+        group.bench_function(BenchmarkId::new("BMP-5ord", total_vectors), |b| {
             let mut qi = 0;
             b.iter(|| {
                 let query = SparseVectorQuery::new(
-                    bmp256.sparse_field,
+                    bmp_multi.sparse_field,
                     queries[qi % queries.len()].clone(),
                 );
-                let results = rt.block_on(bmp256_searcher.search(&query, 10)).unwrap();
+                let results = rt.block_on(bmp_m_searcher.search(&query, 10)).unwrap();
                 qi += 1;
                 results
             });
         });
 
-        group.bench_function(BenchmarkId::new("MaxScore", num_docs), |b| {
+        group.bench_function(BenchmarkId::new("MaxScore-1ord", total_vectors), |b| {
             let mut qi = 0;
             b.iter(|| {
                 let query = SparseVectorQuery::new(
-                    maxscore.sparse_field,
+                    ms_single.sparse_field,
                     queries[qi % queries.len()].clone(),
                 );
-                let results = rt.block_on(ms_searcher.search(&query, 10)).unwrap();
+                let results = rt.block_on(ms_s_searcher.search(&query, 10)).unwrap();
+                qi += 1;
+                results
+            });
+        });
+
+        group.bench_function(BenchmarkId::new("MaxScore-5ord", total_vectors), |b| {
+            let mut qi = 0;
+            b.iter(|| {
+                let query = SparseVectorQuery::new(
+                    ms_multi.sparse_field,
+                    queries[qi % queries.len()].clone(),
+                );
+                let results = rt.block_on(ms_m_searcher.search(&query, 10)).unwrap();
+                qi += 1;
+                results
+            });
+        });
+
+        group.finish();
+    }
+
+    // Top-100 benchmark: single vs multi
+    {
+        let mut group = c.benchmark_group("multi_ord_top100");
+        group.sample_size(50);
+
+        group.bench_function(BenchmarkId::new("BMP-1ord", total_vectors), |b| {
+            let mut qi = 0;
+            b.iter(|| {
+                let query = SparseVectorQuery::new(
+                    bmp_single.sparse_field,
+                    queries[qi % queries.len()].clone(),
+                );
+                let results = rt.block_on(bmp_s_searcher.search(&query, 100)).unwrap();
+                qi += 1;
+                results
+            });
+        });
+
+        group.bench_function(BenchmarkId::new("BMP-5ord", total_vectors), |b| {
+            let mut qi = 0;
+            b.iter(|| {
+                let query = SparseVectorQuery::new(
+                    bmp_multi.sparse_field,
+                    queries[qi % queries.len()].clone(),
+                );
+                let results = rt.block_on(bmp_m_searcher.search(&query, 100)).unwrap();
+                qi += 1;
+                results
+            });
+        });
+
+        group.bench_function(BenchmarkId::new("MaxScore-1ord", total_vectors), |b| {
+            let mut qi = 0;
+            b.iter(|| {
+                let query = SparseVectorQuery::new(
+                    ms_single.sparse_field,
+                    queries[qi % queries.len()].clone(),
+                );
+                let results = rt.block_on(ms_s_searcher.search(&query, 100)).unwrap();
+                qi += 1;
+                results
+            });
+        });
+
+        group.bench_function(BenchmarkId::new("MaxScore-5ord", total_vectors), |b| {
+            let mut qi = 0;
+            b.iter(|| {
+                let query = SparseVectorQuery::new(
+                    ms_multi.sparse_field,
+                    queries[qi % queries.len()].clone(),
+                );
+                let results = rt.block_on(ms_m_searcher.search(&query, 100)).unwrap();
                 qi += 1;
                 results
             });
@@ -1130,18 +1176,13 @@ fn bench_approximate(c: &mut Criterion) {
     }
 }
 
-/// Benchmark BMP with and without SimHash-based block reordering.
+/// Benchmark: BMP with Recursive Graph Bisection (BP) reorder vs without.
 ///
-/// Uses uniformly random data (worst case for BMP superblock pruning) to
-/// isolate the effect of SimHash reordering. Without reordering, blocks
-/// contain random mixtures of documents and superblock pruning skips
-/// almost nothing. With SimHash reordering, the merger clusters similar
-/// documents within the same blocks/superblocks, enabling effective pruning.
-///
-/// Both indexes are built from the same data, split into the same number
-/// of segments, then force-merged. The only difference is that the SimHash
-/// variant has a u64 simhash fast field that guides block reordering.
-fn bench_simhash_reorder(c: &mut Criterion) {
+/// BP reorders documents to cluster similar docs into the same BMP blocks,
+/// improving block pruning effectiveness. This benchmark measures the
+/// query-time benefit on random (unclustered) data — the worst case for
+/// unordered BMP and the best-case delta for BP reordering.
+fn bench_bp_reorder(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
 
     let num_docs = std::env::var("BMP_BENCH_DOCS")
@@ -1150,127 +1191,52 @@ fn bench_simhash_reorder(c: &mut Criterion) {
         .unwrap_or(10_000);
 
     let num_queries = 100;
-    let num_segments = 5;
 
-    eprintln!("\n=== SimHash block-reorder benchmark ===");
+    eprintln!("\n=== BP reorder benchmark (random data) ===");
     eprintln!(
         "Generating {} docs and {} queries...",
         num_docs, num_queries
     );
-
-    // Use random data — worst case for BMP without reordering
     let docs = generate_sparse_docs(num_docs, 12345);
     let queries = generate_queries(num_queries, 67890);
 
-    eprintln!(
-        "Building BMP without SimHash reordering ({} segments)...",
-        num_segments
-    );
-    let bmp_plain = build_bmp_segmented(
+    // Build BMP without reorder (natural doc_id order)
+    eprintln!("Building BMP indexes...");
+    let bmp_plain = build_index_reorder(
         &rt,
         &docs,
-        false,
         SparseVectorConfig::splade_bmp(),
-        num_segments,
         "BMP-plain",
+        false,
     );
 
-    eprintln!(
-        "Building BMP with SimHash reordering ({} segments)...",
-        num_segments
-    );
-    let bmp_simhash = build_bmp_segmented(
+    // Build BMP with BP reorder
+    let bmp_reorder = build_index_reorder(
         &rt,
         &docs,
-        true,
         SparseVectorConfig::splade_bmp(),
-        num_segments,
-        "BMP-simhash",
+        "BMP-reorder",
+        true,
     );
 
     eprintln!(
-        "Build times: plain={:.1}ms, simhash={:.1}ms",
-        bmp_plain.build_time_ms, bmp_simhash.build_time_ms
+        "Build times: plain={:.1}ms, reorder={:.1}ms (BP overhead: {:.1}ms)",
+        bmp_plain.build_time_ms,
+        bmp_reorder.build_time_ms,
+        bmp_reorder.build_time_ms - bmp_plain.build_time_ms,
     );
 
-    // Print BMP index diagnostics for both variants
-    {
-        let plain_reader = rt.block_on(bmp_plain.index.reader()).unwrap();
-        let plain_searcher = rt.block_on(plain_reader.searcher()).unwrap();
-        if let Some(bmp_idx) = plain_searcher
-            .segment_readers()
-            .first()
-            .and_then(|r| r.bmp_index(bmp_plain.sparse_field))
-        {
-            eprintln!(
-                "  [plain] blocks={}, superblocks={}",
-                bmp_idx.num_blocks,
-                bmp_idx.num_blocks.div_ceil(64),
-            );
-        }
-
-        let sh_reader = rt.block_on(bmp_simhash.index.reader()).unwrap();
-        let sh_searcher = rt.block_on(sh_reader.searcher()).unwrap();
-        if let Some(bmp_idx) = sh_searcher
-            .segment_readers()
-            .first()
-            .and_then(|r| r.bmp_index(bmp_simhash.sparse_field))
-        {
-            eprintln!(
-                "  [simhash] blocks={}, superblocks={}",
-                bmp_idx.num_blocks,
-                bmp_idx.num_blocks.div_ceil(64),
-            );
-        }
-    }
-
-    // Warmup diagnostics: compare average query latency
-    {
-        let plain_reader = rt.block_on(bmp_plain.index.reader()).unwrap();
-        let plain_searcher = Arc::new(rt.block_on(plain_reader.searcher()).unwrap());
-
-        let sh_reader = rt.block_on(bmp_simhash.index.reader()).unwrap();
-        let sh_searcher = Arc::new(rt.block_on(sh_reader.searcher()).unwrap());
-
-        let sample = &queries[..queries.len().min(20)];
-
-        let plain_start = Instant::now();
-        for q in sample {
-            let query = SparseVectorQuery::new(bmp_plain.sparse_field, q.clone());
-            let _ = rt.block_on(plain_searcher.search(&query, 10)).unwrap();
-        }
-        let plain_avg_us = plain_start.elapsed().as_micros() as f64 / sample.len() as f64;
-
-        let sh_start = Instant::now();
-        for q in sample {
-            let query = SparseVectorQuery::new(bmp_simhash.sparse_field, q.clone());
-            let _ = rt.block_on(sh_searcher.search(&query, 10)).unwrap();
-        }
-        let sh_avg_us = sh_start.elapsed().as_micros() as f64 / sample.len() as f64;
-
-        let speedup = plain_avg_us / sh_avg_us;
-        eprintln!(
-            "\n  [simhash-reorder] Diagnostics (avg over {} queries):",
-            sample.len()
-        );
-        eprintln!("    BMP (plain):    {:.0}µs/query", plain_avg_us);
-        eprintln!("    BMP (simhash):  {:.0}µs/query", sh_avg_us);
-        if speedup >= 1.0 {
-            eprintln!("    SimHash wins:   {:.2}x faster", speedup);
-        } else {
-            eprintln!("    Plain wins:     {:.2}x faster", 1.0 / speedup);
-        }
-    }
+    // Warmup diagnostics
+    print_reorder_diagnostics(&rt, &bmp_plain, &bmp_reorder, &queries, "random");
 
     let plain_reader = rt.block_on(bmp_plain.index.reader()).unwrap();
     let plain_searcher = Arc::new(rt.block_on(plain_reader.searcher()).unwrap());
-
-    let sh_reader = rt.block_on(bmp_simhash.index.reader()).unwrap();
-    let sh_searcher = Arc::new(rt.block_on(sh_reader.searcher()).unwrap());
+    let reorder_reader = rt.block_on(bmp_reorder.index.reader()).unwrap();
+    let reorder_searcher = Arc::new(rt.block_on(reorder_reader.searcher()).unwrap());
 
     // Top-10 benchmark
     {
-        let mut group = c.benchmark_group("simhash_top10");
+        let mut group = c.benchmark_group("bp_reorder_top10");
         group.sample_size(50);
 
         group.bench_function(BenchmarkId::new("BMP-plain", num_docs), |b| {
@@ -1286,14 +1252,14 @@ fn bench_simhash_reorder(c: &mut Criterion) {
             });
         });
 
-        group.bench_function(BenchmarkId::new("BMP-simhash", num_docs), |b| {
+        group.bench_function(BenchmarkId::new("BMP-reorder", num_docs), |b| {
             let mut qi = 0;
             b.iter(|| {
                 let query = SparseVectorQuery::new(
-                    bmp_simhash.sparse_field,
+                    bmp_reorder.sparse_field,
                     queries[qi % queries.len()].clone(),
                 );
-                let results = rt.block_on(sh_searcher.search(&query, 10)).unwrap();
+                let results = rt.block_on(reorder_searcher.search(&query, 10)).unwrap();
                 qi += 1;
                 results
             });
@@ -1304,7 +1270,7 @@ fn bench_simhash_reorder(c: &mut Criterion) {
 
     // Top-100 benchmark
     {
-        let mut group = c.benchmark_group("simhash_top100");
+        let mut group = c.benchmark_group("bp_reorder_top100");
         group.sample_size(50);
 
         group.bench_function(BenchmarkId::new("BMP-plain", num_docs), |b| {
@@ -1320,14 +1286,14 @@ fn bench_simhash_reorder(c: &mut Criterion) {
             });
         });
 
-        group.bench_function(BenchmarkId::new("BMP-simhash", num_docs), |b| {
+        group.bench_function(BenchmarkId::new("BMP-reorder", num_docs), |b| {
             let mut qi = 0;
             b.iter(|| {
                 let query = SparseVectorQuery::new(
-                    bmp_simhash.sparse_field,
+                    bmp_reorder.sparse_field,
                     queries[qi % queries.len()].clone(),
                 );
-                let results = rt.block_on(sh_searcher.search(&query, 100)).unwrap();
+                let results = rt.block_on(reorder_searcher.search(&query, 100)).unwrap();
                 qi += 1;
                 results
             });
@@ -1337,6 +1303,189 @@ fn bench_simhash_reorder(c: &mut Criterion) {
     }
 }
 
+/// Benchmark: BP reorder on clustered (topic-local) data.
+///
+/// Documents are generated with topic structure but shuffled to simulate
+/// random arrival order. BP should recover the topic clustering, giving
+/// a large speedup over the unordered baseline.
+fn bench_bp_reorder_clustered(c: &mut Criterion) {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+
+    let num_docs = std::env::var("BMP_BENCH_DOCS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(10_000);
+
+    let num_queries = 100;
+
+    eprintln!("\n=== BP reorder benchmark (clustered data, shuffled) ===");
+    eprintln!(
+        "Generating {} clustered docs and {} queries...",
+        num_docs, num_queries
+    );
+    let clustered = generate_clustered_sparse_docs(num_docs, 54321);
+    let queries = generate_clustered_queries(num_queries, &clustered.topic_dims, 67890);
+
+    // Shuffle docs to destroy natural topic ordering (simulates random arrival)
+    let mut shuffled_docs = clustered.docs;
+    {
+        let mut rng = Rng::new(99999);
+        // Fisher-Yates shuffle
+        for i in (1..shuffled_docs.len()).rev() {
+            let j = rng.next_u32() as usize % (i + 1);
+            shuffled_docs.swap(i, j);
+        }
+    }
+
+    // Build BMP without reorder (shuffled = poor block locality)
+    eprintln!("Building BMP indexes (shuffled clustered data)...");
+    let bmp_plain = build_index_reorder(
+        &rt,
+        &shuffled_docs,
+        SparseVectorConfig::splade_bmp(),
+        "BMP-shuffled",
+        false,
+    );
+
+    // Build BMP with BP reorder (should recover topic clustering)
+    let bmp_reorder = build_index_reorder(
+        &rt,
+        &shuffled_docs,
+        SparseVectorConfig::splade_bmp(),
+        "BMP-bp-reorder",
+        true,
+    );
+
+    eprintln!(
+        "Build times: shuffled={:.1}ms, reorder={:.1}ms (BP overhead: {:.1}ms)",
+        bmp_plain.build_time_ms,
+        bmp_reorder.build_time_ms,
+        bmp_reorder.build_time_ms - bmp_plain.build_time_ms,
+    );
+
+    // Warmup diagnostics
+    print_reorder_diagnostics(
+        &rt,
+        &bmp_plain,
+        &bmp_reorder,
+        &queries,
+        "clustered-shuffled",
+    );
+
+    let plain_reader = rt.block_on(bmp_plain.index.reader()).unwrap();
+    let plain_searcher = Arc::new(rt.block_on(plain_reader.searcher()).unwrap());
+    let reorder_reader = rt.block_on(bmp_reorder.index.reader()).unwrap();
+    let reorder_searcher = Arc::new(rt.block_on(reorder_reader.searcher()).unwrap());
+
+    // Top-10 benchmark
+    {
+        let mut group = c.benchmark_group("bp_reorder_clustered_top10");
+        group.sample_size(50);
+
+        group.bench_function(BenchmarkId::new("BMP-shuffled", num_docs), |b| {
+            let mut qi = 0;
+            b.iter(|| {
+                let query = SparseVectorQuery::new(
+                    bmp_plain.sparse_field,
+                    queries[qi % queries.len()].clone(),
+                );
+                let results = rt.block_on(plain_searcher.search(&query, 10)).unwrap();
+                qi += 1;
+                results
+            });
+        });
+
+        group.bench_function(BenchmarkId::new("BMP-reorder", num_docs), |b| {
+            let mut qi = 0;
+            b.iter(|| {
+                let query = SparseVectorQuery::new(
+                    bmp_reorder.sparse_field,
+                    queries[qi % queries.len()].clone(),
+                );
+                let results = rt.block_on(reorder_searcher.search(&query, 10)).unwrap();
+                qi += 1;
+                results
+            });
+        });
+
+        group.finish();
+    }
+
+    // Top-100 benchmark
+    {
+        let mut group = c.benchmark_group("bp_reorder_clustered_top100");
+        group.sample_size(50);
+
+        group.bench_function(BenchmarkId::new("BMP-shuffled", num_docs), |b| {
+            let mut qi = 0;
+            b.iter(|| {
+                let query = SparseVectorQuery::new(
+                    bmp_plain.sparse_field,
+                    queries[qi % queries.len()].clone(),
+                );
+                let results = rt.block_on(plain_searcher.search(&query, 100)).unwrap();
+                qi += 1;
+                results
+            });
+        });
+
+        group.bench_function(BenchmarkId::new("BMP-reorder", num_docs), |b| {
+            let mut qi = 0;
+            b.iter(|| {
+                let query = SparseVectorQuery::new(
+                    bmp_reorder.sparse_field,
+                    queries[qi % queries.len()].clone(),
+                );
+                let results = rt.block_on(reorder_searcher.search(&query, 100)).unwrap();
+                qi += 1;
+                results
+            });
+        });
+
+        group.finish();
+    }
+}
+
+/// Print warmup diagnostics comparing plain vs reordered BMP.
+fn print_reorder_diagnostics(
+    rt: &tokio::runtime::Runtime,
+    plain: &BuiltIndex,
+    reorder: &BuiltIndex,
+    queries: &[Vec<(u32, f32)>],
+    label: &str,
+) {
+    let plain_reader = rt.block_on(plain.index.reader()).unwrap();
+    let plain_searcher = Arc::new(rt.block_on(plain_reader.searcher()).unwrap());
+    let reorder_reader = rt.block_on(reorder.index.reader()).unwrap();
+    let reorder_searcher = Arc::new(rt.block_on(reorder_reader.searcher()).unwrap());
+
+    let sample = &queries[..queries.len().min(20)];
+
+    let start = Instant::now();
+    for q in sample {
+        let query = SparseVectorQuery::new(plain.sparse_field, q.clone());
+        let _ = rt.block_on(plain_searcher.search(&query, 10)).unwrap();
+    }
+    let plain_us = start.elapsed().as_micros() as f64 / sample.len() as f64;
+
+    let start = Instant::now();
+    for q in sample {
+        let query = SparseVectorQuery::new(reorder.sparse_field, q.clone());
+        let _ = rt.block_on(reorder_searcher.search(&query, 10)).unwrap();
+    }
+    let reorder_us = start.elapsed().as_micros() as f64 / sample.len() as f64;
+
+    let speedup = plain_us / reorder_us;
+    eprintln!(
+        "\n  [BP reorder — {}] Diagnostics (avg over {} queries):",
+        label,
+        sample.len()
+    );
+    eprintln!("    BMP plain:   {:.0}µs/query", plain_us);
+    eprintln!("    BMP reorder: {:.0}µs/query", reorder_us);
+    eprintln!("    Speedup:     {:.2}x", speedup);
+}
+
 criterion_group!(
     benches,
     bench_query_latency,
@@ -1344,6 +1493,7 @@ criterion_group!(
     bench_multi_ordinal,
     bench_long_queries,
     bench_approximate,
-    bench_simhash_reorder,
+    bench_bp_reorder,
+    bench_bp_reorder_clustered,
 );
 criterion_main!(benches);
