@@ -1995,6 +1995,7 @@ dependencies = [
  "num_cpus",
  "parking_lot",
  "prost",
+ "rayon",
  "rustc-hash",
  "serde",
  "serde_json",
