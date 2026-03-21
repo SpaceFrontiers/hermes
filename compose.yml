@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  wasm-build:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /app/hermes-wasm
+    command: bash build.sh
+    volumes:
+      - .:/app
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+
+volumes:
+  cargo-registry:
+  cargo-git:
