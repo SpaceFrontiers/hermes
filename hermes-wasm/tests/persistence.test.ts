@@ -1,28 +1,7 @@
 import { test, expect } from "vitest";
 
 import init, { LocalIndex } from "../pkg/hermes_wasm";
-
-export class InMemoryFS {
-	constructor() {
-		this.storage = {};
-	}
-
-	write = async (id, buffer) => {
-		this.storage[id] = new Uint8Array(buffer).buffer;
-	}
-
-	get = async (id) => {
-		return this.storage[id];
-	}
-	delete = async (ids) => {
-		paths.forEach((id) => {
-			delete this.storage[id];
-		});
-	}
-	list = async () => {
-		return Object.keys(this.storage);
-	}
-}
+import { InMemoryFS } from "./storage.ts";
 
 const sharedStorage = new InMemoryFS();
 
