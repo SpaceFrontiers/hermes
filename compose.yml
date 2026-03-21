@@ -1,7 +1,7 @@
 version: "3.9"
 
 services:
-  rust-build:
+  cargo-build:
     build:
       context: .
       dockerfile: Dockerfile
@@ -11,7 +11,7 @@ services:
       - .:/app
       - rustuser-home:/home/rustuser
 
-  wasm-build:
+  build-hermes-wasm:
     build:
       context: .
       dockerfile: Dockerfile
