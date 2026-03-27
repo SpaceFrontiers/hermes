@@ -20,13 +20,12 @@
 //! { denseVector: { field: "emb", vector: [0.1, 0.2, 0.3] } }
 //! ```
 
-use hermes_core::Schema;
 use hermes_core::query::{
     BooleanQuery, DenseVectorQuery, PrefixQuery, Query, SparseVectorQuery, TermQuery,
 };
 use hermes_core::tokenizer::TokenizerRegistry;
-use serde::Deserialize;
-use std::sync::Arc;
+use hermes_core::{Directory, Schema, Searcher};
+use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsValue;
 
 /// Top-level query object deserialized from JS.
@@ -114,64 +113,123 @@ fn default_limit() -> usize {
     10
 }
 
+/// Typed response structs (avoid serde_json::json! intermediate allocations).
+#[derive(Serialize)]
+pub(crate) struct StructuredSearchResponse {
+    hits: Vec<StructuredHit>,
+    total_hits: usize,
+}
+
+#[derive(Serialize)]
+pub(crate) struct StructuredHit {
+    address: HitAddress,
+    score: f32,
+    doc: Option<serde_json::Value>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct HitAddress {
+    segment_id: String,
+    doc_id: u32,
+}
+
+/// Execute a structured search on any Searcher<D>.
+pub(crate) async fn execute_structured_search<D: Directory>(
+    searcher: &Searcher<D>,
+    request: JsValue,
+) -> Result<JsValue, JsValue> {
+    let req: JsSearchRequest = serde_wasm_bindgen::from_value(request)
+        .map_err(|e| JsValue::from_str(&format!("Invalid search request: {}", e)))?;
+
+    let query = convert_query(&req.query, searcher.schema(), searcher.tokenizers())?;
+
+    let field_ids = req
+        .fields_to_load
+        .as_ref()
+        .map(|names| crate::resolve_field_ids(searcher.schema(), names))
+        .transpose()?;
+
+    let (results, _) = searcher
+        .search_with_offset_and_count(query.as_ref(), req.limit, req.offset)
+        .await
+        .map_err(|e| JsValue::from_str(&format!("Search error: {}", e)))?;
+
+    let mut hits = Vec::with_capacity(results.len());
+    for result in &results {
+        let address = hermes_core::query::DocAddress::new(result.segment_id, result.doc_id);
+        let doc = searcher
+            .get_document_with_fields(&address, field_ids.as_ref())
+            .await
+            .map_err(|e| JsValue::from_str(&format!("Get document error: {}", e)))?;
+        hits.push(StructuredHit {
+            address: HitAddress {
+                segment_id: format!("{:032x}", result.segment_id),
+                doc_id: result.doc_id,
+            },
+            score: result.score,
+            doc: doc.map(|d| d.to_json(searcher.schema())),
+        });
+    }
+
+    let response = StructuredSearchResponse {
+        hits,
+        total_hits: results.len(),
+    };
+
+    response
+        .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
+        .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))
+}
+
+/// Tokenize text using the field's configured tokenizer and build a query.
+/// Term queries use MUST (AND), match queries use SHOULD (OR).
+fn tokenize_and_build(
+    field_name: &str,
+    text: &str,
+    must: bool,
+    schema: &Schema,
+    tokenizers: &TokenizerRegistry,
+) -> Result<Box<dyn Query>, JsValue> {
+    let field = schema
+        .get_field(field_name)
+        .ok_or_else(|| JsValue::from_str(&format!("Unknown field: '{}'", field_name)))?;
+    let tokenizer_name = schema
+        .get_field_entry(field)
+        .and_then(|e| e.tokenizer.as_deref())
+        .unwrap_or("simple");
+    let tok = tokenizers
+        .get(tokenizer_name)
+        .unwrap_or_else(|| Box::new(hermes_core::SimpleTokenizer));
+    let tokens: Vec<String> = tok.tokenize(text).into_iter().map(|t| t.text).collect();
+    if tokens.is_empty() {
+        return Err(JsValue::from_str("No tokens in query"));
+    }
+    if tokens.len() == 1 {
+        return Ok(Box::new(TermQuery::text(field, &tokens[0])));
+    }
+    let mut bq = BooleanQuery::new();
+    for token in tokens {
+        if must {
+            bq = bq.must(TermQuery::text(field, &token));
+        } else {
+            bq = bq.should(TermQuery::text(field, &token));
+        }
+    }
+    Ok(Box::new(bq))
+}
+
 /// Convert a JS query object into a core `Box<dyn Query>`.
 pub(crate) fn convert_query(
     js: &JsQuery,
-    schema: &Arc<Schema>,
+    schema: &Schema,
     tokenizers: &TokenizerRegistry,
 ) -> Result<Box<dyn Query>, JsValue> {
     if let Some(ref tq) = js.term {
-        let field = schema
-            .get_field(&tq.field)
-            .ok_or_else(|| JsValue::from_str(&format!("Unknown field: '{}'", tq.field)))?;
-        let tokenizer_name = schema
-            .get_field_entry(field)
-            .and_then(|e| e.tokenizer.as_deref())
-            .unwrap_or("simple");
-        let tok = tokenizers
-            .get(tokenizer_name)
-            .unwrap_or_else(|| Box::new(hermes_core::SimpleTokenizer));
-        let tokens: Vec<String> = tok
-            .tokenize(&tq.value)
-            .into_iter()
-            .map(|t| t.text)
-            .collect();
-        if tokens.is_empty() {
-            return Err(JsValue::from_str("No tokens in term query"));
-        }
-        if tokens.len() == 1 {
-            return Ok(Box::new(TermQuery::text(field, &tokens[0])));
-        }
-        let mut bq = BooleanQuery::new();
-        for token in tokens {
-            bq = bq.must(TermQuery::text(field, &token));
-        }
-        return Ok(Box::new(bq));
+        return tokenize_and_build(&tq.field, &tq.value, true, schema, tokenizers);
     }
 
     if let Some(ref mq) = js.match_ {
-        let field = schema
-            .get_field(&mq.field)
-            .ok_or_else(|| JsValue::from_str(&format!("Unknown field: '{}'", mq.field)))?;
-        let tokenizer_name = schema
-            .get_field_entry(field)
-            .and_then(|e| e.tokenizer.as_deref())
-            .unwrap_or("simple");
-        let tok = tokenizers
-            .get(tokenizer_name)
-            .unwrap_or_else(|| Box::new(hermes_core::SimpleTokenizer));
-        let tokens: Vec<String> = tok.tokenize(&mq.text).into_iter().map(|t| t.text).collect();
-        if tokens.is_empty() {
-            return Err(JsValue::from_str("No tokens in match query"));
-        }
-        if tokens.len() == 1 {
-            return Ok(Box::new(TermQuery::text(field, &tokens[0])));
-        }
-        let mut bq = BooleanQuery::new();
-        for token in tokens {
-            bq = bq.should(TermQuery::text(field, &token));
-        }
-        return Ok(Box::new(bq));
+        return tokenize_and_build(&mq.field, &mq.text, false, schema, tokenizers);
     }
 
     if let Some(ref bq) = js.boolean {
