@@ -366,7 +366,7 @@ impl IpfsIndex {
         let mut idb_restored = false;
         if let Ok(Some(idb_data)) = idb_get(&idb_key).await {
             if cached_dir.deserialize(&idb_data).is_ok() {
-                web_sys::console::log_1(&"Restored slice cache from IndexedDB".into());
+                log::debug!("Restored slice cache from IndexedDB");
                 idb_restored = true;
             }
         }

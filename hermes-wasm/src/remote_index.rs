@@ -101,7 +101,7 @@ impl RemoteIndex {
         let mut idb_restored = false;
         if let Ok(Some(idb_data)) = idb_get(&idb_key).await {
             if cached_dir.deserialize(&idb_data).is_ok() {
-                web_sys::console::log_1(&"Restored slice cache from IndexedDB".into());
+                log::debug!("Restored slice cache from IndexedDB");
                 idb_restored = true;
             }
         }
@@ -228,9 +228,7 @@ impl RemoteIndex {
         limit: usize,
         offset: usize,
     ) -> Result<JsValue, JsValue> {
-        web_sys::console::log_1(
-            &format!("=== SEARCH START: '{}' offset={} ===", query_str, offset).into(),
-        );
+        log::debug!("=== SEARCH START: '{}' offset={} ===", query_str, offset);
 
         let searcher = self
             .searcher
@@ -240,12 +238,12 @@ impl RemoteIndex {
         // Log segment info
         for (i, seg) in searcher.segment_readers().iter().enumerate() {
             let stats = seg.term_dict_stats();
-            web_sys::console::log_1(
-                &format!(
-                    "  Segment {}: {} blocks, {} sparse entries, {} terms",
-                    i, stats.num_blocks, stats.num_sparse_entries, stats.num_entries
-                )
-                .into(),
+            log::debug!(
+                "  Segment {}: {} blocks, {} sparse entries, {} terms",
+                i,
+                stats.num_blocks,
+                stats.num_sparse_entries,
+                stats.num_entries
             );
         }
 
@@ -262,20 +260,18 @@ impl RemoteIndex {
         // Log network stats after search
         if let Some(directory) = &self.directory {
             let stats = directory.inner().http_stats();
-            web_sys::console::log_1(
-                &format!(
-                    "=== SEARCH END: {} requests, {} bytes ===",
-                    stats.total_requests, stats.total_bytes
-                )
-                .into(),
+            log::debug!(
+                "=== SEARCH END: {} requests, {} bytes ===",
+                stats.total_requests,
+                stats.total_bytes
             );
             for op in &stats.operations {
-                web_sys::console::log_1(
-                    &format!(
-                        "  HTTP: {} bytes, {}ms, range={:?}, url={}",
-                        op.bytes, op.duration_ms, op.range, op.url
-                    )
-                    .into(),
+                log::debug!(
+                    "  HTTP: {} bytes, {}ms, range={:?}, url={}",
+                    op.bytes,
+                    op.duration_ms,
+                    op.range,
+                    op.url
                 );
             }
         }

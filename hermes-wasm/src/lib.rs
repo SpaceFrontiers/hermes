@@ -25,18 +25,32 @@ pub use remote_index::RemoteIndex;
 /// Default cache size: 10MB
 pub(crate) const DEFAULT_CACHE_SIZE: usize = 10 * 1024 * 1024;
 
-/// Initialize panic hook and logging
+/// Initialize panic hook and logging (defaults to Warn level)
 #[wasm_bindgen(start)]
 pub fn init() {
     console_error_panic_hook::set_once();
-    console_log::init_with_level(log::Level::Debug).ok();
+    console_log::init_with_level(log::Level::Warn).ok();
 }
 
 /// Setup logging to browser console (can be called explicitly)
 #[wasm_bindgen]
 pub fn setup_logging() {
     console_error_panic_hook::set_once();
-    console_log::init_with_level(log::Level::Debug).ok();
+    console_log::init_with_level(log::Level::Warn).ok();
+}
+
+/// Set log level: "error", "warn", "info", "debug", "trace"
+#[wasm_bindgen]
+pub fn set_log_level(level: &str) {
+    let level = match level {
+        "error" => log::Level::Error,
+        "warn" => log::Level::Warn,
+        "info" => log::Level::Info,
+        "debug" => log::Level::Debug,
+        "trace" => log::Level::Trace,
+        _ => log::Level::Warn,
+    };
+    log::set_max_level(level.to_level_filter());
 }
 
 /// Fetch bytes from a URL using the Fetch API

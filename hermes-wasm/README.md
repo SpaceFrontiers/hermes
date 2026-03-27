@@ -185,6 +185,16 @@ Same API as `RemoteIndex` but loaded via JavaScript callbacks instead of HTTP:
 
 All other methods (`search`, `get_document`, `cache_stats`, etc.) are identical to `RemoteIndex`.
 
+### Logging
+
+Debug output is off by default (level: `warn`). Enable verbose logging for diagnostics:
+
+```js
+import { set_log_level } from "hermes-wasm";
+
+set_log_level("debug"); // "error" | "warn" | "info" | "debug" | "trace"
+```
+
 ### `IndexRegistry`
 
 Manages multiple named remote indexes:
