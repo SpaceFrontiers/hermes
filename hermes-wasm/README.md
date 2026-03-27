@@ -148,28 +148,28 @@ const doc = await index.get_document(
 
 ### `RemoteIndex`
 
-| Method                                                  | Description                         |
-| ------------------------------------------------------- | ----------------------------------- |
-| `new RemoteIndex(url)`                                  | Create remote index pointing to URL |
-| `RemoteIndex.with_cache_size(url, bytes)`               | Create with custom cache size       |
-| `index.load()`                                          | Load index metadata and segments    |
-| `index.load_with_idb_cache()`                           | Load with IndexedDB cache pre-fill  |
-| `index.search(query, limit)`                            | Search                              |
-| `index.search_offset(query, limit, offset)`             | Search with pagination              |
-| `index.get_document(segmentId, docId)`                  | Retrieve document                   |
-| `index.getDocumentWithFields(segmentId, docId, fields)` | Retrieve only specified fields      |
-| `index.num_docs()`                                      | Document count                      |
-| `index.num_segments()`                                  | Segment count                       |
-| `index.field_names()`                                   | Field names                         |
-| `index.default_fields()`                                | Default search fields               |
-| `index.export_cache()`                                  | Export slice cache as `Uint8Array`  |
-| `index.import_cache(data)`                              | Import previously exported cache    |
-| `index.save_cache_to_idb()`                             | Persist slice cache to IndexedDB    |
-| `index.load_cache_from_idb()`                           | Restore cache from IndexedDB        |
-| `index.clear_idb_cache()`                               | Remove persisted cache              |
-| `index.cache_stats()`                                   | Cache utilization info              |
-| `index.network_stats()`                                 | HTTP request statistics             |
-| `index.reset_network_stats()`                           | Clear network statistics            |
+| Method                                                     | Description                         |
+| ---------------------------------------------------------- | ----------------------------------- |
+| `new RemoteIndex(url)`                                     | Create remote index pointing to URL |
+| `RemoteIndex.with_cache_size(url, bytes)`                  | Create with custom cache size       |
+| `index.load()`                                             | Load index metadata and segments    |
+| `index.load_with_idb_cache()`                              | Load with IndexedDB cache pre-fill  |
+| `index.search(query, limit)`                               | Search                              |
+| `index.search_offset(query, limit, offset)`                | Search with pagination              |
+| `index.get_document(segmentId, docId)`                     | Retrieve document                   |
+| `index.get_document_with_fields(segmentId, docId, fields)` | Retrieve only specified fields      |
+| `index.num_docs()`                                         | Document count                      |
+| `index.num_segments()`                                     | Segment count                       |
+| `index.field_names()`                                      | Field names                         |
+| `index.default_fields()`                                   | Default search fields               |
+| `index.export_cache()`                                     | Export slice cache as `Uint8Array`  |
+| `index.import_cache(data)`                                 | Import previously exported cache    |
+| `index.save_cache_to_idb()`                                | Persist slice cache to IndexedDB    |
+| `index.load_cache_from_idb()`                              | Restore cache from IndexedDB        |
+| `index.clear_idb_cache()`                                  | Remove persisted cache              |
+| `index.cache_stats()`                                      | Cache utilization info              |
+| `index.network_stats()`                                    | HTTP request statistics             |
+| `index.reset_network_stats()`                              | Clear network statistics            |
 
 ### `IpfsIndex`
 
