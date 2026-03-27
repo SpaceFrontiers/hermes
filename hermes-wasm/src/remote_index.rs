@@ -283,6 +283,62 @@ impl RemoteIndex {
             .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))
     }
 
+    /// Structured search: accepts a query object instead of a query string.
+    #[wasm_bindgen(js_name = "searchStructured")]
+    pub async fn search_structured(&self, request: JsValue) -> Result<JsValue, JsValue> {
+        let searcher = self
+            .searcher
+            .as_ref()
+            .ok_or_else(|| JsValue::from_str("Index not loaded"))?;
+
+        let req: crate::query::JsSearchRequest = serde_wasm_bindgen::from_value(request)
+            .map_err(|e| JsValue::from_str(&format!("Invalid search request: {}", e)))?;
+
+        let query = crate::query::convert_query(
+            &req.query,
+            &std::sync::Arc::new(searcher.schema().clone()),
+            searcher.tokenizers(),
+        )?;
+
+        let field_ids = req
+            .fields_to_load
+            .as_ref()
+            .map(|names| crate::resolve_field_ids(searcher.schema(), names))
+            .transpose()?;
+
+        let (results, _) = searcher
+            .search_with_offset_and_count(query.as_ref(), req.limit, req.offset)
+            .await
+            .map_err(|e| JsValue::from_str(&format!("Search error: {}", e)))?;
+
+        let mut hits = Vec::with_capacity(results.len());
+        for result in &results {
+            let address = hermes_core::query::DocAddress::new(result.segment_id, result.doc_id);
+            let doc = searcher
+                .get_document_with_fields(&address, field_ids.as_ref())
+                .await
+                .map_err(|e| JsValue::from_str(&format!("Get document error: {}", e)))?;
+            let doc_json = doc.map(|d| d.to_json(searcher.schema()));
+            hits.push(serde_json::json!({
+                "address": {
+                    "segment_id": format!("{:032x}", result.segment_id),
+                    "doc_id": result.doc_id,
+                },
+                "score": result.score,
+                "doc": doc_json,
+            }));
+        }
+
+        let response = serde_json::json!({
+            "hits": hits,
+            "total_hits": results.len(),
+        });
+
+        response
+            .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
+            .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))
+    }
+
     /// Get a document by its address (segment_id + doc_id)
     ///
     /// Returns the document as a JSON object, or null if not found.

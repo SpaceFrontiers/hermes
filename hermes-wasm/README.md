@@ -140,6 +140,7 @@ const doc = await index.get_document(
 | `index.commit()`                                        | Commit pending docs, sync to storage if configured |
 | `index.search(query, limit)`                            | Search with BM25 ranking                           |
 | `index.searchOffset(query, limit, offset)`              | Search with pagination                             |
+| `index.searchStructured(request)`                       | Structured query with inline doc retrieval         |
 | `index.getDocument(segmentId, docId)`                   | Retrieve stored document                           |
 | `index.getDocumentWithFields(segmentId, docId, fields)` | Retrieve only specified fields                     |
 | `index.numDocs()`                                       | Count of committed documents                       |
@@ -156,6 +157,7 @@ const doc = await index.get_document(
 | `index.load_with_idb_cache()`                              | Load with IndexedDB cache pre-fill  |
 | `index.search(query, limit)`                               | Search                              |
 | `index.search_offset(query, limit, offset)`                | Search with pagination              |
+| `index.searchStructured(request)`                          | Structured query with inline docs   |
 | `index.get_document(segmentId, docId)`                     | Retrieve document                   |
 | `index.get_document_with_fields(segmentId, docId, fields)` | Retrieve only specified fields      |
 | `index.num_docs()`                                         | Document count                      |
@@ -234,6 +236,46 @@ index <name> {
 | NOT    | `rust NOT unsafe`      | Exclude term                |
 | Group  | `(rust OR go) AND web` | Grouping                    |
 | Phrase | `"search engine"`      | Exact phrase                |
+
+### Structured Query API
+
+`searchStructured()` accepts a query object and returns hits with documents inline:
+
+```js
+const results = await index.searchStructured({
+  query: { term: { field: "title", value: "rust" } },
+  limit: 10,
+  offset: 0,
+  fieldsToLoad: ["title", "body"],
+});
+// { hits: [{ address, score, doc: { title: "...", body: "..." } }], total_hits }
+```
+
+**Query types:**
+
+```js
+// Term query (tokenized with field's stemmer)
+{ term: { field: "title", value: "rust" } }
+
+// Match query (tokenized, OR across tokens)
+{ match: { field: "body", text: "search engine" } }
+
+// Boolean query (recursive composition)
+{ boolean: {
+    must: [{ term: { field: "title", value: "rust" } }],
+    should: [{ match: { field: "body", text: "fast" } }],
+    mustNot: [{ term: { field: "title", value: "python" } }],
+} }
+
+// Prefix query
+{ prefix: { field: "title", value: "rus" } }
+
+// Sparse vector query (pre-tokenized)
+{ sparseVector: { field: "emb", indices: [1, 5, 10], values: [0.5, 0.3, 0.2] } }
+
+// Dense vector query (ANN)
+{ denseVector: { field: "emb", vector: [0.1, 0.2, 0.3], nprobe: 32 } }
+```
 
 ## Building
 

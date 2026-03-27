@@ -11,6 +11,7 @@
 mod idb;
 mod ipfs_index;
 mod local_index;
+mod query;
 mod registry;
 mod remote_index;
 
