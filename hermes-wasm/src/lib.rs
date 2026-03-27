@@ -39,18 +39,28 @@ pub fn setup_logging() {
     console_log::init_with_level(log::Level::Warn).ok();
 }
 
-/// Set log level: "error", "warn", "info", "debug", "trace"
+/// Set log level: "error", "warn", "info", "debug", "trace", "off"
 #[wasm_bindgen]
 pub fn set_log_level(level: &str) {
-    let level = match level {
-        "error" => log::Level::Error,
-        "warn" => log::Level::Warn,
-        "info" => log::Level::Info,
-        "debug" => log::Level::Debug,
-        "trace" => log::Level::Trace,
-        _ => log::Level::Warn,
-    };
-    log::set_max_level(level.to_level_filter());
+    let filter = level
+        .parse::<log::LevelFilter>()
+        .unwrap_or(log::LevelFilter::Warn);
+    log::set_max_level(filter);
+}
+
+/// Resolve field name strings to a set of field IDs.
+pub(crate) fn resolve_field_ids(
+    schema: &hermes_core::Schema,
+    names: &[String],
+) -> Result<rustc_hash::FxHashSet<u32>, JsValue> {
+    let mut ids = rustc_hash::FxHashSet::default();
+    for name in names {
+        let field = schema
+            .get_field(name)
+            .ok_or_else(|| JsValue::from_str(&format!("Unknown field: '{}'", name)))?;
+        ids.insert(field.0);
+    }
+    Ok(ids)
 }
 
 /// Fetch bytes from a URL using the Fetch API

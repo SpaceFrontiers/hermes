@@ -228,23 +228,23 @@ impl RemoteIndex {
         limit: usize,
         offset: usize,
     ) -> Result<JsValue, JsValue> {
-        log::debug!("=== SEARCH START: '{}' offset={} ===", query_str, offset);
-
         let searcher = self
             .searcher
             .as_ref()
             .ok_or_else(|| JsValue::from_str("Index not loaded"))?;
 
-        // Log segment info
-        for (i, seg) in searcher.segment_readers().iter().enumerate() {
-            let stats = seg.term_dict_stats();
-            log::debug!(
-                "  Segment {}: {} blocks, {} sparse entries, {} terms",
-                i,
-                stats.num_blocks,
-                stats.num_sparse_entries,
-                stats.num_entries
-            );
+        if log::log_enabled!(log::Level::Debug) {
+            log::debug!("=== SEARCH START: '{}' offset={} ===", query_str, offset);
+            for (i, seg) in searcher.segment_readers().iter().enumerate() {
+                let stats = seg.term_dict_stats();
+                log::debug!(
+                    "  Segment {}: {} blocks, {} sparse entries, {} terms",
+                    i,
+                    stats.num_blocks,
+                    stats.num_sparse_entries,
+                    stats.num_entries
+                );
+            }
         }
 
         // Reset network stats before search to see only this query's I/O
@@ -257,22 +257,23 @@ impl RemoteIndex {
             .await
             .map_err(|e| JsValue::from_str(&format!("Search error: {}", e)))?;
 
-        // Log network stats after search
-        if let Some(directory) = &self.directory {
-            let stats = directory.inner().http_stats();
-            log::debug!(
-                "=== SEARCH END: {} requests, {} bytes ===",
-                stats.total_requests,
-                stats.total_bytes
-            );
-            for op in &stats.operations {
+        if log::log_enabled!(log::Level::Debug) {
+            if let Some(directory) = &self.directory {
+                let stats = directory.inner().http_stats();
                 log::debug!(
-                    "  HTTP: {} bytes, {}ms, range={:?}, url={}",
-                    op.bytes,
-                    op.duration_ms,
-                    op.range,
-                    op.url
+                    "=== SEARCH END: {} requests, {} bytes ===",
+                    stats.total_requests,
+                    stats.total_bytes
                 );
+                for op in &stats.operations {
+                    log::debug!(
+                        "  HTTP: {} bytes, {}ms, range={:?}, url={}",
+                        op.bytes,
+                        op.duration_ms,
+                        op.range,
+                        op.url
+                    );
+                }
             }
         }
 
@@ -306,7 +307,7 @@ impl RemoteIndex {
             .as_ref()
             .ok_or_else(|| JsValue::from_str("Index not loaded"))?;
 
-        let field_ids = resolve_field_ids(searcher.schema(), &fields_to_load)?;
+        let field_ids = crate::resolve_field_ids(searcher.schema(), &fields_to_load)?;
         self.get_document_inner(segment_id, doc_id, Some(field_ids))
             .await
     }
@@ -417,19 +418,4 @@ impl RemoteIndex {
         let key = cache_key(&self.base_url);
         idb_delete(&key).await
     }
-}
-
-/// Resolve field name strings to a set of field IDs.
-fn resolve_field_ids(
-    schema: &hermes_core::Schema,
-    names: &[String],
-) -> Result<rustc_hash::FxHashSet<u32>, JsValue> {
-    let mut ids = rustc_hash::FxHashSet::default();
-    for name in names {
-        let field = schema
-            .get_field(name)
-            .ok_or_else(|| JsValue::from_str(&format!("Unknown field: '{}'", name)))?;
-        ids.insert(field.0);
-    }
-    Ok(ids)
 }

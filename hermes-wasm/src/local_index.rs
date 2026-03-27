@@ -310,7 +310,6 @@ impl LocalIndex {
     /// Get a document by its address, loading only the specified fields.
     ///
     /// `fields_to_load` is a JS array of field name strings, e.g. `["title", "body"]`.
-    /// Only the requested fields are returned (skips expensive reads for dense vectors).
     #[wasm_bindgen(js_name = "getDocumentWithFields")]
     pub async fn get_document_with_fields(
         &self,
@@ -323,7 +322,7 @@ impl LocalIndex {
             .as_ref()
             .ok_or_else(|| JsValue::from_str("No committed data"))?;
 
-        let field_ids = resolve_field_ids(searcher.schema(), &fields_to_load)?;
+        let field_ids = crate::resolve_field_ids(searcher.schema(), &fields_to_load)?;
         self.get_document_inner(segment_id, doc_id, Some(field_ids))
             .await
     }
@@ -464,19 +463,4 @@ impl LocalIndex {
         self.persisted_files = current_set;
         Ok(())
     }
-}
-
-/// Resolve field name strings to a set of field IDs.
-fn resolve_field_ids(
-    schema: &hermes_core::Schema,
-    names: &[String],
-) -> Result<rustc_hash::FxHashSet<u32>, JsValue> {
-    let mut ids = rustc_hash::FxHashSet::default();
-    for name in names {
-        let field = schema
-            .get_field(name)
-            .ok_or_else(|| JsValue::from_str(&format!("Unknown field: '{}'", name)))?;
-        ids.insert(field.0);
-    }
-    Ok(ids)
 }

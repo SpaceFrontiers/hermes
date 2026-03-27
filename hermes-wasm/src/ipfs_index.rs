@@ -536,7 +536,7 @@ impl IpfsIndex {
             .as_ref()
             .ok_or_else(|| JsValue::from_str("Index not loaded"))?;
 
-        let field_ids = resolve_field_ids(searcher.schema(), &fields_to_load)?;
+        let field_ids = crate::resolve_field_ids(searcher.schema(), &fields_to_load)?;
         self.get_document_inner(segment_id, doc_id, Some(field_ids))
             .await
     }
@@ -637,19 +637,4 @@ impl IpfsIndex {
         let key = cache_key(&self.base_path);
         idb_delete(&key).await
     }
-}
-
-/// Resolve field name strings to a set of field IDs.
-fn resolve_field_ids(
-    schema: &hermes_core::Schema,
-    names: &[String],
-) -> Result<rustc_hash::FxHashSet<u32>, JsValue> {
-    let mut ids = rustc_hash::FxHashSet::default();
-    for name in names {
-        let field = schema
-            .get_field(name)
-            .ok_or_else(|| JsValue::from_str(&format!("Unknown field: '{}'", name)))?;
-        ids.insert(field.0);
-    }
-    Ok(ids)
 }
