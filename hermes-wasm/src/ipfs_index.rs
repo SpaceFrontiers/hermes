@@ -520,6 +520,33 @@ impl IpfsIndex {
     /// Get a document by address
     #[wasm_bindgen]
     pub async fn get_document(&self, segment_id: String, doc_id: u32) -> Result<JsValue, JsValue> {
+        self.get_document_inner(segment_id, doc_id, None).await
+    }
+
+    /// Get a document by address, loading only the specified fields.
+    #[wasm_bindgen(js_name = "getDocumentWithFields")]
+    pub async fn get_document_with_fields(
+        &self,
+        segment_id: String,
+        doc_id: u32,
+        fields_to_load: Vec<String>,
+    ) -> Result<JsValue, JsValue> {
+        let searcher = self
+            .searcher
+            .as_ref()
+            .ok_or_else(|| JsValue::from_str("Index not loaded"))?;
+
+        let field_ids = resolve_field_ids(searcher.schema(), &fields_to_load)?;
+        self.get_document_inner(segment_id, doc_id, Some(field_ids))
+            .await
+    }
+
+    async fn get_document_inner(
+        &self,
+        segment_id: String,
+        doc_id: u32,
+        fields: Option<rustc_hash::FxHashSet<u32>>,
+    ) -> Result<JsValue, JsValue> {
         let searcher = self
             .searcher
             .as_ref()
@@ -530,7 +557,7 @@ impl IpfsIndex {
         let address = hermes_core::query::DocAddress::new(segment_id_u128, doc_id);
 
         let doc = searcher
-            .get_document(&address)
+            .get_document_with_fields(&address, fields.as_ref())
             .await
             .map_err(|e| JsValue::from_str(&format!("Get document error: {}", e)))?;
 
@@ -610,4 +637,19 @@ impl IpfsIndex {
         let key = cache_key(&self.base_path);
         idb_delete(&key).await
     }
+}
+
+/// Resolve field name strings to a set of field IDs.
+fn resolve_field_ids(
+    schema: &hermes_core::Schema,
+    names: &[String],
+) -> Result<rustc_hash::FxHashSet<u32>, JsValue> {
+    let mut ids = rustc_hash::FxHashSet::default();
+    for name in names {
+        let field = schema
+            .get_field(name)
+            .ok_or_else(|| JsValue::from_str(&format!("Unknown field: '{}'", name)))?;
+        ids.insert(field.0);
+    }
+    Ok(ids)
 }

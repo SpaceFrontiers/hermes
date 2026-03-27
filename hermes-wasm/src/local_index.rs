@@ -304,6 +304,36 @@ impl LocalIndex {
     /// Get a document by its address.
     #[wasm_bindgen(js_name = "getDocument")]
     pub async fn get_document(&self, segment_id: String, doc_id: u32) -> Result<JsValue, JsValue> {
+        self.get_document_inner(segment_id, doc_id, None).await
+    }
+
+    /// Get a document by its address, loading only the specified fields.
+    ///
+    /// `fields_to_load` is a JS array of field name strings, e.g. `["title", "body"]`.
+    /// Only the requested fields are returned (skips expensive reads for dense vectors).
+    #[wasm_bindgen(js_name = "getDocumentWithFields")]
+    pub async fn get_document_with_fields(
+        &self,
+        segment_id: String,
+        doc_id: u32,
+        fields_to_load: Vec<String>,
+    ) -> Result<JsValue, JsValue> {
+        let searcher = self
+            .searcher
+            .as_ref()
+            .ok_or_else(|| JsValue::from_str("No committed data"))?;
+
+        let field_ids = resolve_field_ids(searcher.schema(), &fields_to_load)?;
+        self.get_document_inner(segment_id, doc_id, Some(field_ids))
+            .await
+    }
+
+    async fn get_document_inner(
+        &self,
+        segment_id: String,
+        doc_id: u32,
+        fields: Option<rustc_hash::FxHashSet<u32>>,
+    ) -> Result<JsValue, JsValue> {
         let searcher = self
             .searcher
             .as_ref()
@@ -314,7 +344,7 @@ impl LocalIndex {
         let address = hermes_core::query::DocAddress::new(segment_id_u128, doc_id);
 
         let doc = searcher
-            .get_document(&address)
+            .get_document_with_fields(&address, fields.as_ref())
             .await
             .map_err(|e| JsValue::from_str(&format!("Get document error: {}", e)))?;
 
@@ -434,4 +464,19 @@ impl LocalIndex {
         self.persisted_files = current_set;
         Ok(())
     }
+}
+
+/// Resolve field name strings to a set of field IDs.
+fn resolve_field_ids(
+    schema: &hermes_core::Schema,
+    names: &[String],
+) -> Result<rustc_hash::FxHashSet<u32>, JsValue> {
+    let mut ids = rustc_hash::FxHashSet::default();
+    for name in names {
+        let field = schema
+            .get_field(name)
+            .ok_or_else(|| JsValue::from_str(&format!("Unknown field: '{}'", name)))?;
+        ids.insert(field.0);
+    }
+    Ok(ids)
 }
