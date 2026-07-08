@@ -4,7 +4,9 @@
 //! Expected: ~4-6 billion ints/sec (4-6K ints/μs) on modern CPUs with SSE/NEON.
 
 use comfy_table::{Cell, Color, Table, presets::UTF8_FULL};
-use criterion::{Criterion, Throughput, black_box};
+use std::hint::black_box;
+
+use criterion::{Criterion, Throughput};
 use hermes_core::structures::simd::RoundedBitWidth;
 use hermes_core::structures::{HORIZONTAL_BP128_BLOCK_SIZE, pack_block, simd, unpack_block};
 use std::time::Instant;

@@ -1,6 +1,8 @@
 //! Encoding speed benchmarks
 
-use criterion::{BenchmarkId, Criterion, Throughput, black_box};
+use std::hint::black_box;
+
+use criterion::{BenchmarkId, Criterion, Throughput};
 use hermes_core::structures::{
     EliasFanoPostingList, HorizontalBP128PostingList, OptP4DPostingList, PartitionedEFPostingList,
     RoaringPostingList, RoundedBP128PostingList, VerticalBP128PostingList,

@@ -14,7 +14,9 @@ use std::io::{BufReader, Read};
 use std::path::Path;
 use std::time::Instant;
 
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use std::hint::black_box;
+
+use criterion::{Criterion, criterion_group, criterion_main};
 use rand::prelude::*;
 
 use hermes_core::structures::{
