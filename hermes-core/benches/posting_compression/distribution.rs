@@ -1,6 +1,8 @@
 //! Distribution-based benchmarks
 
-use criterion::{BenchmarkId, Criterion, Throughput, black_box};
+use std::hint::black_box;
+
+use criterion::{BenchmarkId, Criterion, Throughput};
 use hermes_core::structures::{
     CompressedPostingList, EliasFanoPostingList, HorizontalBP128PostingList, OptP4DPostingList,
     PartitionedEFPostingList, RoaringPostingList, VerticalBP128PostingList,

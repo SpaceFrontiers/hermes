@@ -7,11 +7,11 @@
 //! - Skip-to pattern (conjunction simulation)
 //! - Galloping search (intersection with small list)
 
-use criterion::black_box;
 use hermes_core::structures::{
     EliasFanoPostingList, HorizontalBP128PostingList, OptP4DPostingList, PartitionedEFPostingList,
     RoaringPostingList, VerticalBP128PostingList,
 };
+use std::hint::black_box;
 use std::time::Instant;
 
 /// Type alias for the complex measurement function tuple

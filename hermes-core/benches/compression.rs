@@ -2,7 +2,9 @@
 //!
 //! Run with: cargo bench -p hermes-core --bench compression
 
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use std::hint::black_box;
+
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use hermes_core::compression::{CompressionLevel, compress, decompress};
 
 fn generate_text_data(size: usize) -> Vec<u8> {
