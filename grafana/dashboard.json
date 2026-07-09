@@ -1669,14 +1669,14 @@
         "sort": 1
       },
       {
-        "name": "pod",
+        "name": "index",
         "type": "query",
         "datasource": {
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "query": "label_values(hermes_search_requests_total{namespace=\"$namespace\"}, pod)",
-        "label": "Pod",
+        "query": "label_values(hermes_search_requests_total{namespace=\"$namespace\"}, index)",
+        "label": "Index",
         "current": {},
         "hide": 0,
         "refresh": 2,
@@ -1686,14 +1686,14 @@
         "allValue": ".*"
       },
       {
-        "name": "index",
+        "name": "pod",
         "type": "query",
         "datasource": {
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "query": "label_values(hermes_search_requests_total{namespace=\"$namespace\"}, index)",
-        "label": "Index",
+        "query": "label_values(hermes_search_requests_total{namespace=\"$namespace\"}, pod)",
+        "label": "Pod",
         "current": {},
         "hide": 0,
         "refresh": 2,
