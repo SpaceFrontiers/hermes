@@ -99,7 +99,7 @@ struct Args {
     /// (merge-time and background). A cap, not an allocation — usage is
     /// proportional to the segment being reordered. Over-budget passes drop
     /// highest-df dims from BP's input with a loud warning.
-    #[arg(long, default_value = "16384")]
+    #[arg(long, default_value = "24576")]
     bp_memory_budget_mb: usize,
 
     /// Address for the Prometheus /metrics HTTP endpoint.
