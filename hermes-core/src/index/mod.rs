@@ -73,6 +73,20 @@ pub struct IndexConfig {
     pub reload_interval_ms: u64,
     /// Maximum number of concurrent background merges (default: 4)
     pub max_concurrent_merges: usize,
+    /// Wall-clock budget for merge-time BP reorder per field (only applies
+    /// when the index has `reorder_on_merge`). A truncated pass still writes
+    /// a valid, better-ordered segment; it is marked `bp_converged = false`
+    /// and the background optimizer deepens it later (warm-started).
+    /// `None` = unbudgeted (BP runs to full depth inside the merge, which can
+    /// hold a merge slot for 10-30+ minutes on 10M+ doc outputs).
+    pub merge_bp_time_budget: Option<std::time::Duration>,
+    /// Memory budget (bytes) for the BP forward index during reorder passes
+    /// (merge-time and background). When a large segment's forward index
+    /// would exceed this, the highest-df dims are dropped from BP's input
+    /// (logged loudly) — clustering quality degrades gracefully. Production
+    /// evidence: 18M-doc merges exceed the 2 GB default and drop ~10% of
+    /// eligible dims; hosts with headroom should raise this.
+    pub bp_memory_budget_bytes: usize,
 }
 
 impl Default for IndexConfig {
@@ -98,6 +112,10 @@ impl Default for IndexConfig {
             optimization: crate::structures::IndexOptimization::default(),
             reload_interval_ms: 1000, // 1 second default
             max_concurrent_merges: 4,
+            merge_bp_time_budget: Some(std::time::Duration::from_secs(600)),
+            // 2 GB — mirrors segment::reorder::DEFAULT_MEMORY_BUDGET (that
+            // module is native-only; IndexConfig also compiles for wasm).
+            bp_memory_budget_bytes: 2 * 1024 * 1024 * 1024,
         }
     }
 }
@@ -138,6 +156,8 @@ impl<D: crate::directories::DirectoryWriter + 'static> Index<D> {
             config.merge_policy.clone_box(),
             config.term_cache_blocks,
             config.max_concurrent_merges,
+            config.merge_bp_time_budget,
+            config.bp_memory_budget_bytes,
         ));
 
         // Save initial metadata
@@ -169,6 +189,8 @@ impl<D: crate::directories::DirectoryWriter + 'static> Index<D> {
             config.merge_policy.clone_box(),
             config.term_cache_blocks,
             config.max_concurrent_merges,
+            config.merge_bp_time_budget,
+            config.bp_memory_budget_bytes,
         ));
 
         // Load trained structures into SegmentManager's ArcSwap
