@@ -28,10 +28,12 @@ fn maxscore_config() -> SparseVectorConfig {
 }
 
 /// Helper: create BMP schema with a text field and a BMP sparse field.
+/// The sparse field carries the `reorder` attribute so BP paths are exercised.
 fn bmp_schema() -> (crate::dsl::Schema, crate::dsl::Field, crate::dsl::Field) {
     let mut sb = SchemaBuilder::default();
     let title = sb.add_text_field("title", true, true);
     let sparse = sb.add_sparse_vector_field_with_config("sparse", true, true, bmp_config());
+    sb.set_reorder(sparse, true);
     (sb.build(), title, sparse)
 }
 
@@ -956,6 +958,7 @@ async fn test_bmp_reorder_standalone() {
     let mut sb = SchemaBuilder::default();
     let title = sb.add_text_field("title", true, true);
     let sparse = sb.add_sparse_vector_field_with_config("sparse", true, true, bmp_config());
+    sb.set_reorder(sparse, true);
     let schema = sb.build();
 
     let dir = RamDirectory::new();
@@ -1047,6 +1050,312 @@ async fn test_bmp_reorder_standalone() {
     );
 }
 
+/// Reorder of a block-copy-merged segment must keep every doc, including docs
+/// whose vids sit past interior padding.
+///
+/// Block-copy merge concatenates each source's virtual doc space *including*
+/// its tail padding (u32::MAX doc-map slots in the last block), so the merged
+/// segment has interior padding and real docs are NOT contiguous in vid space.
+/// The reorder path used to assume `vid < num_real_docs` ⇔ real doc, which
+/// silently dropped the real docs shifted past `num_real_docs` and wrote
+/// padding slots as if they were docs.
+#[tokio::test]
+async fn test_bmp_reorder_after_merge_keeps_interior_padded_docs() {
+    let (schema, title, sparse) = bmp_schema();
+    let dir = RamDirectory::new();
+    let config = IndexConfig::default();
+    let mut writer = IndexWriter::create(dir.clone(), schema.clone(), config.clone())
+        .await
+        .unwrap();
+
+    // Two segments of 100 docs each. block_size=64 → each segment has 128
+    // virtual slots with padding at vids 100..128. After block-copy merge the
+    // padding from segment 1 is interior (merged vids 100..128), and segment
+    // 2's docs occupy vids 128..228 — the last 28 of them past
+    // num_real_docs=200.
+    const DOCS_PER_SEGMENT: usize = 100;
+    for seg in 0..2 {
+        for i in 0..DOCS_PER_SEGMENT {
+            let global = seg * DOCS_PER_SEGMENT + i;
+            let mut doc = Document::new();
+            doc.add_text(title, format!("doc{}", global));
+            doc.add_sparse_vector(sparse, vec![(global as u32, 1.0), (9999, 0.1)]);
+            writer.add_document(doc).unwrap();
+        }
+        writer.commit().await.unwrap();
+    }
+
+    // Block-copy merge (no reorder) → merged segment with interior padding
+    let mut writer = IndexWriter::open(dir.clone(), config.clone())
+        .await
+        .unwrap();
+    writer.force_merge().await.unwrap();
+
+    // Standalone BP reorder of the merged segment
+    let mut writer = IndexWriter::open(dir.clone(), config.clone())
+        .await
+        .unwrap();
+    writer.reorder().await.unwrap();
+
+    let index = Index::open(dir.clone(), config.clone()).await.unwrap();
+    assert_eq!(index.segment_readers().await.unwrap().len(), 1);
+    let reader = index.reader().await.unwrap();
+    let searcher = reader.searcher().await.unwrap();
+
+    // Every unique dim must return exactly its doc
+    let total = 2 * DOCS_PER_SEGMENT;
+    let mut failures = Vec::new();
+    for i in 0..total {
+        let query = SparseVectorQuery::new(sparse, vec![(i as u32, 1.0)]);
+        let results = searcher.search(&query, 5).await.unwrap();
+        if results.len() != 1 {
+            failures.push(format!(
+                "dim {}: expected 1 result, got {}",
+                i,
+                results.len()
+            ));
+            continue;
+        }
+        let doc = searcher
+            .doc(results[0].segment_id, results[0].doc_id)
+            .await
+            .unwrap()
+            .unwrap();
+        let got = doc.get_first(title).unwrap().as_text().unwrap().to_string();
+        if got != format!("doc{}", i) {
+            failures.push(format!("dim {}: got '{}', expected 'doc{}'", i, got, i));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "Reorder after merge lost docs past interior padding: {} failures:\n{}",
+        failures.len(),
+        failures[..failures.len().min(20)].join("\n")
+    );
+
+    // Shared dim must match every doc
+    let query = SparseVectorQuery::new(sparse, vec![(9999, 1.0)]);
+    let results = searcher.search(&query, 300).await.unwrap();
+    assert_eq!(
+        results.len(),
+        total,
+        "dim 9999 should match all {} docs after reorder, got {}",
+        total,
+        results.len()
+    );
+}
+
+/// Merge-time BP reorder (schema-level `reorder_on_merge: true`): force_merge
+/// writes the merged BMP blob in BP order directly, keeps every doc (including
+/// multi-ordinal records and docs behind source tail padding), and marks the
+/// output segment `reordered` so the standalone optimizer pass skips it.
+#[tokio::test]
+async fn test_bmp_merge_with_reorder_on_merge() {
+    let mut sb = SchemaBuilder::default();
+    let title = sb.add_text_field("title", true, true);
+    let sparse = sb.add_sparse_vector_field_with_config("sparse", true, true, bmp_config());
+    sb.set_reorder(sparse, true);
+    sb.set_reorder_on_merge(true);
+    let schema = sb.build();
+    let dir = RamDirectory::new();
+    let config = IndexConfig::default();
+
+    let mut writer = IndexWriter::create(dir.clone(), schema.clone(), config.clone())
+        .await
+        .unwrap();
+
+    // Two segments of 100 docs (not a multiple of block_size=64 → each source
+    // has tail padding, exercising the padding-aware multi-source path).
+    // Every 10th doc carries a second sparse vector (ordinal 1).
+    const DOCS_PER_SEGMENT: usize = 100;
+    for seg in 0..2 {
+        for i in 0..DOCS_PER_SEGMENT {
+            let global = seg * DOCS_PER_SEGMENT + i;
+            let mut doc = Document::new();
+            doc.add_text(title, format!("doc{}", global));
+            doc.add_sparse_vector(sparse, vec![(global as u32, 1.0), (9999, 0.1)]);
+            if global.is_multiple_of(10) {
+                doc.add_sparse_vector(sparse, vec![(5000 + global as u32, 1.0)]);
+            }
+            writer.add_document(doc).unwrap();
+        }
+        writer.commit().await.unwrap();
+    }
+
+    let mut writer = IndexWriter::open(dir.clone(), config.clone())
+        .await
+        .unwrap();
+    writer.force_merge().await.unwrap();
+
+    // Merged segment must be marked reordered — the optimizer must not rewrite it again
+    let metadata = crate::index::IndexMetadata::load(&dir).await.unwrap();
+    assert_eq!(metadata.segment_metas.len(), 1);
+    assert!(
+        metadata.segment_metas.values().all(|m| m.reordered),
+        "merge with reorder_on_merge must mark the output segment reordered"
+    );
+
+    let index = Index::open(dir.clone(), config.clone()).await.unwrap();
+    let total = 2 * DOCS_PER_SEGMENT;
+    assert_eq!(index.num_docs().await.unwrap() as usize, total);
+    let reader = index.reader().await.unwrap();
+    let searcher = reader.searcher().await.unwrap();
+
+    // Every unique dim returns exactly its doc; ordinal-1 vectors also found
+    let mut failures = Vec::new();
+    for i in 0..total {
+        let mut dims_to_check = vec![i as u32];
+        if i.is_multiple_of(10) {
+            dims_to_check.push(5000 + i as u32);
+        }
+        for dim in dims_to_check {
+            let query = SparseVectorQuery::new(sparse, vec![(dim, 1.0)]);
+            let results = searcher.search(&query, 5).await.unwrap();
+            if results.len() != 1 {
+                failures.push(format!(
+                    "dim {}: expected 1 result, got {}",
+                    dim,
+                    results.len()
+                ));
+                continue;
+            }
+            let doc = searcher
+                .doc(results[0].segment_id, results[0].doc_id)
+                .await
+                .unwrap()
+                .unwrap();
+            let got = doc.get_first(title).unwrap().as_text().unwrap().to_string();
+            if got != format!("doc{}", i) {
+                failures.push(format!("dim {}: got '{}', expected 'doc{}'", dim, got, i));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "Merge-time reorder: {} failures:\n{}",
+        failures.len(),
+        failures[..failures.len().min(20)].join("\n")
+    );
+
+    // Shared dim matches every doc
+    let query = SparseVectorQuery::new(sparse, vec![(9999, 1.0)]);
+    let results = searcher.search(&query, 300).await.unwrap();
+    assert_eq!(
+        results.len(),
+        total,
+        "dim 9999 should match all {} docs after merge-time reorder, got {}",
+        total,
+        results.len()
+    );
+}
+
+/// Per-field reorder gate: a BMP field WITHOUT the `reorder` schema attribute
+/// must come out of writer.reorder() byte-identical (insertion order
+/// preserved), while a field WITH the attribute gets BP-reordered. Both must
+/// stay fully searchable.
+#[tokio::test]
+async fn test_bmp_reorder_skips_field_without_reorder_attribute() {
+    let mut sb = SchemaBuilder::default();
+    let title = sb.add_text_field("title", true, true);
+    let ordered = sb.add_sparse_vector_field_with_config("ordered", true, true, bmp_config());
+    let frozen = sb.add_sparse_vector_field_with_config("frozen", true, true, bmp_config());
+    sb.set_reorder(ordered, true);
+    // `frozen` deliberately has NO reorder attribute
+    let schema = sb.build();
+
+    let dir = RamDirectory::new();
+    let config = IndexConfig::default();
+    let mut writer = IndexWriter::create(dir.clone(), schema.clone(), config.clone())
+        .await
+        .unwrap();
+
+    // Interleaved topics (i % 2) with df >= 128 so BP's min_doc_freq filter
+    // keeps them and clustering requires an actual permutation.
+    const NUM_DOCS: usize = 300;
+    for i in 0..NUM_DOCS {
+        let mut doc = Document::new();
+        doc.add_text(title, format!("doc{}", i));
+        let topic_dim = 10000 + (i % 2) as u32 * 10;
+        doc.add_sparse_vector(ordered, vec![(i as u32, 1.0), (topic_dim, 0.5)]);
+        doc.add_sparse_vector(frozen, vec![(i as u32, 1.0), (9999, 0.1)]);
+        writer.add_document(doc).unwrap();
+    }
+    writer.commit().await.unwrap();
+
+    // Snapshot the frozen field's doc map before reorder
+    let index = Index::open(dir.clone(), config.clone()).await.unwrap();
+    let readers = index.segment_readers().await.unwrap();
+    assert_eq!(readers.len(), 1);
+    let frozen_doc_map_before: Vec<u8> = readers[0]
+        .bmp_indexes()
+        .get(&frozen.0)
+        .expect("frozen BMP index")
+        .doc_map_ids_slice()
+        .to_vec();
+    let ordered_doc_map_before: Vec<u8> = readers[0]
+        .bmp_indexes()
+        .get(&ordered.0)
+        .expect("ordered BMP index")
+        .doc_map_ids_slice()
+        .to_vec();
+    drop(readers);
+    drop(index);
+
+    let mut writer = IndexWriter::open(dir.clone(), config.clone())
+        .await
+        .unwrap();
+    writer.reorder().await.unwrap();
+
+    let index = Index::open(dir.clone(), config.clone()).await.unwrap();
+    let readers = index.segment_readers().await.unwrap();
+    assert_eq!(readers.len(), 1);
+    let frozen_doc_map_after: Vec<u8> = readers[0]
+        .bmp_indexes()
+        .get(&frozen.0)
+        .expect("frozen BMP index after reorder")
+        .doc_map_ids_slice()
+        .to_vec();
+    let ordered_doc_map_after: Vec<u8> = readers[0]
+        .bmp_indexes()
+        .get(&ordered.0)
+        .expect("ordered BMP index after reorder")
+        .doc_map_ids_slice()
+        .to_vec();
+    drop(readers);
+
+    assert_eq!(
+        frozen_doc_map_before, frozen_doc_map_after,
+        "field without `reorder` attribute must be copied byte-identically"
+    );
+    assert_ne!(
+        ordered_doc_map_before, ordered_doc_map_after,
+        "field with `reorder` attribute must actually be BP-reordered"
+    );
+
+    // Both fields stay fully searchable
+    let reader = index.reader().await.unwrap();
+    let searcher = reader.searcher().await.unwrap();
+    for (field, name) in [(ordered, "ordered"), (frozen, "frozen")] {
+        for i in [0usize, 63, 64, 150, NUM_DOCS - 1] {
+            let query = SparseVectorQuery::new(field, vec![(i as u32, 1.0)]);
+            let results = searcher.search(&query, 5).await.unwrap();
+            assert_eq!(results.len(), 1, "{} dim {}: expected 1 result", name, i);
+            let doc = searcher
+                .doc(results[0].segment_id, results[0].doc_id)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                doc.get_first(title).unwrap().as_text().unwrap(),
+                format!("doc{}", i),
+                "{} dim {} returned wrong doc",
+                name,
+                i
+            );
+        }
+    }
+}
+
 /// BMP reorder with multi-field: build index with 2 BMP sparse fields,
 /// call writer.reorder(), verify both fields return correct results.
 #[tokio::test]
@@ -1055,6 +1364,8 @@ async fn test_bmp_reorder_multi_field() {
     let title = sb.add_text_field("title", true, true);
     let sparse_a = sb.add_sparse_vector_field_with_config("sparse_a", true, true, bmp_config());
     let sparse_b = sb.add_sparse_vector_field_with_config("sparse_b", true, true, bmp_config());
+    sb.set_reorder(sparse_a, true);
+    sb.set_reorder(sparse_b, true);
     let schema = sb.build();
 
     let dir = RamDirectory::new();
@@ -1373,5 +1684,1574 @@ async fn test_bmp_multi_ordinal_clustering() {
         "Cross-topic query should match all {} docs, got {}",
         NUM_DOCS,
         results_cross.len()
+    );
+}
+
+/// Metrics emission: a BMP search must record the Prometheus metrics
+/// documented in docs/metrics.md, including the doc-map indirection counters,
+/// and Directory-layer metrics (cold writes) must carry the index label set
+/// at Index open. Only compiled with the `metrics` feature
+/// (cargo test --features metrics).
+#[cfg(feature = "metrics")]
+#[tokio::test]
+async fn test_bmp_query_emits_prometheus_metrics() {
+    use metrics_util::debugging::DebuggingRecorder;
+
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    // Global install: first (and only) metrics test in the process.
+    recorder.install().expect("install debugging recorder");
+
+    let (mut schema, _title, sparse) = bmp_schema();
+    schema.set_index_name("metrics_test");
+    // MmapDirectory (the production directory) so merge outputs go through
+    // the cold streaming writer.
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = crate::directories::MmapDirectory::new(tmp.path());
+    let config = IndexConfig::default();
+    let mut writer = IndexWriter::create(dir.clone(), schema, config.clone())
+        .await
+        .unwrap();
+    for seg in 0..2u32 {
+        for i in 0..200u32 {
+            let mut doc = Document::new();
+            doc.add_sparse_vector(sparse, vec![(seg * 200 + i, 1.0), (9999, 0.1)]);
+            writer.add_document(doc).unwrap();
+        }
+        writer.commit().await.unwrap();
+    }
+    // Two segments → merge → cold write of the merged segment.
+    writer.force_merge().await.unwrap();
+    drop(writer);
+
+    let index = Index::open(dir, config).await.unwrap();
+    let reader = index.reader().await.unwrap();
+    let searcher = reader.searcher().await.unwrap();
+    let query = SparseVectorQuery::new(sparse, vec![(9999, 1.0), (5, 0.5)]);
+    let results = searcher.search(&query, 10).await.unwrap();
+    assert!(!results.is_empty());
+
+    // The recorder is global and other tests run concurrently, so assert
+    // per-metric that an emission with THIS index's label exists — including
+    // the Directory-layer cold write, whose label is attached late via
+    // Directory::set_index_label. "unknown" here = label-plumbing regression.
+    let snapshot = snapshotter.snapshot().into_vec();
+    for expected in [
+        "hermes_bmp_query_duration_seconds",
+        "hermes_bmp_blocks_scored_total",
+        "hermes_bmp_superblocks_visited_total",
+        "hermes_bmp_docmap_lookups_total",
+        "hermes_bmp_docmap_lookups_per_query",
+        "hermes_cold_write_bytes_total",
+    ] {
+        assert!(
+            snapshot.iter().any(|(key, _, _, _)| {
+                let key = key.key();
+                key.name() == expected
+                    && key
+                        .labels()
+                        .any(|l| l.key() == "index" && l.value() == "metrics_test")
+            }),
+            "metric '{}' not emitted with index=\"metrics_test\"",
+            expected,
+        );
+    }
+}
+
+/// Budgeted (partial) reorder: a zero wall-clock BP budget must still produce
+/// a valid, fully searchable segment, mark it `bp_converged = false` in the
+/// index metadata (so the optimizer can deepen it later), and a follow-up
+/// full-budget pass must converge.
+#[tokio::test]
+async fn test_budgeted_reorder_marks_unconverged_and_stays_searchable() {
+    use crate::segment::BpBudget;
+
+    let (schema, title, sparse) = bmp_schema();
+    let dir = RamDirectory::new();
+    let config = IndexConfig::default();
+    let mut writer = IndexWriter::create(dir.clone(), schema, config.clone())
+        .await
+        .unwrap();
+
+    const NUM_DOCS: usize = 300;
+    for i in 0..NUM_DOCS {
+        let mut doc = Document::new();
+        doc.add_text(title, format!("doc{}", i));
+        let topic_dim = 10000 + (i % 2) as u32 * 10;
+        doc.add_sparse_vector(sparse, vec![(i as u32, 1.0), (topic_dim, 0.5)]);
+        writer.add_document(doc).unwrap();
+    }
+    writer.commit().await.unwrap();
+    drop(writer);
+
+    let index = Index::open(dir.clone(), config.clone()).await.unwrap();
+    let seg_id = index.segment_readers().await.unwrap()[0].meta().id;
+    let sm = std::sync::Arc::clone(index.segment_manager());
+
+    // Pass 1: zero time budget → valid output, unconverged
+    let budget = BpBudget {
+        min_partition_docs: None,
+        time_budget: Some(std::time::Duration::ZERO),
+    };
+    let reordered = sm
+        .reorder_single_segment(&format!("{:032x}", seg_id), None, budget)
+        .await
+        .unwrap();
+    assert!(reordered);
+
+    let metadata = crate::index::IndexMetadata::load(&dir).await.unwrap();
+    assert_eq!(metadata.segment_metas.len(), 1);
+    let info = metadata.segment_metas.values().next().unwrap();
+    assert!(info.reordered, "budgeted pass must mark segment reordered");
+    assert!(
+        !info.bp_converged,
+        "zero-budget pass must be marked unconverged for the optimizer to deepen"
+    );
+
+    // All docs still searchable after the partial pass
+    let index = Index::open(dir.clone(), config.clone()).await.unwrap();
+    let reader = index.reader().await.unwrap();
+    let searcher = reader.searcher().await.unwrap();
+    for i in [0usize, 63, 150, NUM_DOCS - 1] {
+        let query = SparseVectorQuery::new(sparse, vec![(i as u32, 1.0)]);
+        let results = searcher.search(&query, 5).await.unwrap();
+        assert_eq!(results.len(), 1, "dim {} lost after budgeted reorder", i);
+    }
+
+    // Pass 2: full budget → warm-started pass converges
+    let new_seg_id = metadata.segment_ids()[0].clone();
+    let sm = std::sync::Arc::clone(index.segment_manager());
+    let reordered = sm
+        .reorder_single_segment(&new_seg_id, None, BpBudget::full())
+        .await
+        .unwrap();
+    assert!(reordered);
+    let metadata = crate::index::IndexMetadata::load(&dir).await.unwrap();
+    let info = metadata.segment_metas.values().next().unwrap();
+    assert!(
+        info.bp_converged,
+        "full-budget follow-up pass must converge"
+    );
+}
+
+/// Small-segment reorder must still cluster: with a fixed min_doc_freq=128,
+/// topic dims on a small segment (df below 128) were filtered out of the BP
+/// forward index and reorder degenerated to identity. The df floor now
+/// scales with segment size.
+#[tokio::test]
+async fn test_bmp_reorder_small_segment_clusters_low_df_topics() {
+    let (schema, _title, sparse) = bmp_schema();
+    let dir = RamDirectory::new();
+    let config = IndexConfig::default();
+    let mut writer = IndexWriter::create(dir.clone(), schema, config.clone())
+        .await
+        .unwrap();
+
+    // 200 docs, interleaved topics with df=100 — below the old fixed floor
+    // of 128, above the scaled floor (200/5000 → clamped to 2).
+    const NUM_DOCS: usize = 200;
+    for i in 0..NUM_DOCS {
+        let mut doc = Document::new();
+        let topic_dim = 10000 + (i % 2) as u32 * 10;
+        doc.add_sparse_vector(sparse, vec![(i as u32, 1.0), (topic_dim, 0.5)]);
+        writer.add_document(doc).unwrap();
+    }
+    writer.commit().await.unwrap();
+    drop(writer);
+
+    let index = Index::open(dir.clone(), config.clone()).await.unwrap();
+    let doc_map_before: Vec<u8> = index.segment_readers().await.unwrap()[0]
+        .bmp_indexes()
+        .get(&sparse.0)
+        .unwrap()
+        .doc_map_ids_slice()
+        .to_vec();
+    drop(index);
+
+    let mut writer = IndexWriter::open(dir.clone(), config.clone())
+        .await
+        .unwrap();
+    writer.reorder().await.unwrap();
+
+    let index = Index::open(dir.clone(), config.clone()).await.unwrap();
+    let doc_map_after: Vec<u8> = index.segment_readers().await.unwrap()[0]
+        .bmp_indexes()
+        .get(&sparse.0)
+        .unwrap()
+        .doc_map_ids_slice()
+        .to_vec();
+
+    assert_ne!(
+        doc_map_before, doc_map_after,
+        "small-segment reorder must cluster low-df topic dims, not degenerate to identity"
+    );
+
+    // All docs remain searchable
+    let reader = index.reader().await.unwrap();
+    let searcher = reader.searcher().await.unwrap();
+    for i in [0usize, 99, NUM_DOCS - 1] {
+        let query = SparseVectorQuery::new(sparse, vec![(i as u32, 1.0)]);
+        let results = searcher.search(&query, 5).await.unwrap();
+        assert_eq!(
+            results.len(),
+            1,
+            "dim {} lost after small-segment reorder",
+            i
+        );
+    }
+}
+
+/// Auto granularity: reordering a block-copy merge of two ALREADY-REORDERED
+/// segments must pick the blockwise path — the doc map afterwards consists of
+/// the same 64-entry block chunks as before, only permuted (blocks moved as
+/// units, records untouched) — and every doc stays searchable.
+#[tokio::test]
+async fn test_auto_reorder_uses_blockwise_for_coherent_merged_segments() {
+    let (schema, _title, sparse) = bmp_schema();
+    let dir = RamDirectory::new();
+    let config = IndexConfig::default();
+    let mut writer = IndexWriter::create(dir.clone(), schema, config.clone())
+        .await
+        .unwrap();
+
+    // Two segments, 4096 docs each (multiple of block_size=64 → no padding,
+    // so block chunks compare cleanly; 128 blocks total = 2 superblocks so
+    // block-level BP has an assignment decision to make). 4 topics with
+    // heavy shared vocab (32 shared dims/topic) → coherent blocks after
+    // record-level reorder.
+    const DOCS_PER_SEGMENT: usize = 4096;
+    for seg in 0..2 {
+        for i in 0..DOCS_PER_SEGMENT {
+            let global = seg * DOCS_PER_SEGMENT + i;
+            // Asymmetric topic mix per source (A: 40/30/20/10, B reversed) —
+            // a symmetric mix makes every block-move gain tie and identity
+            // becomes a stable optimum with nothing to exchange.
+            let frac = i * 100 / DOCS_PER_SEGMENT;
+            let topic: u32 = if seg == 0 {
+                match frac {
+                    0..=39 => 0,
+                    40..=69 => 1,
+                    70..=89 => 2,
+                    _ => 3,
+                }
+            } else {
+                match frac {
+                    0..=39 => 3,
+                    40..=69 => 2,
+                    70..=89 => 1,
+                    _ => 0,
+                }
+            };
+            let mut entries: Vec<(u32, f32)> =
+                (0..32).map(|t| (50000 + topic * 100 + t, 0.5)).collect();
+            entries.push((global as u32, 1.0));
+            let mut doc = Document::new();
+            doc.add_sparse_vector(sparse, entries);
+            writer.add_document(doc).unwrap();
+        }
+        writer.commit().await.unwrap();
+    }
+    // Record-level reorder both segments (fresh segments are incoherent →
+    // Auto picks Records here), then block-copy merge scrambles block order.
+    writer.reorder().await.unwrap();
+    writer.force_merge().await.unwrap();
+    drop(writer);
+
+    let index = Index::open(dir.clone(), config.clone()).await.unwrap();
+    let readers = index.segment_readers().await.unwrap();
+    assert_eq!(readers.len(), 1);
+    let bmp = readers[0].bmp_indexes().get(&sparse.0).unwrap();
+    // Merged-from-reordered sources must be coherent enough for blockwise
+    let d = bmp.total_postings() as f32 / bmp.total_terms() as f32;
+    assert!(
+        d >= 4.0,
+        "test setup: expected coherent blocks after record reorder + merge, got d={:.2}",
+        d
+    );
+    let ids_before = bmp.doc_map_ids_slice().to_vec();
+    drop(readers);
+    drop(index);
+
+    // Reorder the merged segment: Auto must take the blockwise path
+    let mut writer = IndexWriter::open(dir.clone(), config.clone())
+        .await
+        .unwrap();
+    writer.reorder().await.unwrap();
+
+    let index = Index::open(dir.clone(), config.clone()).await.unwrap();
+    let readers = index.segment_readers().await.unwrap();
+    let bmp = readers[0].bmp_indexes().get(&sparse.0).unwrap();
+    let ids_after = bmp.doc_map_ids_slice().to_vec();
+
+    // Blockwise ⇒ the multiset of 64-entry id chunks is preserved, order permuted
+    const CHUNK_BYTES: usize = 64 * 4;
+    let chunks = |v: &[u8]| -> Vec<Vec<u8>> {
+        let mut c: Vec<Vec<u8>> = v.chunks(CHUNK_BYTES).map(|x| x.to_vec()).collect();
+        c.sort();
+        c
+    };
+    assert_eq!(
+        chunks(&ids_before),
+        chunks(&ids_after),
+        "blockwise reorder must move blocks as intact units"
+    );
+    assert_ne!(
+        ids_before, ids_after,
+        "blockwise reorder should actually permute block order"
+    );
+
+    // Every doc still searchable via its unique dim
+    let reader = index.reader().await.unwrap();
+    let searcher = reader.searcher().await.unwrap();
+    for i in [0usize, 4095, 4096, 8191] {
+        let query = SparseVectorQuery::new(sparse, vec![(i as u32, 1.0)]);
+        let results = searcher.search(&query, 5).await.unwrap();
+        assert_eq!(results.len(), 1, "dim {} lost after blockwise reorder", i);
+    }
+}
+
+/// Helper: BMP schema with a custom sparse config (grid-cap / block-size tests).
+fn bmp_schema_with_config(
+    config: SparseVectorConfig,
+) -> (crate::dsl::Schema, crate::dsl::Field, crate::dsl::Field) {
+    let mut sb = SchemaBuilder::default();
+    let title = sb.add_text_field("title", true, true);
+    let sparse = sb.add_sparse_vector_field_with_config("sparse", true, true, config);
+    sb.set_reorder(sparse, true);
+    (sb.build(), title, sparse)
+}
+
+/// Block size 256 (the default) must work end-to-end: build, block-copy
+/// merge, BP reorder, and exact search.
+#[tokio::test]
+async fn test_bmp_block_size_256_build_merge_reorder_search() {
+    let (schema, _title, sparse) = bmp_schema_with_config(SparseVectorConfig {
+        bmp_block_size: 256,
+        ..bmp_config()
+    });
+    let dir = RamDirectory::new();
+    let config = IndexConfig::default();
+    let mut writer = IndexWriter::create(dir.clone(), schema, config.clone())
+        .await
+        .unwrap();
+
+    const DOCS_PER_SEGMENT: usize = 600; // >2 blocks of 256 per segment
+    for seg in 0..2 {
+        for i in 0..DOCS_PER_SEGMENT {
+            let global = (seg * DOCS_PER_SEGMENT + i) as u32;
+            let mut doc = Document::new();
+            doc.add_sparse_vector(sparse, vec![(global, 1.0), (900_000 + global % 4, 0.5)]);
+            writer.add_document(doc).unwrap();
+        }
+        writer.commit().await.unwrap();
+    }
+    writer.force_merge().await.unwrap();
+    writer.reorder().await.unwrap();
+    drop(writer);
+
+    let index = Index::open(dir.clone(), config.clone()).await.unwrap();
+    let readers = index.segment_readers().await.unwrap();
+    assert_eq!(readers.len(), 1);
+    let bmp = readers[0].bmp_indexes().get(&sparse.0).unwrap();
+    assert_eq!(bmp.bmp_block_size, 256);
+
+    let reader = index.reader().await.unwrap();
+    let searcher = reader.searcher().await.unwrap();
+    for i in [0usize, 255, 256, 599, 600, 2 * DOCS_PER_SEGMENT - 1] {
+        let query = SparseVectorQuery::new(sparse, vec![(i as u32, 1.0)]);
+        let results = searcher.search(&query, 5).await.unwrap();
+        assert_eq!(results.len(), 1, "dim {} lost at block_size 256", i);
+    }
+}
+
+/// Corpus for granularity-decision tests: 8192 docs = 128 blocks = 2
+/// superblocks, one commit. Groups of 4 consecutive docs share 4 rare dims
+/// (df=4, block-local → blocks are internally coherent by construction),
+/// each doc has a unique dim, and each group carries one of 32 topic dims
+/// assigned round-robin — so topic dims are scrambled at the *block* level
+/// and block-level BP has superblock assignments to fix, while record-level
+/// BP would scatter records across block boundaries. Expected coherence:
+/// d ≈ 2.7 (< 4.0), norm ≈ 0.8 (> 0.5).
+const RARE_DIM_CORPUS_DOCS: usize = 8192;
+fn add_rare_dim_clustered_corpus(
+    writer: &mut IndexWriter<RamDirectory>,
+    sparse: crate::dsl::Field,
+) {
+    for i in 0..RARE_DIM_CORPUS_DOCS {
+        let group = i / 4;
+        let topic = (group % 32) as u32;
+        let mut entries: Vec<(u32, f32)> = (0..4)
+            .map(|k| (100_000 + (group as u32) * 4 + k, 0.5))
+            .collect();
+        entries.push((90_000 + topic, 0.5));
+        entries.push((i as u32, 1.0));
+        let mut doc = Document::new();
+        doc.add_sparse_vector(sparse, entries);
+        writer.add_document(doc).unwrap();
+    }
+}
+
+/// Sorted multiset of 64-entry doc-map chunks — preserved by blockwise
+/// reorder (blocks move as units), broken by record-level scatter.
+fn doc_map_chunks(v: &[u8]) -> Vec<Vec<u8>> {
+    const CHUNK_BYTES: usize = 64 * 4;
+    let mut c: Vec<Vec<u8>> = v.chunks(CHUNK_BYTES).map(|x| x.to_vec()).collect();
+    c.sort();
+    c
+}
+
+/// Auto granularity is value-independent: a rare-dim corpus whose blocks are
+/// already internally coherent must pick blockwise even though its absolute
+/// coherence d sits far below the old fixed cutoff of 4.0 (rare dims cap d
+/// regardless of ordering). An absolute-d threshold would wrongly run the
+/// full record-level scatter here.
+#[tokio::test]
+async fn test_auto_reorder_rare_dim_clustered_low_d_picks_blockwise() {
+    let (schema, _title, sparse) = bmp_schema();
+    let dir = RamDirectory::new();
+    let config = IndexConfig::default();
+    let mut writer = IndexWriter::create(dir.clone(), schema, config.clone())
+        .await
+        .unwrap();
+
+    add_rare_dim_clustered_corpus(&mut writer, sparse);
+    writer.commit().await.unwrap();
+    drop(writer);
+
+    let index = Index::open(dir.clone(), config.clone()).await.unwrap();
+    let readers = index.segment_readers().await.unwrap();
+    assert_eq!(readers.len(), 1);
+    let bmp = readers[0].bmp_indexes().get(&sparse.0).unwrap();
+    // Setup guard: this corpus must sit below the old absolute cutoff —
+    // that is exactly the case the normalized threshold exists for.
+    let d = bmp.total_postings() as f32 / bmp.total_terms() as f32;
+    assert!(
+        d < 4.0,
+        "test setup: expected rare-dim corpus with low absolute d, got d={:.2}",
+        d
+    );
+    let ids_before = bmp.doc_map_ids_slice().to_vec();
+    drop(readers);
+    drop(index);
+
+    let mut writer = IndexWriter::open(dir.clone(), config.clone())
+        .await
+        .unwrap();
+    writer.reorder().await.unwrap();
+
+    let index = Index::open(dir.clone(), config.clone()).await.unwrap();
+    let readers = index.segment_readers().await.unwrap();
+    let bmp = readers[0].bmp_indexes().get(&sparse.0).unwrap();
+    let ids_after = bmp.doc_map_ids_slice().to_vec();
+
+    // Blockwise ⇒ blocks moved as intact 64-entry doc-map chunks. The
+    // record-level path would scatter records across block boundaries.
+    assert_eq!(
+        doc_map_chunks(&ids_before),
+        doc_map_chunks(&ids_after),
+        "coherent rare-dim segment must take the blockwise path"
+    );
+    assert_ne!(
+        ids_before, ids_after,
+        "blockwise reorder should actually permute block order"
+    );
+
+    let reader = index.reader().await.unwrap();
+    let searcher = reader.searcher().await.unwrap();
+    for i in [0usize, 63, 4096, 8191] {
+        let query = SparseVectorQuery::new(sparse, vec![(i as u32, 1.0)]);
+        let results = searcher.search(&query, 5).await.unwrap();
+        assert_eq!(results.len(), 1, "dim {} lost after blockwise reorder", i);
+    }
+}
+
+/// Alignment of the granularity decision with warm-start deepening: a
+/// deepening pass on an unconverged (budget-truncated) segment must force
+/// record-level BP. `Auto` would measure the partial pass's residual
+/// coherence, take the blockwise path — which cannot deepen record
+/// clustering — report converged, and end the deepening cascade at partial
+/// quality.
+#[tokio::test]
+async fn test_deepening_pass_on_unconverged_segment_forces_record_level() {
+    use crate::segment::BpBudget;
+
+    let (schema, _title, sparse) = bmp_schema();
+    let dir = RamDirectory::new();
+    let config = IndexConfig::default();
+    let mut writer = IndexWriter::create(dir.clone(), schema, config.clone())
+        .await
+        .unwrap();
+    add_rare_dim_clustered_corpus(&mut writer, sparse);
+    writer.commit().await.unwrap();
+    drop(writer);
+
+    let index = Index::open(dir.clone(), config.clone()).await.unwrap();
+    let seg_id = index.segment_readers().await.unwrap()[0].meta().id;
+    let sm = std::sync::Arc::clone(index.segment_manager());
+
+    // Pass 1: coherent corpus + zero time budget → Auto takes blockwise,
+    // which the deadline interrupts → reordered but unconverged.
+    let budget = BpBudget {
+        min_partition_docs: None,
+        time_budget: Some(std::time::Duration::ZERO),
+    };
+    assert!(
+        sm.reorder_single_segment(&format!("{:032x}", seg_id), None, budget)
+            .await
+            .unwrap()
+    );
+    let metadata = crate::index::IndexMetadata::load(&dir).await.unwrap();
+    let info = metadata.segment_metas.values().next().unwrap();
+    assert!(info.reordered);
+    assert!(
+        !info.bp_converged,
+        "zero-budget pass must be marked unconverged"
+    );
+    drop(index);
+
+    let index = Index::open(dir.clone(), config.clone()).await.unwrap();
+    let ids_partial = index.segment_readers().await.unwrap()[0]
+        .bmp_indexes()
+        .get(&sparse.0)
+        .unwrap()
+        .doc_map_ids_slice()
+        .to_vec();
+    let sm = std::sync::Arc::clone(index.segment_manager());
+
+    // Pass 2 (deepening): the segment is still coherent, so Auto would pick
+    // blockwise again — the unconverged flag must force record-level.
+    let new_seg_id = metadata.segment_ids()[0].clone();
+    assert!(
+        sm.reorder_single_segment(&new_seg_id, None, BpBudget::full())
+            .await
+            .unwrap()
+    );
+
+    let index2 = Index::open(dir.clone(), config.clone()).await.unwrap();
+    let ids_deepened = index2.segment_readers().await.unwrap()[0]
+        .bmp_indexes()
+        .get(&sparse.0)
+        .unwrap()
+        .doc_map_ids_slice()
+        .to_vec();
+    assert_ne!(
+        doc_map_chunks(&ids_partial),
+        doc_map_chunks(&ids_deepened),
+        "deepening pass must run record-level BP (scatter records), not blockwise"
+    );
+    let metadata = crate::index::IndexMetadata::load(&dir).await.unwrap();
+    let info = metadata.segment_metas.values().next().unwrap();
+    assert!(
+        info.bp_converged,
+        "full-budget deepening pass must converge"
+    );
+
+    let reader = index2.reader().await.unwrap();
+    let searcher = reader.searcher().await.unwrap();
+    for i in [0usize, 63, 4096, 8191] {
+        let query = SparseVectorQuery::new(sparse, vec![(i as u32, 1.0)]);
+        let results = searcher.search(&query, 5).await.unwrap();
+        assert_eq!(results.len(), 1, "dim {} lost after deepening pass", i);
+    }
+}
+
+/// Alignment of the depth budget with blockwise BP: `min_partition_docs` is
+/// in DOC units, but blockwise BP entities are BLOCKS — the cap must be
+/// converted (4096 docs = 64 blocks = exactly superblock depth), or the
+/// optimizer's large-segment cap silently stops blockwise BP above
+/// superblock granularity and the pass becomes an identity no-op.
+#[tokio::test]
+async fn test_blockwise_budget_depth_cap_scales_to_block_units() {
+    use crate::segment::BpBudget;
+
+    let (schema, _title, sparse) = bmp_schema();
+    let dir = RamDirectory::new();
+    let config = IndexConfig::default();
+    let mut writer = IndexWriter::create(dir.clone(), schema, config.clone())
+        .await
+        .unwrap();
+    add_rare_dim_clustered_corpus(&mut writer, sparse);
+    writer.commit().await.unwrap();
+    drop(writer);
+
+    let index = Index::open(dir.clone(), config.clone()).await.unwrap();
+    let seg_id = index.segment_readers().await.unwrap()[0].meta().id;
+    let ids_before = index.segment_readers().await.unwrap()[0]
+        .bmp_indexes()
+        .get(&sparse.0)
+        .unwrap()
+        .doc_map_ids_slice()
+        .to_vec();
+    let sm = std::sync::Arc::clone(index.segment_manager());
+
+    // The optimizer's partial budget for large segments. Misread as 4096
+    // *blocks*, BP over this corpus's 128 blocks would stop at depth 0.
+    let budget = BpBudget {
+        min_partition_docs: Some(4096),
+        time_budget: None,
+    };
+    assert!(
+        sm.reorder_single_segment(&format!("{:032x}", seg_id), None, budget)
+            .await
+            .unwrap()
+    );
+
+    let index2 = Index::open(dir.clone(), config.clone()).await.unwrap();
+    let ids_after = index2.segment_readers().await.unwrap()[0]
+        .bmp_indexes()
+        .get(&sparse.0)
+        .unwrap()
+        .doc_map_ids_slice()
+        .to_vec();
+    assert_eq!(
+        doc_map_chunks(&ids_before),
+        doc_map_chunks(&ids_after),
+        "coherent corpus must take the blockwise path"
+    );
+    assert_ne!(
+        ids_before, ids_after,
+        "a 4096-doc depth cap = superblock depth for blockwise BP — the pass must actually permute blocks"
+    );
+    // Ladder semantics: a pass with a depth floor above block granularity is
+    // recorded UNCONVERGED so the optimizer's deepening ladder revisits it
+    // with a full-depth (warm-started) pass.
+    let metadata = crate::index::IndexMetadata::load(&dir).await.unwrap();
+    let info = metadata.segment_metas.values().next().unwrap();
+    assert!(
+        !info.bp_converged,
+        "depth-capped pass must be recorded unconverged for the deepening ladder"
+    );
+}
+
+/// Budgeted merge-time BP: a merge whose BP pass hits its wall-clock budget
+/// must still produce a valid, fully searchable merged segment — marked
+/// `bp_converged = false` so the background optimizer deepens it later. A
+/// follow-up full-depth pass converges. This is the merge-throughput lever:
+/// merges stop holding a slot for full BP depth on huge outputs.
+#[tokio::test]
+async fn test_budgeted_merge_marks_unconverged_and_deepens() {
+    use crate::segment::BpBudget;
+
+    let mut sb = SchemaBuilder::default();
+    let _title = sb.add_text_field("title", true, true);
+    let sparse = sb.add_sparse_vector_field_with_config("sparse", true, true, bmp_config());
+    sb.set_reorder(sparse, true);
+    sb.set_reorder_on_merge(true);
+    let schema = sb.build();
+    let dir = RamDirectory::new();
+    // Zero budget: merge-time BP truncates immediately (identity re-block).
+    let config = IndexConfig {
+        merge_bp_time_budget: Some(std::time::Duration::ZERO),
+        ..IndexConfig::default()
+    };
+
+    let mut writer = IndexWriter::create(dir.clone(), schema, config.clone())
+        .await
+        .unwrap();
+    // Interleaved mid-frequency topics → Auto picks Records (blockwise
+    // cannot fix intra-block scramble), so merge-time BP actually runs and
+    // the zero budget truncates it.
+    const DOCS_PER_SEGMENT: usize = 300;
+    for seg in 0..2 {
+        for i in 0..DOCS_PER_SEGMENT {
+            let global = (seg * DOCS_PER_SEGMENT + i) as u32;
+            let topic = global % 4;
+            let mut entries: Vec<(u32, f32)> =
+                (0..32).map(|t| (50_000 + topic * 100 + t, 0.5)).collect();
+            entries.push((global, 1.0));
+            let mut doc = Document::new();
+            doc.add_sparse_vector(sparse, entries);
+            writer.add_document(doc).unwrap();
+        }
+        writer.commit().await.unwrap();
+    }
+    writer.force_merge().await.unwrap();
+    drop(writer);
+
+    let metadata = crate::index::IndexMetadata::load(&dir).await.unwrap();
+    assert_eq!(metadata.segment_metas.len(), 1);
+    let info = metadata.segment_metas.values().next().unwrap();
+    assert!(info.reordered, "merged segment must be marked reordered");
+    assert!(
+        !info.bp_converged,
+        "budget-truncated merge BP must be recorded unconverged"
+    );
+
+    // Every doc searchable after the truncated merge pass
+    let index = Index::open(dir.clone(), config.clone()).await.unwrap();
+    let reader = index.reader().await.unwrap();
+    let searcher = reader.searcher().await.unwrap();
+    for i in [0usize, 299, 300, 2 * DOCS_PER_SEGMENT - 1] {
+        let query = SparseVectorQuery::new(sparse, vec![(i as u32, 1.0)]);
+        let results = searcher.search(&query, 5).await.unwrap();
+        assert_eq!(results.len(), 1, "dim {} lost after budgeted merge", i);
+    }
+
+    // Deepening pass (optimizer path): full depth converges the segment.
+    let sm = std::sync::Arc::clone(index.segment_manager());
+    let seg_id = metadata.segment_ids()[0].clone();
+    assert!(
+        sm.reorder_single_segment(&seg_id, None, BpBudget::full())
+            .await
+            .unwrap()
+    );
+    let metadata = crate::index::IndexMetadata::load(&dir).await.unwrap();
+    let info = metadata.segment_metas.values().next().unwrap();
+    assert!(
+        info.bp_converged,
+        "full-depth deepening pass must converge the merged segment"
+    );
+}
+
+/// Auto granularity is value-independent in the other direction too: a
+/// corpus with mid-frequency dims interleaved at the record level reads a
+/// high absolute d (≈11, well above the old fixed cutoff of 4.0) purely
+/// because every dim touches many records per block by chance — yet blocks
+/// hold nothing together and only record-level BP can pack topics into
+/// blocks. An absolute-d threshold would wrongly take the blockwise path,
+/// which cannot fix intra-block scramble.
+#[tokio::test]
+async fn test_auto_reorder_interleaved_high_d_picks_records() {
+    let (schema, _title, sparse) = bmp_schema();
+    let dir = RamDirectory::new();
+    let config = IndexConfig::default();
+    let mut writer = IndexWriter::create(dir.clone(), schema, config.clone())
+        .await
+        .unwrap();
+
+    // One segment, 8192 docs = 128 blocks. Topic = i % 4 → every block mixes
+    // all 4 topics (32 shared dims each, df=2048), so actual pair counts
+    // equal the random baseline. Expected: d ≈ 11, norm ≈ 0.
+    const NUM_DOCS: usize = 8192;
+    for i in 0..NUM_DOCS {
+        let topic = (i % 4) as u32;
+        let mut entries: Vec<(u32, f32)> =
+            (0..32).map(|t| (50_000 + topic * 100 + t, 0.5)).collect();
+        entries.push((i as u32, 1.0));
+        let mut doc = Document::new();
+        doc.add_sparse_vector(sparse, entries);
+        writer.add_document(doc).unwrap();
+    }
+    writer.commit().await.unwrap();
+    drop(writer);
+
+    let index = Index::open(dir.clone(), config.clone()).await.unwrap();
+    let readers = index.segment_readers().await.unwrap();
+    assert_eq!(readers.len(), 1);
+    let bmp = readers[0].bmp_indexes().get(&sparse.0).unwrap();
+    // Setup guard: this corpus must sit above the old absolute cutoff.
+    let d = bmp.total_postings() as f32 / bmp.total_terms() as f32;
+    assert!(
+        d >= 4.0,
+        "test setup: expected interleaved corpus with high absolute d, got d={:.2}",
+        d
+    );
+    let ids_before = bmp.doc_map_ids_slice().to_vec();
+    drop(readers);
+    drop(index);
+
+    let mut writer = IndexWriter::open(dir.clone(), config.clone())
+        .await
+        .unwrap();
+    writer.reorder().await.unwrap();
+
+    let index = Index::open(dir.clone(), config.clone()).await.unwrap();
+    let readers = index.segment_readers().await.unwrap();
+    let bmp = readers[0].bmp_indexes().get(&sparse.0).unwrap();
+    let ids_after = bmp.doc_map_ids_slice().to_vec();
+
+    // Record-level ⇒ records scattered across block boundaries: the 64-entry
+    // doc-map chunk multiset must change. Blockwise would preserve it.
+    assert_ne!(
+        doc_map_chunks(&ids_before),
+        doc_map_chunks(&ids_after),
+        "interleaved segment must take the record-level path (blockwise cannot fix intra-block scramble)"
+    );
+
+    let reader = index.reader().await.unwrap();
+    let searcher = reader.searcher().await.unwrap();
+    for i in [0usize, 63, 4096, 8191] {
+        let query = SparseVectorQuery::new(sparse, vec![(i as u32, 1.0)]);
+        let results = searcher.search(&query, 5).await.unwrap();
+        assert_eq!(
+            results.len(),
+            1,
+            "dim {} lost after record-level reorder",
+            i
+        );
+    }
+}
+
+/// Aggressive-quantization experiment (docs/bmp-grid-compression.md):
+/// (a) grid nibbles ceil-rounded to 3-bit / 2-bit lattices on the stored
+///     file — bounds only loosen, so exact top-k must be IDENTICAL; cost is
+///     extra blocks scored;
+/// (b) posting weights snapped to a 4-bit lattice at build time — scores
+///     change, so the cost is top-k disagreement vs the 8-bit index
+///     (recall@k), plus whatever pruning shift the coarser grid maxes cause.
+/// Corpus is topical (docs cluster by topic dims) + BP-reordered so the
+/// baseline actually prunes — a uniform corpus cannot measure pruning cost.
+/// Run: cargo test --release -p hermes-core --features native,metrics --lib \
+///        -- --ignored bench_aggressive_quantization --nocapture
+#[cfg(feature = "metrics")]
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "quantization experiment — run manually in release"]
+async fn bench_aggressive_quantization() {
+    use crate::directories::{Directory, DirectoryWriter};
+    use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+    struct XorShift(u64);
+    impl XorShift {
+        fn next(&mut self) -> u64 {
+            let mut x = self.0;
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            self.0 = x;
+            x
+        }
+        fn next_f64(&mut self) -> f64 {
+            (self.next() >> 11) as f64 / (1u64 << 53) as f64
+        }
+    }
+
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    recorder.install().expect("install debugging recorder");
+    let counters = || -> (u64, u64, u64) {
+        let mut scored = 0u64;
+        let mut skipped = 0u64;
+        let mut sbs = 0u64;
+        for (k, _, _, v) in snapshotter.snapshot().into_vec() {
+            if let DebugValue::Counter(c) = v {
+                match k.key().name() {
+                    "hermes_bmp_blocks_scored_total" => scored += c,
+                    "hermes_bmp_blocks_skipped_total" => skipped += c,
+                    "hermes_bmp_superblocks_visited_total" => sbs += c,
+                    _ => {}
+                }
+            }
+        }
+        (scored, skipped, sbs)
+    };
+
+    const DOCS: usize = 400_000;
+    const DIMS: usize = 100_000;
+    const TOPICS: usize = 256;
+    const TOPIC_DIMS: usize = 32; // dims owned per topic
+    const MAX_W: f32 = 5.0;
+    const K: usize = 10;
+    const QUERIES: usize = 100;
+
+    // Background Zipf over the tail dim range [TOPICS*TOPIC_DIMS ..)
+    let bg_base = TOPICS * TOPIC_DIMS;
+    let bg_dims = DIMS - bg_base;
+    let mut cum = Vec::with_capacity(bg_dims);
+    let mut acc = 0.0f64;
+    for i in 0..bg_dims {
+        acc += 1.0 / (i + 1) as f64;
+        cum.push(acc);
+    }
+    let total = acc;
+
+    // Generate one doc's entries. `snap4` snaps weights to the u4 impact
+    // lattice (multiples of 17 in u8 space, round to nearest).
+    let gen_doc = |rng: &mut XorShift, snap4: bool| -> Vec<(u32, f32)> {
+        let topic = (rng.next() % TOPICS as u64) as usize;
+        let mut by_dim: std::collections::BTreeMap<u32, f32> = std::collections::BTreeMap::new();
+        for _ in 0..10 {
+            let d = (topic * TOPIC_DIMS + (rng.next() % TOPIC_DIMS as u64) as usize) as u32;
+            let w = 1.5 + 3.5 * rng.next_f64() as f32;
+            let e = by_dim.entry(d).or_insert(0.0);
+            if w > *e {
+                *e = w;
+            }
+        }
+        for _ in 0..40 {
+            let r = rng.next_f64() * total;
+            let d = (bg_base + cum.partition_point(|&c| c < r).min(bg_dims - 1)) as u32;
+            let idf = ((bg_dims as f64 / ((d as usize - bg_base) as f64 + 1.0)).ln()
+                / (bg_dims as f64).ln()) as f32;
+            let w = 1.2 * idf * (0.3 + 0.7 * rng.next_f64() as f32) + 0.05;
+            let e = by_dim.entry(d).or_insert(0.0);
+            if w > *e {
+                *e = w;
+            }
+        }
+        by_dim
+            .into_iter()
+            .map(|(d, w)| {
+                let w = if snap4 {
+                    let q = (w / MAX_W * 255.0).round().clamp(0.0, 255.0);
+                    let m = (q / 17.0).round() * 17.0;
+                    m / 255.0 * MAX_W
+                } else {
+                    w
+                };
+                (d, w)
+            })
+            .filter(|&(_, w)| w > 0.0)
+            .collect()
+    };
+
+    type GenDoc<'a> = dyn Fn(&mut XorShift, bool) -> Vec<(u32, f32)> + 'a;
+
+    // Build an index (single merged + BP-reordered segment).
+    async fn build(
+        dir: &RamDirectory,
+        sparse: crate::dsl::Field,
+        snap4: bool,
+        gen_doc: &GenDoc<'_>,
+    ) {
+        let (mut schema, _t, _s) = bmp_schema();
+        schema.set_index_name("quant");
+        // Single indexing thread + one flush → exactly one segment, doc ids
+        // follow insertion order and are comparable across separately built
+        // indexes (multi-segment force_merge concatenates in UUID order,
+        // which permutes id blocks between builds).
+        let config = IndexConfig {
+            merge_policy: Box::new(crate::merge::NoMergePolicy),
+            num_indexing_threads: 1,
+            max_indexing_memory_bytes: 8 * 1024 * 1024 * 1024,
+            ..IndexConfig::default()
+        };
+        let mut writer = IndexWriter::create(dir.clone(), schema, config.clone())
+            .await
+            .unwrap();
+        let mut rng = XorShift(0x5EEDFACE0BADC0DE); // same seed → same docs
+        for _ in 0..DOCS {
+            let entries = gen_doc(&mut rng, snap4);
+            loop {
+                let mut doc = Document::new();
+                doc.add_sparse_vector(sparse, entries.clone());
+                match writer.add_document(doc) {
+                    Ok(()) => break,
+                    Err(crate::Error::QueueFull) => {
+                        tokio::time::sleep(std::time::Duration::from_millis(3)).await;
+                    }
+                    Err(e) => panic!("{e:?}"),
+                }
+            }
+        }
+        writer.commit().await.unwrap();
+        writer.force_merge().await.unwrap();
+        writer.reorder().await.unwrap();
+        drop(writer);
+    }
+
+    // Queries: 8 dims of one topic + 4 background dims.
+    let mut qrng = XorShift(0x0123456789ABCDEF);
+    let queries: Vec<Vec<(u32, f32)>> = (0..QUERIES)
+        .map(|_| {
+            let topic = (qrng.next() % TOPICS as u64) as usize;
+            let mut q: Vec<(u32, f32)> = (0..8)
+                .map(|_| {
+                    let d =
+                        (topic * TOPIC_DIMS + (qrng.next() % TOPIC_DIMS as u64) as usize) as u32;
+                    (d, 1.5 + 3.5 * qrng.next_f64() as f32)
+                })
+                .collect();
+            for _ in 0..4 {
+                let r = qrng.next_f64() * total;
+                let d = (bg_base + cum.partition_point(|&c| c < r).min(bg_dims - 1)) as u32;
+                q.push((d, 0.5 + qrng.next_f64() as f32));
+            }
+            q.sort_by_key(|&(d, _)| d);
+            q.dedup_by_key(|&mut (d, _)| d);
+            q
+        })
+        .collect();
+    // Harder set: background-only queries (no topical concentration) — these
+    // bypass most superblock pruning, exposing block-grid quantization cost.
+    let bg_queries: Vec<Vec<(u32, f32)>> = (0..50)
+        .map(|_| {
+            let mut q: Vec<(u32, f32)> = (0..12)
+                .map(|_| {
+                    let r = qrng.next_f64() * total;
+                    let d = (bg_base + cum.partition_point(|&c| c < r).min(bg_dims - 1)) as u32;
+                    let idf = ((bg_dims as f64 / ((d as usize - bg_base) as f64 + 1.0)).ln()
+                        / (bg_dims as f64).ln()) as f32;
+                    (d, 2.0 * idf * (0.3 + 0.7 * qrng.next_f64() as f32) + 0.1)
+                })
+                .collect();
+            q.sort_by_key(|&(d, _)| d);
+            q.dedup_by_key(|&mut (d, _)| d);
+            q
+        })
+        .collect();
+
+    let run_queries = |bmps: Vec<crate::segment::BmpIndex>,
+                       queries: &[Vec<(u32, f32)>]|
+     -> (Vec<Vec<(u32, f32)>>, f64) {
+        let t = std::time::Instant::now();
+        let mut out = Vec::with_capacity(queries.len());
+        for q in queries {
+            let mut all: Vec<(u32, f32)> = Vec::new();
+            for bmp in &bmps {
+                let r =
+                    crate::query::bmp::execute_bmp(bmp, "quant", "sparse", q, K, 1.0, 0).unwrap();
+                all.extend(r.iter().map(|d| (d.doc_id, d.score)));
+            }
+            all.sort_by(|a, b| b.1.total_cmp(&a.1));
+            all.truncate(K);
+            out.push(all);
+        }
+        (out, t.elapsed().as_secs_f64())
+    };
+
+    // ── Index A: 8-bit weights (baseline) ───────────────────────────────
+    let dir = RamDirectory::new();
+    let (_s0, _t0, sparse) = bmp_schema();
+    build(&dir, sparse, false, &gen_doc).await;
+    let config = IndexConfig::default();
+    let index = Index::open(dir.clone(), config.clone()).await.unwrap();
+    let segs = index.segment_readers().await.unwrap();
+    assert_eq!(segs.len(), 1);
+    let seg_id = segs[0].meta().id;
+    let bmp = segs[0].bmp_indexes().get(&sparse.0).unwrap().clone();
+    let num_blocks = bmp.num_blocks as u64;
+    drop(segs);
+    drop(index);
+
+    // Locate grid section in the stored .sparse (single BMP field → blob @0)
+    let sparse_path = crate::segment::SegmentFiles::new(seg_id).sparse;
+    let original = dir
+        .open_read(&sparse_path)
+        .await
+        .unwrap()
+        .read_bytes()
+        .await
+        .unwrap()
+        .as_slice()
+        .to_vec();
+    let flen = original.len();
+    assert_eq!(
+        u32::from_le_bytes(original[flen - 4..].try_into().unwrap()),
+        crate::segment::format::SPARSE_FOOTER_MAGIC
+    );
+    let blob_len = u64::from_le_bytes(original[flen - 24..flen - 16].try_into().unwrap()) as usize;
+    let bfoot = blob_len - 64;
+    assert_eq!(
+        u32::from_le_bytes(original[bfoot + 60..bfoot + 64].try_into().unwrap()),
+        crate::segment::format::BMP_BLOB_MAGIC_V14
+    );
+    let grid_start =
+        u64::from_le_bytes(original[bfoot + 8..bfoot + 16].try_into().unwrap()) as usize;
+    let grid_end =
+        u64::from_le_bytes(original[bfoot + 16..bfoot + 24].try_into().unwrap()) as usize;
+    println!(
+        "\ncorpus: {DOCS} docs, {TOPICS} topics, {} blocks | grid {:.1} MB | k={K}, {QUERIES} queries, exact",
+        num_blocks,
+        (grid_end - grid_start) as f64 / 1e6
+    );
+
+    let patch = |levels: &[u8]| -> Vec<u8> {
+        let map = |n: u8| -> u8 { *levels.iter().find(|&&l| l >= n).unwrap() };
+        let mut bytes = original.clone();
+        for b in &mut bytes[grid_start..grid_end] {
+            *b = map(*b & 0x0F) | (map(*b >> 4) << 4);
+        }
+        bytes
+    };
+
+    type TopK = Vec<Vec<(u32, f32)>>;
+    let mut baseline: Option<(TopK, TopK)> = None;
+    for (name, levels) in [
+        ("grid 4-bit (shipped)", (0u8..=15).collect::<Vec<_>>()),
+        (
+            "grid 3-bit-ish (9 lvl)",
+            vec![0, 2, 4, 6, 8, 10, 12, 14, 15],
+        ),
+        ("grid 2-bit (4 lvl)", vec![0, 5, 10, 15]),
+    ] {
+        dir.write(&sparse_path, &patch(&levels)).await.unwrap();
+        let index = Index::open(dir.clone(), config.clone()).await.unwrap();
+        let segs = index.segment_readers().await.unwrap();
+        let bmps: Vec<_> = segs
+            .iter()
+            .map(|s| s.bmp_indexes().get(&sparse.0).unwrap().clone())
+            .collect();
+        drop(segs);
+
+        let (s0, k0, v0) = counters();
+        let (topk, secs) = run_queries(bmps.clone(), &queries);
+        let (s1, k1, v1) = counters();
+        let (bg_topk, _bg_secs) = run_queries(bmps, &bg_queries);
+        let (s2, k2, _v2) = counters();
+
+        match &baseline {
+            None => baseline = Some((topk, bg_topk)),
+            Some((base, bg_base_topk)) => {
+                for (qi, (a, b)) in base.iter().zip(topk.iter()).enumerate() {
+                    assert_eq!(a, b, "q{qi}: grid quantization must not change exact top-k");
+                }
+                for (qi, (a, b)) in bg_base_topk.iter().zip(bg_topk.iter()).enumerate() {
+                    assert_eq!(
+                        a, b,
+                        "bg q{qi}: grid quantization must not change exact top-k"
+                    );
+                }
+            }
+        }
+        println!(
+            "{name:<24} topical: blocks/q {:>6.1} skip {:>5.1}% sbs/q {:>5.1} {:>5.2} ms/q | background: blocks/q {:>7.1} skip {:>5.1}%",
+            (s1 - s0) as f64 / QUERIES as f64,
+            100.0 * (k1 - k0) as f64 / ((s1 - s0) + (k1 - k0)).max(1) as f64,
+            (v1 - v0) as f64 / QUERIES as f64,
+            secs * 1000.0 / QUERIES as f64,
+            (s2 - s1) as f64 / 50.0,
+            100.0 * (k2 - k1) as f64 / ((s2 - s1) + (k2 - k1)).max(1) as f64,
+        );
+    }
+    // restore pristine file
+    dir.write(&sparse_path, &original).await.unwrap();
+
+    // ── Index B: 4-bit weights (same docs, snapped) ─────────────────────
+    let dir4 = RamDirectory::new();
+    build(&dir4, sparse, true, &gen_doc).await;
+    let index4 = Index::open(dir4.clone(), config.clone()).await.unwrap();
+    let segs4 = index4.segment_readers().await.unwrap();
+    let bmps4: Vec<_> = segs4
+        .iter()
+        .map(|s| s.bmp_indexes().get(&sparse.0).unwrap().clone())
+        .collect();
+    drop(segs4);
+
+    let (s0, k0, _v0) = counters();
+    let (topk4, secs4) = run_queries(bmps4, &queries);
+    let (s1, k1, _v1) = counters();
+
+    // Recall@K vs the 8-bit index (doc-id overlap; ids are deterministic
+    // because indexing is single-threaded insertion order)
+    let (base, _bg) = baseline.as_ref().unwrap();
+    let mut overlap = 0usize;
+    let mut denom = 0usize;
+    for (a, b) in base.iter().zip(topk4.iter()) {
+        let set: std::collections::HashSet<u32> = a.iter().map(|&(d, _)| d).collect();
+        overlap += b.iter().filter(|&&(d, _)| set.contains(&d)).count();
+        denom += a.len();
+    }
+    println!(
+        "{:<24} blocks scored/q {:>7.1} | skipped/q {:>7.1} | skip {:>5.1}% | recall@{K} vs 8-bit {:>5.1}% | {:>6.2} ms/q",
+        "weights 4-bit",
+        (s1 - s0) as f64 / QUERIES as f64,
+        (k1 - k0) as f64 / QUERIES as f64,
+        100.0 * (k1 - k0) as f64 / ((s1 - s0) + (k1 - k0)).max(1) as f64,
+        100.0 * overlap as f64 / denom.max(1) as f64,
+        secs4 * 1000.0 / QUERIES as f64,
+    );
+}
+
+/// 2-bit block grid (`bmp_grid_bits: 2`): grid bounds are ceil-quantized at
+/// any width, so EXACT top-k must be identical to the 4-bit index on the
+/// same corpus — while the grid section (and the blob) shrinks. Also
+/// roundtrips block-copy merge and BP reorder at 2-bit.
+#[tokio::test]
+async fn test_bmp_grid_bits_2_exact_parity_and_roundtrip() {
+    let build = |grid_bits: u8| {
+        let mut cfg = bmp_config();
+        cfg.bmp_grid_bits = grid_bits;
+        cfg
+    };
+
+    // Interleaved-topic corpus (Records reorder path) with unique needle dims.
+    let corpus = |writer: &mut IndexWriter<RamDirectory>, sparse: crate::dsl::Field| {
+        const DOCS: usize = 600;
+        for seg in 0..2 {
+            for i in 0..DOCS {
+                let global = (seg * DOCS + i) as u32;
+                let topic = global % 4;
+                let mut entries: Vec<(u32, f32)> = (0..32)
+                    .map(|t| (50_000 + topic * 100 + t, 0.5 + (t as f32) * 0.01))
+                    .collect();
+                entries.push((global, 1.0));
+                let mut doc = Document::new();
+                doc.add_sparse_vector(sparse, entries);
+                writer.add_document(doc).unwrap();
+            }
+        }
+    };
+
+    let mut results: Vec<Vec<Vec<(u32, f32)>>> = Vec::new();
+    let mut grid_sizes: Vec<usize> = Vec::new();
+    for grid_bits in [4u8, 2u8] {
+        let mut sb = SchemaBuilder::default();
+        let _t = sb.add_text_field("title", true, true);
+        let sparse = sb.add_sparse_vector_field_with_config("sparse", true, true, build(grid_bits));
+        sb.set_reorder(sparse, true);
+        let schema = sb.build();
+        let dir = RamDirectory::new();
+        let config = IndexConfig::default();
+        let mut writer = IndexWriter::create(dir.clone(), schema, config.clone())
+            .await
+            .unwrap();
+        corpus(&mut writer, sparse);
+        writer.commit().await.unwrap();
+        writer.force_merge().await.unwrap(); // block-copy merge at this width
+        writer.reorder().await.unwrap(); // BP reorder at this width
+        drop(writer);
+
+        let index = Index::open(dir.clone(), config.clone()).await.unwrap();
+        let readers = index.segment_readers().await.unwrap();
+        assert_eq!(readers.len(), 1);
+        let bmp = readers[0].bmp_indexes().get(&sparse.0).unwrap();
+        assert_eq!(bmp.grid_bits(), grid_bits, "footer must carry grid_bits");
+        grid_sizes.push(bmp.packed_row_size());
+
+        let reader = index.reader().await.unwrap();
+        let searcher = reader.searcher().await.unwrap();
+        // Topic queries (many matches, heap fills → pruning active) + needles
+        let mut per_query = Vec::new();
+        for topic in 0..4u32 {
+            let q: Vec<(u32, f32)> = (0..8).map(|t| (50_000 + topic * 100 + t, 1.0)).collect();
+            let query = SparseVectorQuery::new(sparse, q);
+            let r = searcher.search(&query, 10).await.unwrap();
+            assert_eq!(r.len(), 10);
+            per_query.push(r.iter().map(|d| (d.doc_id, d.score)).collect::<Vec<_>>());
+        }
+        for needle in [0u32, 599, 600, 1199] {
+            let query = SparseVectorQuery::new(sparse, vec![(needle, 1.0)]);
+            let r = searcher.search(&query, 5).await.unwrap();
+            assert_eq!(r.len(), 1, "needle {needle} lost at grid_bits={grid_bits}");
+            per_query.push(r.iter().map(|d| (d.doc_id, d.score)).collect::<Vec<_>>());
+        }
+        results.push(per_query);
+    }
+
+    // Exactness: identical top-k scores (doc order may tie-shuffle) — compare
+    // sorted score lists per query, and identical needle hits.
+    for (q4, q2) in results[0].iter().zip(results[1].iter()) {
+        let s4: Vec<f32> = q4.iter().map(|&(_, s)| s).collect();
+        let s2: Vec<f32> = q2.iter().map(|&(_, s)| s).collect();
+        assert_eq!(s4.len(), s2.len());
+        for (a, b) in s4.iter().zip(s2.iter()) {
+            assert!((a - b).abs() < 1e-3, "score mismatch {a} vs {b}");
+        }
+    }
+    // 2-bit grid rows are half the 4-bit rows
+    assert_eq!(grid_sizes[1], grid_sizes[0].div_ceil(2));
+}
+
+/// Regression: blockwise reorder used to write the superblock grid in
+/// GRID-CELL scale (0-15) instead of u8 impact scale (0-255), deflating
+/// superblock UBs ~17× — unsafe pruning (silent recall loss) once the heap
+/// fills. Pin the structural invariant directly: the sb_grid's maximum
+/// value must survive a blockwise pass (builder writes u8 impacts; the
+/// needle dims here have impact ≈51, which the bug collapses to cell 3).
+#[tokio::test]
+async fn test_blockwise_reorder_preserves_sb_grid_scale() {
+    let (schema, _title, sparse) = bmp_schema();
+    let dir = RamDirectory::new();
+    let config = IndexConfig::default();
+    let mut writer = IndexWriter::create(dir.clone(), schema, config.clone())
+        .await
+        .unwrap();
+    add_rare_dim_clustered_corpus(&mut writer, sparse);
+    writer.commit().await.unwrap();
+    drop(writer);
+
+    let sb_max = |dir: RamDirectory, config: IndexConfig| async move {
+        let index = Index::open(dir, config).await.unwrap();
+        let readers = index.segment_readers().await.unwrap();
+        let bmp = readers[0].bmp_indexes().get(&sparse.0).unwrap();
+        bmp.sb_grid_slice().iter().copied().max().unwrap_or(0)
+    };
+    let before = sb_max(dir.clone(), config.clone()).await;
+    assert!(
+        before > 15,
+        "test setup: builder sb_grid must carry u8 impacts (got max {before})"
+    );
+
+    // Blockwise pass (Auto picks Blocks for this corpus — pinned elsewhere)
+    let mut writer = IndexWriter::open(dir.clone(), config.clone())
+        .await
+        .unwrap();
+    writer.reorder().await.unwrap();
+    drop(writer);
+
+    let after = sb_max(dir.clone(), config.clone()).await;
+    assert_eq!(
+        after, before,
+        "blockwise reorder must preserve sb_grid impact scale (0-255) — \
+         cell-scale values (≤15) deflate superblock UBs ~17× (unsafe pruning)"
+    );
+}
+
+/// Measured evidence for BP forward-index build cost (the serial stage of a
+/// single reorder). Not a correctness test — run manually with:
+/// `cargo test -p hermes-core --release --features native \
+///    bench_forward_index_build -- --ignored --nocapture`
+#[tokio::test]
+#[ignore]
+async fn bench_forward_index_build() {
+    use crate::segment::{
+        build_forward_index_from_blocks, build_forward_index_from_bmps, graph_bisection,
+    };
+
+    struct XorShift(u64);
+    impl XorShift {
+        fn next(&mut self) -> u64 {
+            let mut x = self.0;
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            self.0 = x;
+            x
+        }
+    }
+
+    const DOCS: usize = 300_000;
+    const DIMS: u32 = 30_000;
+    const TERMS_PER_DOC: usize = 48;
+
+    let config_sparse = SparseVectorConfig {
+        format: SparseFormat::Bmp,
+        weight_quantization: WeightQuantization::UInt8,
+        bmp_block_size: 64,
+        dims: Some(DIMS),
+        max_weight: Some(5.0),
+        ..SparseVectorConfig::default()
+    };
+    let (schema, _title, sparse) = bmp_schema_with_config(config_sparse);
+    let dir = RamDirectory::new();
+    let config = IndexConfig {
+        merge_policy: Box::new(crate::merge::NoMergePolicy),
+        num_indexing_threads: 1,
+        max_indexing_memory_bytes: 8 * 1024 * 1024 * 1024,
+        ..IndexConfig::default()
+    };
+    let mut writer = IndexWriter::create(dir.clone(), schema, config.clone())
+        .await
+        .unwrap();
+    let mut rng = XorShift(0xC0FFEE1234567890);
+    for _ in 0..DOCS {
+        // Zipf-ish dim mix: half from a hot head, half uniform tail.
+        let mut entries: Vec<(u32, f32)> = (0..TERMS_PER_DOC)
+            .map(|t| {
+                let d = if t % 2 == 0 {
+                    (rng.next() % 2_000) as u32
+                } else {
+                    2_000 + (rng.next() % (DIMS as u64 - 2_000)) as u32
+                };
+                (d, 0.5 + (rng.next() % 100) as f32 / 25.0)
+            })
+            .collect();
+        entries.sort_by_key(|&(d, _)| d);
+        entries.dedup_by_key(|&mut (d, _)| d);
+        loop {
+            let mut doc = Document::new();
+            doc.add_sparse_vector(sparse, entries.clone());
+            match writer.add_document(doc) {
+                Ok(()) => break,
+                Err(crate::Error::QueueFull) => {
+                    tokio::time::sleep(std::time::Duration::from_millis(3)).await;
+                }
+                Err(e) => panic!("{e:?}"),
+            }
+        }
+    }
+    writer.commit().await.unwrap();
+    drop(writer);
+
+    let index = Index::open(dir.clone(), config.clone()).await.unwrap();
+    let readers = index.segment_readers().await.unwrap();
+    assert_eq!(readers.len(), 1);
+    let bmp = readers[0].bmp_indexes().get(&sparse.0).unwrap().clone();
+    println!(
+        "corpus: {} docs, {} blocks, {} postings",
+        DOCS,
+        bmp.num_blocks,
+        bmp.total_postings()
+    );
+
+    // Same df window reorder_bmp_field uses for this segment size.
+    let min_df = (DOCS / 5000).clamp(2, 128);
+    let max_df = ((DOCS as f64) * 0.9) as usize;
+    let budget = 2usize * 1024 * 1024 * 1024;
+
+    for round in 0..3 {
+        let t = std::time::Instant::now();
+        let (fwd, _) = build_forward_index_from_bmps(&[&bmp], min_df, max_df, budget);
+        println!(
+            "record-level fwd build round {}: {:.1}ms ({} terms, {} postings)",
+            round,
+            t.elapsed().as_secs_f64() * 1000.0,
+            fwd.num_terms,
+            fwd.total_postings(),
+        );
+    }
+    for round in 0..3 {
+        let t = std::time::Instant::now();
+        let fwd = build_forward_index_from_blocks(&[&bmp], budget);
+        println!(
+            "block-level fwd build round {}: {:.1}ms ({} terms, {} postings)",
+            round,
+            t.elapsed().as_secs_f64() * 1000.0,
+            fwd.num_terms,
+            fwd.total_postings(),
+        );
+    }
+
+    // Full-pipeline breakdown: BP itself, then the whole reorder (fwd build +
+    // BP + permuted blob write + commit) — blob write ≈ total − fwd − BP.
+    let (fwd, _) = build_forward_index_from_bmps(&[&bmp], min_df, max_df, budget);
+    let t = std::time::Instant::now();
+    let (_perm, converged) = graph_bisection(&fwd, 64, 20, crate::segment::BpBudget::full());
+    println!(
+        "graph_bisection (record-level, full depth): {:.1}ms (converged={})",
+        t.elapsed().as_secs_f64() * 1000.0,
+        converged,
+    );
+    drop(fwd);
+    drop(bmp);
+    drop(readers);
+    drop(index);
+
+    let mut writer = IndexWriter::open(dir.clone(), config.clone())
+        .await
+        .unwrap();
+    let t = std::time::Instant::now();
+    writer.reorder().await.unwrap();
+    println!(
+        "writer.reorder() end-to-end: {:.1}ms",
+        t.elapsed().as_secs_f64() * 1000.0,
+    );
+}
+
+/// Regression: a block with more than 65,535 postings overflowed the u16
+/// posting prefix sums at build time (bmp_block_size=256 × ~300-dim docs
+/// hits this in production), silently corrupting the block; the reader's
+/// `end - start` then underflowed into a wild posting slice — SIGSEGV in
+/// the BP forward-index build (optimizer-bp threads). V14 stores num_terms
+/// and prefix sums as u32.
+#[tokio::test]
+async fn test_bmp_block_posting_overflow_256() {
+    // 256 docs × 301 dims each → 77,056 postings in block 0 (> u16::MAX).
+    // Needle dims (50_000 + d) sort after the shared mass, so their prefix
+    // offsets exceed 65,535 — exactly where the u16 wrap corrupted reads.
+    let config = SparseVectorConfig {
+        format: SparseFormat::Bmp,
+        weight_quantization: WeightQuantization::UInt8,
+        bmp_block_size: 256,
+        dims: Some(100_000),
+        max_weight: Some(5.0),
+        ..SparseVectorConfig::default()
+    };
+    let (schema, _title, sparse) = bmp_schema_with_config(config);
+    let dir = RamDirectory::new();
+    let config = IndexConfig::default();
+    let mut writer = IndexWriter::create(dir.clone(), schema, config.clone())
+        .await
+        .unwrap();
+    for d in 0..256u32 {
+        let mut entries: Vec<(u32, f32)> = (0..300u32)
+            .map(|t| (t, 0.5 + (t % 40) as f32 * 0.1))
+            .collect();
+        entries.push((50_000 + d, 4.0)); // needle, one per doc
+        let mut doc = Document::new();
+        doc.add_sparse_vector(sparse, entries);
+        writer.add_document(doc).unwrap();
+    }
+    writer.commit().await.unwrap();
+    drop(writer);
+
+    let index = Index::open(dir.clone(), config.clone()).await.unwrap();
+    let readers = index.segment_readers().await.unwrap();
+    assert_eq!(readers.len(), 1);
+    let bmp = readers[0].bmp_indexes().get(&sparse.0).unwrap();
+    assert!(
+        bmp.total_postings() > u16::MAX as u64,
+        "test setup must overflow u16 postings per block (got {})",
+        bmp.total_postings()
+    );
+
+    let reader = index.reader().await.unwrap();
+    let searcher = reader.searcher().await.unwrap();
+    // Every needle dim must resolve to exactly its doc with the exact score.
+    for d in [0u32, 100, 255] {
+        let query = SparseVectorQuery::new(sparse, vec![(50_000 + d, 1.0)]);
+        let r = searcher.search(&query, 5).await.unwrap();
+        assert_eq!(r.len(), 1, "needle {d} lost past the 65,535th posting");
+        assert_eq!(r[0].doc_id, d);
+    }
+    // Shared dims still score correctly across the whole block.
+    let query = SparseVectorQuery::new(sparse, vec![(0, 1.0), (299, 1.0)]);
+    let r = searcher.search(&query, 10).await.unwrap();
+    assert_eq!(r.len(), 10);
+
+    // BP forward-index build over the oversized block must not read wild
+    // slices (this is the exact prod crash path).
+    let (fwd, _) =
+        crate::segment::build_forward_index_from_bmps(&[bmp], 2, 1_000_000, 2 * 1024 * 1024 * 1024);
+    // Needle dims have df=1 and are correctly filtered by min_doc_freq=2;
+    // the 300 shared dims × 256 docs must all survive — reading them walks
+    // every posting slice past the old u16 wrap point.
+    assert_eq!(fwd.total_postings(), 300 * 256);
+}
+
+/// Regression: the optimizer's reorder candidates are scanned long before the
+/// pass runs (hours behind under load). If a merge consumes the candidate in
+/// the meantime, the reorder must SKIP it — the inventory guard only covers
+/// concurrent work, not stale candidates. Before the fix, a stale reorder of
+/// a merged-away segment (files still on disk, held by a searcher snapshot)
+/// succeeded and re-inserted a duplicate copy of its docs next to the merge
+/// output; when the files were already deleted it surfaced as
+/// "failed to reorder ...: No such file or directory" in prod.
+#[tokio::test]
+async fn test_reorder_skips_segment_consumed_by_merge() {
+    let (schema, _title, sparse) = bmp_schema();
+    let dir = RamDirectory::new();
+    let config = IndexConfig {
+        merge_policy: Box::new(crate::merge::NoMergePolicy),
+        ..IndexConfig::default()
+    };
+    // One Index instance throughout: searcher snapshot, force_merge, and the
+    // stale reorder must all share the same SegmentManager/tracker, as in the
+    // server — that is what keeps the merged-away files on disk (deferred
+    // deletion), the dangerous variant of the race.
+    let index = Index::create(dir.clone(), schema, config.clone())
+        .await
+        .unwrap();
+    let mut writer = index.writer();
+    // Two commits → two segments
+    for seg in 0..2 {
+        for i in 0..300u32 {
+            let mut doc = Document::new();
+            doc.add_sparse_vector(sparse, vec![(seg * 1000 + i, 1.0), (50_000 + i % 7, 0.5)]);
+            writer.add_document(doc).unwrap();
+        }
+        writer.commit().await.unwrap();
+    }
+
+    let segs = index.segment_readers().await.unwrap();
+    assert_eq!(segs.len(), 2);
+    let victim = crate::segment::SegmentId(segs[0].meta().id).to_hex();
+    let total_docs: u32 = segs.iter().map(|s| s.num_docs()).sum();
+    drop(segs);
+
+    // Hold a searcher snapshot so the merged-away source files stay on disk.
+    let reader = index.reader().await.unwrap();
+    let _searcher = reader.searcher().await.unwrap();
+
+    writer.force_merge().await.unwrap();
+
+    // Stale candidate: reorder the segment the merge just consumed.
+    let reordered = index
+        .segment_manager()
+        .reorder_single_segment(&victim, None, crate::segment::BpBudget::full())
+        .await
+        .unwrap();
+    assert!(
+        !reordered,
+        "stale reorder of a merged-away segment must skip"
+    );
+
+    // No duplicate docs may appear.
+    let index2 = Index::open(dir.clone(), config.clone()).await.unwrap();
+    let segs2 = index2.segment_readers().await.unwrap();
+    let total_after: u32 = segs2.iter().map(|s| s.num_docs()).sum();
+    assert_eq!(
+        total_after, total_docs,
+        "reordering a merged-away segment duplicated its documents"
     );
 }

@@ -18,7 +18,9 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use comfy_table::{Cell, Color, Table};
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use std::hint::black_box;
+
+use criterion::{Criterion, criterion_group, criterion_main};
 
 use hermes_core::structures::{
     BlockSparsePostingList, CoarseCentroids, CoarseConfig, IVFPQConfig, IVFPQIndex,

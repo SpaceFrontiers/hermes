@@ -1,6 +1,8 @@
 //! Seek speed benchmarks
 
-use criterion::{Criterion, Throughput, black_box};
+use std::hint::black_box;
+
+use criterion::{Criterion, Throughput};
 use hermes_core::structures::{
     EliasFanoPostingList, HorizontalBP128PostingList, OptP4DPostingList,
 };
