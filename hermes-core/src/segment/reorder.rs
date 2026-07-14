@@ -20,11 +20,12 @@ use crate::segment::reader::SegmentReader;
 use crate::segment::types::{SegmentFiles, SegmentId, SegmentMeta};
 use crate::structures::SparseFormat;
 
-/// Default memory budget for forward index during BP (8 GB). A cap, not an
-/// allocation — usage is proportional to the segment being reordered; it
-/// only bites on 10M+ doc passes (2 GB dropped ~10% of eligible dims on
-/// 18M-doc merges). Mirrored by `IndexConfig::default().bp_memory_budget_bytes`.
-pub const DEFAULT_MEMORY_BUDGET: usize = 8 * 1024 * 1024 * 1024;
+/// Default memory budget for forward index during BP (16 GB). A cap, not an
+/// allocation — usage is proportional to the segment being reordered
+/// (~4 B/posting + ~28 B/doc); it only bites on ~4B-posting passes (2 GB
+/// dropped ~10% of eligible dims on 18M-doc merges). Mirrored by
+/// `IndexConfig::default().bp_memory_budget_bytes`.
+pub const DEFAULT_MEMORY_BUDGET: usize = 16 * 1024 * 1024 * 1024;
 
 /// Reorder granularity (see docs/block-level-reorder.md).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
