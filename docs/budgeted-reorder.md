@@ -124,3 +124,13 @@ forward index 135 ms → 50 ms (2.7×); blob-encode phase ~3.3 s → ~1.0 s;
 full-depth here) is now the dominant phase, and it is budgeted/warm-started.
 Evidence: `bench_forward_index_build` (`#[ignore]`) in
 `hermes-core/src/index/tests/bmp.rs`.
+
+## Default changes (2026-07-14, follow-up)
+
+- `IndexConfig::default()` now uses `TieredMergePolicy::large_scale()` (the
+  server already did). Tier floors only shape _when_ segments merge, and
+  merge-time BP is wall-clock budgeted, so the policy is safe at any scale.
+- `bp_memory_budget_bytes` default 2 GB → 8 GB (`--bp-memory-budget-mb`
+  default 8192). It is a cap, not an allocation — memory use is proportional
+  to the segment actually being reordered; the cap only bites on 10M+ doc
+  passes, where 2 GB was dropping ~10% of eligible dims.

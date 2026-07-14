@@ -108,14 +108,26 @@ impl Default for IndexConfig {
             term_cache_blocks: 256,
             store_cache_blocks: 32,
             max_indexing_memory_bytes: 256 * 1024 * 1024, // 256 MB default
-            merge_policy: Box::new(crate::merge::TieredMergePolicy::default()),
+            // large_scale: wide fan-in + budget/scored selection. Safe for
+            // small indexes too (tier floors only shape *when* segments
+            // merge); merge-time BP is wall-clock budgeted, so giant merges
+            // cannot hold slots indefinitely.
+            merge_policy: Box::new(crate::merge::TieredMergePolicy::large_scale()),
             optimization: crate::structures::IndexOptimization::default(),
             reload_interval_ms: 1000, // 1 second default
             max_concurrent_merges: 4,
             merge_bp_time_budget: Some(std::time::Duration::from_secs(600)),
-            // 2 GB — mirrors segment::reorder::DEFAULT_MEMORY_BUDGET (that
+            // 8 GB — mirrors segment::reorder::DEFAULT_MEMORY_BUDGET (that
             // module is native-only; IndexConfig also compiles for wasm).
-            bp_memory_budget_bytes: 2 * 1024 * 1024 * 1024,
+            // A cap, not an allocation: usage is proportional to the segment
+            // being reordered; the cap only bites on 10M+ doc passes (2 GB
+            // dropped ~10% of eligible dims on 18M-doc merges).
+            // 8 GB overflows 32-bit usize (wasm32) — reorder never runs
+            // there, so any large value works; use usize::MAX.
+            #[cfg(target_pointer_width = "64")]
+            bp_memory_budget_bytes: 8 * 1024 * 1024 * 1024,
+            #[cfg(not(target_pointer_width = "64"))]
+            bp_memory_budget_bytes: usize::MAX,
         }
     }
 }

@@ -96,9 +96,11 @@ struct Args {
     merge_bp_budget_secs: u64,
 
     /// Memory budget (MB) for the BP forward index during reorder passes
-    /// (merge-time and background). Over-budget passes drop highest-df dims
-    /// from BP's input with a loud warning; raise on hosts with headroom.
-    #[arg(long, default_value = "2048")]
+    /// (merge-time and background). A cap, not an allocation — usage is
+    /// proportional to the segment being reordered. Over-budget passes drop
+    /// highest-df dims from BP's input with a loud warning; raise to 16384
+    /// on hosts with headroom.
+    #[arg(long, default_value = "8192")]
     bp_memory_budget_mb: usize,
 
     /// Address for the Prometheus /metrics HTTP endpoint.
