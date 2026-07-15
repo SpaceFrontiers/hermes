@@ -68,8 +68,8 @@ Block upper bounds stored sparsely are not exotic — that is exactly what
 DAAT block-max engines (BMW/MaxScore) do, per posting list. BMP's specific
 contribution (Mallia, Suel & Tonellotto, SIGIR 2024) was to **densify**
 those bounds into a dims×blocks matrix so block-at-a-time scoring becomes a
-contiguous SIMD sweep (`accumulate_u4_weighted`, NEON/SSE4.1). Sparsifying
-the grid un-does the thing that makes BMP fast. At larger scales the field
+contiguous packed-row sweep. Sparsifying the grid un-does the thing that
+makes BMP fast. At larger scales the field
 does not sparsify the grid either — it abandons exhaustive grids for
 approximate per-list summaries (Seismic: Bruch, Nardini, Rulli & Venturini,
 SIGIR 2024; journal version arXiv:2509.24815 — assessed in
@@ -79,7 +79,8 @@ docs/seismic-research.md).
 
 `grid_bench` in `segment/reader/bmp.rs` — Zipf(1.0) over 100k dims, 120
 nnz/doc, 2M docs, 16-dim queries, 30% surviving superblocks, real SIMD
-kernel for dense vs binary-search + scalar scatter for CSR sb-runs
+kernel as the dense-layout throughput baseline vs binary-search + scalar
+scatter for CSR sb-runs
 (correctness cross-checked entry-exact between layouts):
 
 ```
@@ -115,9 +116,8 @@ yet measured (aarch64 only); re-run the bench before any decision.
 ### 2-bit grid impacts — MEASURED, IMPLEMENTED (`bmp_grid_bits: 2`)
 
 Halve the dense grid (dims × blocks / 4) by quantizing block UBs to 2 bits
-(ceil-quantized, recall-safe like `quantize_u8_to_u4_ceil`). Same layout,
-same SIMD shape, no probe-pattern change, no format fork beyond a footer
-flag.
+(ceil-quantized, recall-safe like `quantize_u8_to_u4_ceil`). Same layout and
+probe pattern, with no format fork beyond a footer flag.
 
 Measured (`bench_aggressive_quantization`, 400k docs / 256 topics /
 BP-reordered, exact k=10; grid lattices ceil-rounded on the stored file so
@@ -136,7 +136,7 @@ grid ≈ free** (grid 10 GB → 5 GB at 50M docs / block 64; combine with
 `bmp_block_size: 256` for 2.5 GB).
 
 **Implemented**: SDL `indexed<bmp_grid_bits: 2>` (default 4; per field,
-uniform across segments — merge/blockwise validate loudly). The V13 blob
+uniform across segments — merge/blockwise validate loudly). The V14 blob
 footer's reserved field carries the cell width (0 = legacy 4-bit), so
 existing segments stay readable. 2-bit currently uses an unrolled scalar
 accumulate/mask kernel (4 cells/byte); SIMD u2 variants are a follow-up if
@@ -144,6 +144,17 @@ profiling asks for them — the block grid is probed only inside surviving
 superblocks. Exactness is pinned by
 `test_bmp_grid_bits_2_exact_parity_and_roundtrip` (identical top-k vs a
 4-bit index over the same corpus, through block-copy merge and BP reorder).
+
+### Exact integer bounds (implemented 2026-07-15)
+
+Document scores use a bounded `u32` accumulator. Block and superblock bounds
+now accumulate the same `u16 query × u8 ceiling-impact` integer units and apply
+the common dequantizer once. The former term-by-term f32 sum could round below
+the document score (reproducible with 64 dimensions), making exact-mode pruning
+unsafe at a heap-threshold tie. Packed rows are still swept byte-at-a-time, but
+the common 4-bit path uses exact NEON/SSE integer accumulation (2-bit remains
+unrolled scalar). The legacy float SIMD kernel remains only as the dense-layout
+research benchmark.
 
 ### 4-bit posting weights — MEASURED, REJECTED
 
