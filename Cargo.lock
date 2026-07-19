@@ -3240,7 +3240,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "hermes-mal-py"
+name = "hermes-mal-python"
 version = "1.8.68"
 dependencies = [
  "hermes-mal",
