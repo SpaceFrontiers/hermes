@@ -252,6 +252,8 @@ dependencies = [
  "http",
  "http-body",
  "http-body-util",
+ "hyper",
+ "hyper-util",
  "itoa",
  "matchit",
  "memchr",
@@ -259,7 +261,10 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite",
  "serde_core",
+ "serde_json",
+ "serde_path_to_error",
  "sync_wrapper",
+ "tokio",
  "tower",
  "tower-layer",
  "tower-service",
@@ -3202,6 +3207,7 @@ name = "hermes-llm"
 version = "1.8.68"
 dependencies = [
  "anyhow",
+ "axum",
  "burn-autodiff",
  "burn-core",
  "burn-cubecl",
@@ -3219,9 +3225,12 @@ dependencies = [
  "hermes-mal",
  "object_store",
  "rand 0.9.5",
+ "serde",
  "serde_json",
+ "tempfile",
  "tokenizers",
  "tokio",
+ "tower-http",
  "tracing",
  "tracing-subscriber",
  "url",
@@ -3299,6 +3308,7 @@ version = "1.8.68"
 dependencies = [
  "anyhow",
  "burn-core",
+ "burn-nn",
  "burn-optim",
  "burn-pack",
  "clap",
@@ -3451,6 +3461,12 @@ dependencies = [
  "http-body",
  "pin-project-lite",
 ]
+
+[[package]]
+name = "http-range-header"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9171a2ea8a68358193d15dd5d70c1c10a2afc3e7e4c5bc92bc9f025cebd7359c"
 
 [[package]]
 name = "httparse"
@@ -6222,6 +6238,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_path_to_error"
+version = "0.1.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10a9ff822e371bb5403e391ecd83e182e0e77ba7f6fe0160b795797109d1b457"
+dependencies = [
+ "itoa",
+ "serde",
+ "serde_core",
+]
+
+[[package]]
 name = "serde_repr"
 version = "0.1.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7142,10 +7169,19 @@ checksum = "4cfcf7e2740e6fc6d4d688b4ef00650406bb94adf4731e43c096c3a19fe40840"
 dependencies = [
  "bitflags 2.13.1",
  "bytes",
+ "futures-core",
  "futures-util",
  "http",
  "http-body",
+ "http-body-util",
+ "http-range-header",
+ "httpdate",
+ "mime",
+ "mime_guess",
+ "percent-encoding",
  "pin-project-lite",
+ "tokio",
+ "tokio-util",
  "tower",
  "tower-layer",
  "tower-service",
