@@ -85,7 +85,7 @@ pub struct MrlResult {
 
 /// Print MRL dimension comparison table
 pub fn print_mrl_table(results: &[MrlResult], full_dim: usize) {
-    print_section("1. MATRYOSHKA DIMENSION COMPARISON (RaBitQ)");
+    print_section("1. MATRYOSHKA DIMENSION COMPARISON");
 
     let mut table = create_table(vec!["Dim", "Recall@10", "vs Full", "Latency", "Speedup"]);
 
