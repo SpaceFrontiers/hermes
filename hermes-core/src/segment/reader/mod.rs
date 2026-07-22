@@ -14,10 +14,10 @@ pub use types::{SparseIndex, VectorIndex, VectorSearchResult};
 /// or a more selective prefix when they are exceeded.
 const MAX_PREFIX_TERMS: usize = 1_024;
 const MAX_PREFIX_POSTINGS: u64 = 5_000_000;
-/// Bound ANN result/resolution vectors per segment. Exact vector bytes are
-/// scored in smaller batches below, so peak rerank scratch stays predictable.
+/// Hard guard for explicitly requested dense rerank documents and for the
+/// exact ordinal expansion of those documents. ANN heaps no longer deepen
+/// toward this value automatically for multi-valued fields.
 const MAX_DENSE_CANDIDATES_PER_SEGMENT: usize = 200_000;
-const MAX_ANN_ORDINAL_OVERFETCH: usize = 32;
 /// Preferred vector count; wide vectors reduce it to stay under the byte cap.
 const DENSE_SCORE_BATCH: usize = 4_096;
 const BINARY_SCORE_BATCH: usize = 8_192;
@@ -291,172 +291,6 @@ fn checked_dense_fetch_k(k: usize, rerank_factor: f32) -> Result<usize> {
         )));
     }
     Ok(fetch.ceil() as usize)
-}
-
-fn ann_ordinal_fetch_k(fetch_k: usize, num_vectors: usize, num_docs: usize) -> usize {
-    if num_vectors == 0 || num_docs == 0 {
-        return 0;
-    }
-    let average_values_per_doc = num_vectors
-        .div_ceil(num_docs)
-        .clamp(1, MAX_ANN_ORDINAL_OVERFETCH);
-    fetch_k
-        .saturating_mul(average_values_per_doc)
-        .min(MAX_DENSE_CANDIDATES_PER_SEGMENT)
-        .min(num_vectors)
-}
-
-/// Search vector-level ANN progressively until it yields enough distinct
-/// documents, or until the probed candidate population / safety cap is
-/// exhausted. A fixed average-values overfetch is insufficient for skewed
-/// fields where one document owns most of the best vectors.
-fn progressive_ann_search<F>(
-    target_docs: usize,
-    initial_fetch: usize,
-    max_vectors: usize,
-    mut search: F,
-) -> Result<Vec<RawVectorCandidate>>
-where
-    F: FnMut(usize) -> Vec<RawVectorCandidate>,
-{
-    let max_fetch = max_vectors.min(MAX_DENSE_CANDIDATES_PER_SEGMENT);
-    if target_docs == 0 || max_fetch == 0 {
-        return Ok(Vec::new());
-    }
-
-    let target_docs = target_docs.min(max_fetch);
-    let mut fetch = initial_fetch.max(target_docs).min(max_fetch);
-    loop {
-        let results = search(fetch);
-        let mut docs = rustc_hash::FxHashSet::with_capacity_and_hasher(
-            target_docs.min(results.len()),
-            Default::default(),
-        );
-        for &(doc_id, _, _) in &results {
-            docs.insert(doc_id);
-            if docs.len() >= target_docs {
-                return Ok(results);
-            }
-        }
-        if results.len() < fetch || fetch == max_vectors {
-            return Ok(results);
-        }
-        if fetch == max_fetch {
-            return Err(Error::Query(format!(
-                "ANN search reached the per-segment candidate limit of \
-                 {MAX_DENSE_CANDIDATES_PER_SEGMENT} with only {} of {target_docs} requested \
-                 documents; reduce k or the number of vector values per document",
-                docs.len()
-            )));
-        }
-
-        let next_fetch = fetch.saturating_mul(2).min(max_fetch);
-        if next_fetch == fetch {
-            return Ok(results);
-        }
-        fetch = next_fetch;
-    }
-}
-
-/// Single-scan variant of [`progressive_ann_search`] for indexes whose
-/// `search(k)` cost does not depend on `k`.
-///
-/// Binary IVF scans every vector of every probed cluster regardless of the
-/// collector size, so each doubling retry of [`progressive_ann_search`]
-/// repeated the identical full scan (~nprobe/num_clusters of the segment's
-/// codes) just to grow the collector. Here the closure runs ONCE at the
-/// fetch cap and the doubling schedule is replayed over prefixes of the
-/// single ranked list, returning exactly what the retry loop would have
-/// returned (a `search(f)` that returns the top-`f` of a fixed ranking makes
-/// the two observationally identical, including the candidate-limit error).
-fn single_scan_ann_search<F>(
-    target_docs: usize,
-    initial_fetch: usize,
-    max_vectors: usize,
-    search: F,
-) -> Result<Vec<RawVectorCandidate>>
-where
-    F: FnOnce(usize) -> Vec<RawVectorCandidate>,
-{
-    let max_fetch = max_vectors.min(MAX_DENSE_CANDIDATES_PER_SEGMENT);
-    if target_docs == 0 || max_fetch == 0 {
-        return Ok(Vec::new());
-    }
-    let target_docs = target_docs.min(max_fetch);
-
-    let mut results = search(max_fetch);
-    results.truncate(max_fetch);
-
-    // Ranked-list length at which `target_docs` distinct documents are first
-    // covered (None if the whole list falls short).
-    let mut docs = rustc_hash::FxHashSet::with_capacity_and_hasher(target_docs, Default::default());
-    let mut satisfied_len = None;
-    for (i, &(doc_id, _, _)) in results.iter().enumerate() {
-        docs.insert(doc_id);
-        if docs.len() >= target_docs {
-            satisfied_len = Some(i + 1);
-            break;
-        }
-    }
-
-    let mut fetch = initial_fetch.max(target_docs).min(max_fetch);
-    loop {
-        let round_len = fetch.min(results.len());
-        if satisfied_len.is_some_and(|len| len <= round_len) {
-            results.truncate(round_len);
-            return Ok(results);
-        }
-        if results.len() < fetch || fetch == max_vectors {
-            return Ok(results);
-        }
-        if fetch == max_fetch {
-            return Err(Error::Query(format!(
-                "ANN search reached the per-segment candidate limit of \
-                 {MAX_DENSE_CANDIDATES_PER_SEGMENT} with only {} of {target_docs} requested \
-                 documents; reduce k or the number of vector values per document",
-                docs.len()
-            )));
-        }
-        let next_fetch = fetch.saturating_mul(2).min(max_fetch);
-        if next_fetch == fetch {
-            return Ok(results);
-        }
-        fetch = next_fetch;
-    }
-}
-
-/// Search binary ANN candidates once, avoiding multi-value over-fetch for
-/// segments that store at most one vector per document.
-///
-/// Binary IVF scans the same probed clusters regardless of collector size. A
-/// multi-valued field therefore collects the capped ranked list once so the
-/// distinct-document deepening schedule can be replayed without rescanning.
-/// For a physically single-valued segment every vector represents a distinct
-/// document, so collecting more than `target_docs` only adds heap and sorting
-/// work without changing the result.
-fn binary_ann_search<F>(
-    single_valued: bool,
-    target_docs: usize,
-    initial_fetch: usize,
-    max_vectors: usize,
-    search: F,
-) -> Result<Vec<RawVectorCandidate>>
-where
-    F: FnOnce(usize) -> Vec<RawVectorCandidate>,
-{
-    if !single_valued {
-        return single_scan_ann_search(target_docs, initial_fetch, max_vectors, search);
-    }
-
-    let fetch = target_docs
-        .min(max_vectors)
-        .min(MAX_DENSE_CANDIDATES_PER_SEGMENT);
-    if fetch == 0 {
-        return Ok(Vec::new());
-    }
-    let mut results = search(fetch);
-    results.truncate(fetch);
-    Ok(results)
 }
 
 #[inline]
@@ -1544,10 +1378,6 @@ impl SegmentReader {
 
         let ann_index = self.vector_indexes.get(&field.0);
         let lazy_flat = self.flat_vectors.get(&field.0);
-        let ann_fetch_k = lazy_flat.map_or(fetch_k, |flat| {
-            ann_ordinal_fetch_k(fetch_k, flat.num_vectors, flat.num_docs_with_vectors())
-        });
-
         // No vectors at all for this field
         if ann_index.is_none() && lazy_flat.is_none() {
             return Ok(Vec::new());
@@ -1586,20 +1416,11 @@ impl SegmentReader {
                         )));
                     }
                     let flat = lazy_flat.expect("ANN/flat pairing validated above");
-                    progressive_ann_search(
-                        fetch_k.min(flat.num_docs_with_vectors()),
-                        ann_fetch_k,
-                        rabitq.len().min(flat.num_vectors),
-                        |candidate_k| {
-                            rabitq
-                                .search(query, candidate_k)
-                                .into_iter()
-                                .map(|(doc_id, ordinal, dist)| {
-                                    (doc_id, ordinal, 1.0 / (1.0 + dist))
-                                })
-                                .collect()
-                        },
-                    )?
+                    rabitq
+                        .search_distinct_documents(query, fetch_k.min(flat.num_docs_with_vectors()))
+                        .into_iter()
+                        .map(|(doc_id, ordinal, dist)| (doc_id, ordinal, 1.0 / (1.0 + dist)))
+                        .collect()
                 }
                 VectorIndex::IVF(lazy) => {
                     let (index, codebook) = lazy.get().ok_or_else(|| {
@@ -1628,26 +1449,17 @@ impl SegmentReader {
                     }
                     let effective_nprobe = params.nprobe.min(centroids.num_clusters as usize);
                     let flat = lazy_flat.expect("ANN/flat pairing validated above");
-                    progressive_ann_search(
-                        fetch_k.min(flat.num_docs_with_vectors()),
-                        ann_fetch_k,
-                        index.len().min(flat.num_vectors),
-                        |candidate_k| {
-                            index
-                                .search(
-                                    centroids,
-                                    codebook,
-                                    query,
-                                    candidate_k,
-                                    Some(effective_nprobe),
-                                )
-                                .into_iter()
-                                .map(|(doc_id, ordinal, dist)| {
-                                    (doc_id, ordinal, 1.0 / (1.0 + dist))
-                                })
-                                .collect()
-                        },
-                    )?
+                    index
+                        .search_distinct_documents(
+                            centroids,
+                            codebook,
+                            query,
+                            fetch_k.min(flat.num_docs_with_vectors()),
+                            Some(effective_nprobe),
+                        )
+                        .into_iter()
+                        .map(|(doc_id, ordinal, dist)| (doc_id, ordinal, 1.0 / (1.0 + dist)))
+                        .collect()
                 }
                 VectorIndex::ScaNN(lazy) => {
                     let (index, codebook) = lazy.get().ok_or_else(|| {
@@ -1676,26 +1488,17 @@ impl SegmentReader {
                     }
                     let effective_nprobe = params.nprobe.min(centroids.num_clusters as usize);
                     let flat = lazy_flat.expect("ANN/flat pairing validated above");
-                    progressive_ann_search(
-                        fetch_k.min(flat.num_docs_with_vectors()),
-                        ann_fetch_k,
-                        index.len().min(flat.num_vectors),
-                        |candidate_k| {
-                            index
-                                .search(
-                                    centroids,
-                                    codebook,
-                                    query,
-                                    candidate_k,
-                                    Some(effective_nprobe),
-                                )
-                                .into_iter()
-                                .map(|(doc_id, ordinal, dist)| {
-                                    (doc_id, ordinal, 1.0 / (1.0 + dist))
-                                })
-                                .collect()
-                        },
-                    )?
+                    index
+                        .search_distinct_documents(
+                            centroids,
+                            codebook,
+                            query,
+                            fetch_k.min(flat.num_docs_with_vectors()),
+                            Some(effective_nprobe),
+                        )
+                        .into_iter()
+                        .map(|(doc_id, ordinal, dist)| (doc_id, ordinal, 1.0 / (1.0 + dist)))
+                        .collect()
                 }
                 VectorIndex::BinaryIvf(_) => {
                     // Binary IVF serves Hamming queries only (BinaryDenseVectorQuery)
@@ -1936,19 +1739,15 @@ impl SegmentReader {
                 )));
             }
             let nprobe = self.binary_ivf_nprobe(field);
-            let initial_fetch =
-                ann_ordinal_fetch_k(k, flat.num_vectors, flat.num_docs_with_vectors());
             let single_valued = flat.num_vectors == flat.num_docs_with_vectors();
-            // Physically single-valued segments collect exactly k candidates.
-            // Multi-valued segments collect the capped ranking once so
-            // distinct-document deepening does not repeat the identical scan.
-            let ann_results = binary_ann_search(
-                single_valued,
-                k.min(flat.num_docs_with_vectors()),
-                initial_fetch,
-                ivf.len().min(flat.num_vectors),
-                |candidate_k| ivf.search(query, candidate_k, nprobe),
-            )?;
+            let candidate_docs = k.min(flat.num_docs_with_vectors());
+            let ann_results = if single_valued {
+                // Avoid hashing when every indexed vector is already a
+                // distinct document.
+                ivf.search(query, candidate_docs, nprobe)
+            } else {
+                ivf.search_distinct_documents(query, candidate_docs, nprobe)
+            };
             let results =
                 exact_score_binary_candidate_documents(&ann_results, flat, query, schema_dim)
                     .await?;
@@ -2282,10 +2081,6 @@ impl SegmentReader {
 
         let ann_index = self.vector_indexes.get(&field.0);
         let lazy_flat = self.flat_vectors.get(&field.0);
-        let ann_fetch_k = lazy_flat.map_or(fetch_k, |flat| {
-            ann_ordinal_fetch_k(fetch_k, flat.num_vectors, flat.num_docs_with_vectors())
-        });
-
         if ann_index.is_none() && lazy_flat.is_none() {
             return Ok(Vec::new());
         }
@@ -2320,20 +2115,11 @@ impl SegmentReader {
                         )));
                     }
                     let flat = lazy_flat.expect("ANN/flat pairing validated above");
-                    progressive_ann_search(
-                        fetch_k.min(flat.num_docs_with_vectors()),
-                        ann_fetch_k,
-                        rabitq.len().min(flat.num_vectors),
-                        |candidate_k| {
-                            rabitq
-                                .search(query, candidate_k)
-                                .into_iter()
-                                .map(|(doc_id, ordinal, dist)| {
-                                    (doc_id, ordinal, 1.0 / (1.0 + dist))
-                                })
-                                .collect()
-                        },
-                    )?
+                    rabitq
+                        .search_distinct_documents(query, fetch_k.min(flat.num_docs_with_vectors()))
+                        .into_iter()
+                        .map(|(doc_id, ordinal, dist)| (doc_id, ordinal, 1.0 / (1.0 + dist)))
+                        .collect()
                 }
                 VectorIndex::IVF(lazy) => {
                     let (index, codebook) = lazy.get().ok_or_else(|| {
@@ -2362,26 +2148,17 @@ impl SegmentReader {
                     }
                     let effective_nprobe = params.nprobe.min(centroids.num_clusters as usize);
                     let flat = lazy_flat.expect("ANN/flat pairing validated above");
-                    progressive_ann_search(
-                        fetch_k.min(flat.num_docs_with_vectors()),
-                        ann_fetch_k,
-                        index.len().min(flat.num_vectors),
-                        |candidate_k| {
-                            index
-                                .search(
-                                    centroids,
-                                    codebook,
-                                    query,
-                                    candidate_k,
-                                    Some(effective_nprobe),
-                                )
-                                .into_iter()
-                                .map(|(doc_id, ordinal, dist)| {
-                                    (doc_id, ordinal, 1.0 / (1.0 + dist))
-                                })
-                                .collect()
-                        },
-                    )?
+                    index
+                        .search_distinct_documents(
+                            centroids,
+                            codebook,
+                            query,
+                            fetch_k.min(flat.num_docs_with_vectors()),
+                            Some(effective_nprobe),
+                        )
+                        .into_iter()
+                        .map(|(doc_id, ordinal, dist)| (doc_id, ordinal, 1.0 / (1.0 + dist)))
+                        .collect()
                 }
                 VectorIndex::ScaNN(lazy) => {
                     let (index, codebook) = lazy.get().ok_or_else(|| {
@@ -2410,26 +2187,17 @@ impl SegmentReader {
                     }
                     let effective_nprobe = params.nprobe.min(centroids.num_clusters as usize);
                     let flat = lazy_flat.expect("ANN/flat pairing validated above");
-                    progressive_ann_search(
-                        fetch_k.min(flat.num_docs_with_vectors()),
-                        ann_fetch_k,
-                        index.len().min(flat.num_vectors),
-                        |candidate_k| {
-                            index
-                                .search(
-                                    centroids,
-                                    codebook,
-                                    query,
-                                    candidate_k,
-                                    Some(effective_nprobe),
-                                )
-                                .into_iter()
-                                .map(|(doc_id, ordinal, dist)| {
-                                    (doc_id, ordinal, 1.0 / (1.0 + dist))
-                                })
-                                .collect()
-                        },
-                    )?
+                    index
+                        .search_distinct_documents(
+                            centroids,
+                            codebook,
+                            query,
+                            fetch_k.min(flat.num_docs_with_vectors()),
+                            Some(effective_nprobe),
+                        )
+                        .into_iter()
+                        .map(|(doc_id, ordinal, dist)| (doc_id, ordinal, 1.0 / (1.0 + dist)))
+                        .collect()
                 }
                 VectorIndex::BinaryIvf(_) => {
                     // Binary IVF serves Hamming queries only (BinaryDenseVectorQuery)
@@ -2572,19 +2340,13 @@ impl SegmentReader {
                 )));
             }
             let nprobe = self.binary_ivf_nprobe(field);
-            let initial_fetch =
-                ann_ordinal_fetch_k(k, flat.num_vectors, flat.num_docs_with_vectors());
             let single_valued = flat.num_vectors == flat.num_docs_with_vectors();
-            // Physically single-valued segments collect exactly k candidates.
-            // Multi-valued segments collect the capped ranking once so
-            // distinct-document deepening does not repeat the identical scan.
-            let ann_results = binary_ann_search(
-                single_valued,
-                k.min(flat.num_docs_with_vectors()),
-                initial_fetch,
-                ivf.len().min(flat.num_vectors),
-                |candidate_k| ivf.search(query, candidate_k, nprobe),
-            )?;
+            let candidate_docs = k.min(flat.num_docs_with_vectors());
+            let ann_results = if single_valued {
+                ivf.search(query, candidate_docs, nprobe)
+            } else {
+                ivf.search_distinct_documents(query, candidate_docs, nprobe)
+            };
             let results =
                 exact_score_binary_candidate_documents_sync(&ann_results, flat, query, schema_dim)?;
             crate::observe::dense_l1(
@@ -2729,131 +2491,10 @@ mod dense_search_safety_tests {
     }
 
     #[test]
-    fn ann_fetch_depth_accounts_for_multivalue_density_and_stays_bounded() {
-        assert_eq!(ann_ordinal_fetch_k(100, 1_000, 100), 1_000);
-        assert_eq!(
-            ann_ordinal_fetch_k(100_000, usize::MAX, 1),
-            MAX_DENSE_CANDIDATES_PER_SEGMENT
-        );
-        assert_eq!(ann_ordinal_fetch_k(100, 0, 10), 0);
-    }
-
-    #[test]
-    fn ann_search_deepens_until_skewed_results_contain_enough_documents() {
-        let ranked = [
-            (1, 0, 1.0),
-            (1, 1, 0.99),
-            (1, 2, 0.98),
-            (1, 3, 0.97),
-            (1, 4, 0.96),
-            (1, 5, 0.95),
-            (2, 0, 0.9),
-            (3, 0, 0.8),
-        ];
-        let mut fetches = Vec::new();
-        let results = progressive_ann_search(2, 2, ranked.len(), |fetch| {
-            fetches.push(fetch);
-            ranked.iter().copied().take(fetch).collect()
-        })
-        .unwrap();
-
-        assert_eq!(fetches, vec![2, 4, 8]);
-        assert!(results.iter().any(|&(doc_id, _, _)| doc_id == 2));
-    }
-
-    #[test]
-    fn ann_search_stops_when_probed_population_is_exhausted() {
-        let ranked = [(1, 0, 1.0), (1, 1, 0.9)];
-        let mut calls = 0;
-        let results = progressive_ann_search(3, 4, 100, |fetch| {
-            calls += 1;
-            ranked.iter().copied().take(fetch).collect()
-        })
-        .unwrap();
-
-        assert_eq!(calls, 1);
-        assert_eq!(results.len(), 2);
-    }
-
-    #[test]
     fn file_ranges_reject_overflow_and_truncation() {
         assert_eq!(checked_file_range(4, 3, 7, "test").unwrap(), 4..7);
         assert!(checked_file_range(u64::MAX, 1, u64::MAX, "test").is_err());
         assert!(checked_file_range(5, 3, 7, "test").is_err());
-    }
-
-    /// The single-scan replay must return exactly what the doubling retry
-    /// loop returns for any (target, initial fetch, population) combination
-    /// when `search(f)` yields the top-`f` prefix of one fixed ranking —
-    /// while invoking the search closure exactly once.
-    #[test]
-    fn single_scan_ann_search_matches_progressive_with_one_search_call() {
-        // Skewed ranking: doc 1 owns the best six vectors, then a sparse tail.
-        let ranked: Vec<RawVectorCandidate> = vec![
-            (1, 0, 1.0),
-            (1, 1, 0.99),
-            (1, 2, 0.98),
-            (1, 3, 0.97),
-            (1, 4, 0.96),
-            (1, 5, 0.95),
-            (2, 0, 0.9),
-            (3, 0, 0.8),
-            (2, 1, 0.7),
-            (4, 0, 0.6),
-            (5, 0, 0.5),
-        ];
-
-        for target_docs in 0..=6 {
-            for initial_fetch in [0, 1, 2, 3, 8, 16, 64] {
-                for max_vectors in [0, 1, 2, 8, ranked.len(), 100] {
-                    let progressive =
-                        progressive_ann_search(target_docs, initial_fetch, max_vectors, |fetch| {
-                            ranked.iter().copied().take(fetch).collect()
-                        });
-                    let mut calls = 0;
-                    let single =
-                        single_scan_ann_search(target_docs, initial_fetch, max_vectors, |fetch| {
-                            calls += 1;
-                            ranked.iter().copied().take(fetch).collect()
-                        });
-                    let case =
-                        format!("target={target_docs} initial={initial_fetch} max={max_vectors}");
-                    match (progressive, single) {
-                        (Ok(a), Ok(b)) => assert_eq!(a, b, "{case}"),
-                        (Err(a), Err(b)) => assert_eq!(a.to_string(), b.to_string(), "{case}"),
-                        (a, b) => panic!("verdict mismatch for {case}: {a:?} vs {b:?}"),
-                    }
-                    assert!(calls <= 1, "{case}: search must run at most once");
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn binary_ann_search_does_not_overcollect_single_valued_candidates() {
-        let ranked: Vec<RawVectorCandidate> = (0..64)
-            .map(|doc_id| (doc_id, 0, 1.0 - doc_id as f32 / 100.0))
-            .collect();
-
-        let mut single_fetch = None;
-        let single = binary_ann_search(true, 3, 3, ranked.len(), |fetch| {
-            single_fetch = Some(fetch);
-            ranked.iter().copied().take(fetch).collect()
-        })
-        .unwrap();
-        assert_eq!(single_fetch, Some(3));
-        assert_eq!(single, ranked[..3]);
-
-        // Multi-valued fields retain the existing one-scan replay: collect the
-        // full probed population once, then replay the distinct-doc schedule.
-        let mut multi_fetch = None;
-        let multi = binary_ann_search(false, 3, 3, ranked.len(), |fetch| {
-            multi_fetch = Some(fetch);
-            ranked.iter().copied().take(fetch).collect()
-        })
-        .unwrap();
-        assert_eq!(multi_fetch, Some(ranked.len()));
-        assert_eq!(multi, ranked[..3]);
     }
 
     /// Probe-returned (doc, ordinal) pairs keep their probe scores and are

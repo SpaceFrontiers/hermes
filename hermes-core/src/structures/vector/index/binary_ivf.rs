@@ -280,9 +280,44 @@ impl BinaryIvfIndex {
     /// Returns `(doc_id, ordinal, similarity)` with similarity = 1 - hamming/dim,
     /// sorted descending — exact for every scanned vector.
     pub fn search(&self, query: &[u8], k: usize, nprobe: Option<usize>) -> Vec<(u32, u16, f32)> {
+        let mut collector = crate::query::ScoreCollector::new(k);
+        self.visit_probed_scores(query, nprobe, |doc_id, ordinal, score| {
+            if collector.would_enter_candidate(doc_id, score, ordinal) {
+                collector.insert_with_ordinal(doc_id, score, ordinal);
+            }
+        });
+
+        collector
+            .into_sorted_results()
+            .into_iter()
+            .map(|(doc_id, score, ordinal)| (doc_id, ordinal, score))
+            .collect()
+    }
+
+    /// Search for the nearest `k` distinct documents, retaining each
+    /// document's best representative vector from the probed clusters.
+    pub fn search_distinct_documents(
+        &self,
+        query: &[u8],
+        k: usize,
+        nprobe: Option<usize>,
+    ) -> Vec<(u32, u16, f32)> {
+        let mut collector = super::BoundedDocumentScoreCollector::new(k);
+        self.visit_probed_scores(query, nprobe, |doc_id, ordinal, score| {
+            collector.insert(doc_id, ordinal, score);
+        });
+        collector.into_sorted_results()
+    }
+
+    fn visit_probed_scores(
+        &self,
+        query: &[u8],
+        nprobe: Option<usize>,
+        mut visit: impl FnMut(u32, u16, f32),
+    ) {
         let byte_len = self.config.byte_len();
         if query.len() != byte_len || self.len == 0 {
-            return Vec::new();
+            return;
         }
         let nprobe = nprobe
             .unwrap_or(self.config.default_nprobe)
@@ -308,7 +343,6 @@ impl BinaryIvfIndex {
         }
 
         // Scan probed clusters with exact SIMD Hamming
-        let mut collector = crate::query::ScoreCollector::new(k);
         let mut scores = vec![0.0f32; BINARY_IVF_SCORE_BATCH.min(self.len)];
         for &cluster_id in &order {
             let cluster = &self.clusters[cluster_id];
@@ -331,18 +365,10 @@ impl BinaryIvfIndex {
                     let i = batch_start + batch_idx;
                     let doc_id = cluster.doc_ids[i];
                     let ordinal = cluster.ordinals[i];
-                    if collector.would_enter_candidate(doc_id, score, ordinal) {
-                        collector.insert_with_ordinal(doc_id, score, ordinal);
-                    }
+                    visit(doc_id, ordinal, score);
                 }
             }
         }
-
-        collector
-            .into_sorted_results()
-            .into_iter()
-            .map(|(doc_id, score, ordinal)| (doc_id, ordinal, score))
-            .collect()
     }
 
     /// Merge another index into this one, re-assigning its vectors to this
@@ -575,6 +601,27 @@ mod tests {
 
         let results = index.search(&[0], 3, Some(1));
         assert_eq!(results, vec![(0, 0, 0.0), (1, 0, 0.0), (2, 0, 0.0)]);
+    }
+
+    #[test]
+    fn distinct_document_search_is_not_crowded_out_by_one_document() {
+        let codes = [0x00, 0x01, 0x02, 0x04, 0x03, 0x07];
+        let labels = [(0, 0), (0, 1), (0, 2), (1, 0), (2, 0), (3, 0)];
+        let index = BinaryIvfIndex::build(BinaryIvfConfig::new(8, 1), &codes, &labels).unwrap();
+
+        let vector_results = index.search(&[0], 3, Some(1));
+        assert_eq!(
+            vector_results
+                .iter()
+                .map(|result| result.0)
+                .collect::<Vec<_>>(),
+            vec![0, 0, 0]
+        );
+
+        assert_eq!(
+            index.search_distinct_documents(&[0], 3, Some(1)),
+            vec![(0, 0, 1.0), (1, 0, 0.875), (2, 0, 0.75)]
+        );
     }
 
     #[test]

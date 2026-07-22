@@ -131,9 +131,23 @@ impl RaBitQIndex {
 
     /// Search for k nearest neighbors, returns (doc_id, ordinal, distance)
     pub fn search(&self, query: &[f32], k: usize) -> Vec<(u32, u16, f32)> {
+        self.search_impl::<false>(query, k)
+    }
+
+    /// Search for the nearest `k` distinct documents, retaining each
+    /// document's best representative vector.
+    pub fn search_distinct_documents(&self, query: &[f32], k: usize) -> Vec<(u32, u16, f32)> {
+        self.search_impl::<true>(query, k)
+    }
+
+    fn search_impl<const BY_DOCUMENT: bool>(
+        &self,
+        query: &[f32],
+        k: usize,
+    ) -> Vec<(u32, u16, f32)> {
         let prepared = self.prepare_query(query);
 
-        let mut candidates = super::BoundedDistanceCollector::new(k);
+        let mut candidates = super::BoundedAnnCollector::<BY_DOCUMENT, false>::new(k);
         for idx in 0..self.vectors.len() {
             candidates.insert(
                 self.doc_ids[idx],

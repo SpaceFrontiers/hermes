@@ -147,12 +147,53 @@ impl IVFRaBitQIndex {
         k: usize,
         nprobe: Option<usize>,
     ) -> Vec<(u32, u16, f32)> {
+        self.search_impl::<false>(coarse_centroids, codebook, query, k, nprobe)
+    }
+
+    /// Search for the nearest `k` distinct documents, retaining each
+    /// document's best representative vector.
+    pub fn search_distinct_documents(
+        &self,
+        coarse_centroids: &CoarseCentroids,
+        codebook: &RaBitQCodebook,
+        query: &[f32],
+        k: usize,
+        nprobe: Option<usize>,
+    ) -> Vec<(u32, u16, f32)> {
+        self.search_impl::<true>(coarse_centroids, codebook, query, k, nprobe)
+    }
+
+    fn search_impl<const BY_DOCUMENT: bool>(
+        &self,
+        coarse_centroids: &CoarseCentroids,
+        codebook: &RaBitQCodebook,
+        query: &[f32],
+        k: usize,
+        nprobe: Option<usize>,
+    ) -> Vec<(u32, u16, f32)> {
+        let mut candidates = super::BoundedAnnCollector::<BY_DOCUMENT, false>::new(k);
+        self.visit_distances(
+            coarse_centroids,
+            codebook,
+            query,
+            nprobe,
+            |doc_id, ordinal, distance| candidates.insert(doc_id, ordinal, distance),
+        );
+        candidates.into_sorted_results()
+    }
+
+    fn visit_distances(
+        &self,
+        coarse_centroids: &CoarseCentroids,
+        codebook: &RaBitQCodebook,
+        query: &[f32],
+        nprobe: Option<usize>,
+        mut visit: impl FnMut(u32, u16, f32),
+    ) {
         let nprobe = nprobe.unwrap_or(self.config.default_nprobe);
 
         // Find nprobe nearest coarse centroids
         let nearest_clusters = coarse_centroids.find_k_nearest(query, nprobe);
-
-        let mut candidates = super::BoundedDistanceCollector::new(k);
 
         for &cluster_id in &nearest_clusters {
             if let Some(cluster) = self.clusters.get(cluster_id) {
@@ -163,12 +204,10 @@ impl IVFRaBitQIndex {
                 // Score all vectors in cluster
                 for (doc_id, ordinal, code) in cluster.iter() {
                     let dist = codebook.estimate_distance(&prepared_query, code);
-                    candidates.insert(doc_id, ordinal, dist);
+                    visit(doc_id, ordinal, dist);
                 }
             }
         }
-
-        candidates.into_sorted_results()
     }
 
     /// Merge another index into this one (instance method)
