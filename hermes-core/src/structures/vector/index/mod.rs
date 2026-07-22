@@ -1,19 +1,13 @@
 //! Vector index implementations
 //!
 //! This module provides ready-to-use indexes:
-//! - `RaBitQIndex` - Standalone RaBitQ for small datasets
-//! - `IVFRaBitQIndex` - IVF with RaBitQ binary quantization
-//! - `IVFPQIndex` - IVF with Product Quantization (ScaNN-style)
+//! - `IVFPQIndex` - global IVF with residual product quantization
 
 mod binary_ivf;
 mod ivf_pq;
-mod ivf_rabitq;
-mod rabitq;
 
-pub use binary_ivf::{BinaryIvfConfig, BinaryIvfIndex};
-pub use ivf_pq::{IVFPQConfig, IVFPQIndex};
-pub use ivf_rabitq::{IVFRaBitQConfig, IVFRaBitQIndex};
-pub use rabitq::RaBitQIndex;
+pub use binary_ivf::{BinaryCoarseQuantizer, BinaryIvfConfig, BinaryIvfIndex};
+pub use ivf_pq::{IVFPQConfig, IVFPQIndex, IvfPqQueryPlan};
 
 #[derive(Clone, Copy)]
 struct RankedEntry {
@@ -59,8 +53,6 @@ pub(crate) struct BoundedAnnCollector<const BY_DOCUMENT: bool, const HIGHER_IS_B
     heap: std::collections::BinaryHeap<RankedEntry>,
     best: rustc_hash::FxHashMap<u64, RankedEntry>,
 }
-
-pub(crate) type BoundedDocumentScoreCollector = BoundedAnnCollector<true, true>;
 
 impl<const BY_DOCUMENT: bool, const HIGHER_IS_BETTER: bool>
     BoundedAnnCollector<BY_DOCUMENT, HIGHER_IS_BETTER>
@@ -176,11 +168,12 @@ impl<const BY_DOCUMENT: bool, const HIGHER_IS_BETTER: bool>
 
 #[cfg(test)]
 mod tests {
-    use super::{BoundedAnnCollector, BoundedDocumentScoreCollector};
+    use super::BoundedAnnCollector;
     use rand::{Rng, SeedableRng};
 
     type BoundedDistanceCollector = BoundedAnnCollector<false, false>;
     type BoundedDocumentDistanceCollector = BoundedAnnCollector<true, false>;
+    type BoundedDocumentScoreCollector = BoundedAnnCollector<true, true>;
 
     #[test]
     fn bounded_collector_deduplicates_and_orders_ties() {

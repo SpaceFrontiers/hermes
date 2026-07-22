@@ -2609,6 +2609,7 @@ mod tests {
             .trained
             .store(Some(Arc::new(TrainedVectorStructures {
                 centroids: rustc_hash::FxHashMap::default(),
+                binary_quantizers: rustc_hash::FxHashMap::default(),
                 codebooks: rustc_hash::FxHashMap::default(),
             })));
 

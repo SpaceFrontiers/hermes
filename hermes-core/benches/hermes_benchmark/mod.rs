@@ -1,7 +1,7 @@
 //! Unified Hermes Benchmark Suite
 //!
 //! Consolidates all benchmarks into a single coherent output:
-//! - Dense vector search (RaBitQ, IVF-RaBitQ, ScaNN)
+//! - Dense vector search through the production IVF-PQ path
 //! - Matryoshka/MRL dimension comparison
 //! - Sparse vector search (SPLADE)
 //! - Text search (BM25)

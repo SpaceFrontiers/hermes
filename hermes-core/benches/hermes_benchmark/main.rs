@@ -1,7 +1,7 @@
 //! Unified Hermes Benchmark Suite
 //!
 //! Benchmarks:
-//! 1. Dense vector indexes (RaBitQ) with different MRL dimensions
+//! 1. Dense vector indexes with different MRL dimensions
 //! 2. Dense vector indexes with different nprobe values
 //! 3. Sparse vector indexes (SPLADE)
 //! 4. BM25 text search
