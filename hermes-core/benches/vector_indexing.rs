@@ -1,4 +1,4 @@
-//! Search and merge benchmarks for the production dense ANN implementation.
+//! Search benchmarks for the production dense ANN implementation.
 
 use std::hint::black_box;
 
@@ -52,31 +52,5 @@ fn bench_ivf_pq_search(c: &mut Criterion) {
     group.finish();
 }
 
-fn bench_ivf_pq_merge(c: &mut Criterion) {
-    let vectors = random_vectors(VECTOR_COUNT, DIM, 42);
-    let (coarse, codebook, _) = build_index(&vectors);
-    let segment_size = VECTOR_COUNT / 10;
-    let indexes: Vec<IVFPQIndex> = vectors
-        .chunks(segment_size)
-        .map(|segment| {
-            IVFPQIndex::build(
-                IVFPQConfig::new(DIM, codebook.config.num_subspaces),
-                &coarse,
-                &codebook,
-                segment,
-                None,
-            )
-        })
-        .collect();
-    let refs: Vec<&IVFPQIndex> = indexes.iter().collect();
-    let offsets: Vec<u32> = (0..indexes.len())
-        .map(|segment| (segment * segment_size) as u32)
-        .collect();
-
-    c.bench_function("ivf_pq_merge_10_segments", |b| {
-        b.iter(|| black_box(IVFPQIndex::merge(&refs, &offsets).unwrap()));
-    });
-}
-
-criterion_group!(benches, bench_ivf_pq_search, bench_ivf_pq_merge);
+criterion_group!(benches, bench_ivf_pq_search);
 criterion_main!(benches);
