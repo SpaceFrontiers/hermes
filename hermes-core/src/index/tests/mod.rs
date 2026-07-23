@@ -6,6 +6,7 @@ mod pin;
 mod primary_key;
 mod range;
 mod search;
+mod tq_bench;
 mod vector;
 
 #[cfg(feature = "sync")]
