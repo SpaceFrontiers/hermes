@@ -3036,9 +3036,9 @@ async fn bench_aggressive_quantization() {
     let grid_end =
         u64::from_le_bytes(original[bfoot + 24..bfoot + 32].try_into().unwrap()) as usize;
     println!(
-        "\ncorpus: {DOCS} docs, {TOPICS} topics, {} blocks | grid {:.1} MB | k={K}, {QUERIES} queries, exact",
+        "\ncorpus: {DOCS} docs, {TOPICS} topics, {} blocks | grid {} | k={K}, {QUERIES} queries, exact",
         num_blocks,
-        (grid_end - grid_start) as f64 / 1e6
+        crate::format_bytes((grid_end - grid_start) as u64)
     );
 
     let patch = |levels: &[u8]| -> Vec<u8> {
