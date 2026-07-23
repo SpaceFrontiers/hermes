@@ -219,6 +219,164 @@ struct ClusteredData {
     topic_dims: Vec<Vec<u32>>,
 }
 
+/// Floating-point inverted baseline over the original, unquantized corpus.
+///
+/// Ground truth is independent of both Hermes sparse formats, index pruning,
+/// impact quantization, LSP gamma, and alpha. Only touched documents are reset
+/// between queries, so producing Recall@K does not hide an O(corpus) memset.
+struct ExactSparseBaseline {
+    postings: Vec<Vec<(u32, f32)>>,
+    scores: Vec<f32>,
+    touched: Vec<u32>,
+}
+
+impl ExactSparseBaseline {
+    fn new(documents: &[Vec<(u32, f32)>]) -> Self {
+        let dimensions = documents
+            .iter()
+            .flatten()
+            .map(|&(dimension, _)| dimension as usize + 1)
+            .max()
+            .unwrap_or(0);
+        let mut postings = vec![Vec::new(); dimensions];
+        for (document, vector) in documents.iter().enumerate() {
+            for &(dimension, weight) in vector {
+                postings[dimension as usize].push((document as u32, weight));
+            }
+        }
+        Self {
+            postings,
+            scores: vec![0.0; documents.len()],
+            touched: Vec::new(),
+        }
+    }
+
+    fn top_k(&mut self, query: &[(u32, f32)], k: usize) -> Vec<u32> {
+        for &(dimension, query_weight) in query {
+            let Some(postings) = self.postings.get(dimension as usize) else {
+                continue;
+            };
+            for &(document, document_weight) in postings {
+                let score = &mut self.scores[document as usize];
+                if *score == 0.0 {
+                    self.touched.push(document);
+                }
+                *score += query_weight * document_weight;
+            }
+        }
+        let mut top = std::collections::BinaryHeap::<
+            std::cmp::Reverse<(u32, std::cmp::Reverse<u32>)>,
+        >::with_capacity(k);
+        for &document in &self.touched {
+            let score = self.scores[document as usize];
+            if score <= 0.0 {
+                continue;
+            }
+            let candidate = (score.to_bits(), std::cmp::Reverse(document));
+            if top.len() < k {
+                top.push(std::cmp::Reverse(candidate));
+            } else if top.peek().is_some_and(|minimum| candidate > minimum.0) {
+                top.pop();
+                top.push(std::cmp::Reverse(candidate));
+            }
+        }
+        for document in self.touched.drain(..) {
+            self.scores[document as usize] = 0.0;
+        }
+        let mut ranked: Vec<_> = top.into_iter().map(|entry| entry.0).collect();
+        ranked.sort_unstable_by(|left, right| right.cmp(left));
+        ranked
+            .into_iter()
+            .map(|(_, std::cmp::Reverse(document))| document)
+            .collect()
+    }
+}
+
+fn percentile_micros(samples: &mut [std::time::Duration], percentile: f64) -> f64 {
+    samples.sort_unstable();
+    let index = ((samples.len().saturating_sub(1)) as f64 * percentile).round() as usize;
+    samples[index].as_secs_f64() * 1_000_000.0
+}
+
+fn recall_at(predicted: &[u32], truth: &[u32], k: usize) -> f64 {
+    let truth = &truth[..truth.len().min(k)];
+    let predicted = &predicted[..predicted.len().min(k)];
+    predicted
+        .iter()
+        .filter(|document| truth.contains(document))
+        .count() as f64
+        / truth.len().max(1) as f64
+}
+
+fn mean_recall_at(predicted: &[Vec<u32>], truth: &[Vec<u32>], k: usize) -> f64 {
+    predicted
+        .iter()
+        .zip(truth)
+        .map(|(predicted, truth)| recall_at(predicted, truth, k))
+        .sum::<f64>()
+        / truth.len().max(1) as f64
+}
+
+#[derive(Clone, Copy)]
+struct SparseSearchOptions {
+    limit: usize,
+    gamma: usize,
+    alpha: f32,
+    query_pruning: Option<f32>,
+    max_query_dims: Option<usize>,
+}
+
+impl SparseSearchOptions {
+    const fn exhaustive(limit: usize) -> Self {
+        Self {
+            limit,
+            gamma: 0,
+            alpha: 1.0,
+            query_pruning: None,
+            max_query_dims: None,
+        }
+    }
+}
+
+fn sparse_search_batch(
+    rt: &tokio::runtime::Runtime,
+    searcher: &hermes_core::index::Searcher<RamDirectory>,
+    field: hermes_core::dsl::Field,
+    queries: &[Vec<(u32, f32)>],
+    options: SparseSearchOptions,
+) -> (Vec<Vec<u32>>, Vec<std::time::Duration>) {
+    let mut results = Vec::with_capacity(queries.len());
+    let mut latencies = Vec::with_capacity(queries.len());
+    for vector in queries {
+        let mut query = SparseVectorQuery::new(field, vector.clone())
+            .with_lsp_gamma(options.gamma)
+            .with_heap_factor(options.alpha);
+        if let Some(pruning) = options.query_pruning {
+            query = query.with_pruning(pruning);
+        }
+        if let Some(max_dims) = options.max_query_dims {
+            query = query.with_max_query_dims(max_dims);
+        }
+        let start = Instant::now();
+        let hits = rt.block_on(searcher.search(&query, options.limit)).unwrap();
+        latencies.push(start.elapsed());
+        results.push(hits.into_iter().map(|hit| hit.doc_id).collect());
+    }
+    (results, latencies)
+}
+
+fn bmp_posting_count(
+    searcher: &hermes_core::index::Searcher<RamDirectory>,
+    field: hermes_core::dsl::Field,
+) -> u64 {
+    searcher
+        .segment_readers()
+        .iter()
+        .filter_map(|segment| segment.bmp_index(field))
+        .map(|index| index.total_postings())
+        .sum()
+}
+
 /// Generate random queries with 10-50 non-zero dimensions.
 fn generate_queries(num_queries: usize, seed: u64) -> Vec<Vec<(u32, f32)>> {
     generate_queries_with_dims(num_queries, seed, 10, 40)
@@ -1032,12 +1190,14 @@ fn bench_long_queries(c: &mut Criterion) {
 
 /// Benchmark approximate retrieval with varying heap_factor (alpha).
 ///
-/// Tests BMP and MaxScore with alpha = {1.0, 0.8, 0.6} to measure the
+/// Tests BMP and MaxScore with alpha = {1.0, 0.85, 0.7} to measure the
 /// speed–accuracy trade-off. Alpha < 1.0 means more aggressive pruning:
 /// - BMP: prune when `UB * alpha <= threshold`
 /// - MaxScore: prune when `UB <= threshold / alpha`
 ///
-/// Also measures recall@10 vs exact (alpha=1.0) to quantify quality loss.
+/// Also measures Recall@10 and Recall@100 against an independent, unquantized
+/// f32 exhaustive dot-product baseline, so the reported loss includes both
+/// index quantization and approximate traversal.
 fn bench_approximate(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
 
@@ -1057,11 +1217,54 @@ fn bench_approximate(c: &mut Criterion) {
     let queries = generate_clustered_queries(num_queries, &clustered.topic_dims, 67890);
 
     eprintln!("Building indexes...");
-    let bmp = build_index(
+    let bmp_config = SparseVectorConfig::splade_bmp();
+    let bmp = build_index(&rt, &clustered.docs, bmp_config.clone(), "BMP-approx");
+    let mut quantization_only_config = bmp_config.clone();
+    quantization_only_config.weight_threshold = 0.0;
+    let bmp_quantization_only = build_index(
         &rt,
         &clustered.docs,
-        SparseVectorConfig::splade_bmp(),
-        "BMP-approx",
+        quantization_only_config,
+        "BMP-uint8-only",
+    );
+    let mut static_pruning_config = bmp_config;
+    static_pruning_config.pruning = Some(0.1);
+    let bmp_static_pruning = build_index(
+        &rt,
+        &clustered.docs,
+        static_pruning_config,
+        "BMP-posting-prune-10pct",
+    );
+    let mut azeroth_config = SparseVectorConfig::splade_bmp();
+    azeroth_config.doc_mass = Some(0.9);
+    azeroth_config.weight_threshold = 0.1;
+    azeroth_config.pruning = Some(0.7);
+    let bmp_azeroth = build_index(
+        &rt,
+        &clustered.docs,
+        azeroth_config,
+        "BMP-azeroth-0.9-0.1-0.7",
+    );
+    let mut threshold_only_config = SparseVectorConfig::splade_bmp();
+    threshold_only_config.weight_threshold = 0.1;
+    let bmp_threshold_only = build_index(
+        &rt,
+        &clustered.docs,
+        threshold_only_config,
+        "BMP-threshold-0.1",
+    );
+    let mut mass_only_config = SparseVectorConfig::splade_bmp();
+    mass_only_config.weight_threshold = 0.0;
+    mass_only_config.doc_mass = Some(0.9);
+    let bmp_mass_only = build_index(&rt, &clustered.docs, mass_only_config, "BMP-doc-mass-0.9");
+    let mut pruning_only_config = SparseVectorConfig::splade_bmp();
+    pruning_only_config.weight_threshold = 0.0;
+    pruning_only_config.pruning = Some(0.7);
+    let bmp_pruning_only = build_index(
+        &rt,
+        &clustered.docs,
+        pruning_only_config,
+        "BMP-posting-prune-70pct",
     );
     let maxscore = build_index(
         &rt,
@@ -1073,76 +1276,303 @@ fn bench_approximate(c: &mut Criterion) {
     let bmp_reader = rt.block_on(bmp.index.reader()).unwrap();
     let bmp_searcher = Arc::new(rt.block_on(bmp_reader.searcher()).unwrap());
 
+    let bmp_quantization_only_reader = rt.block_on(bmp_quantization_only.index.reader()).unwrap();
+    let bmp_quantization_only_searcher = Arc::new(
+        rt.block_on(bmp_quantization_only_reader.searcher())
+            .unwrap(),
+    );
+
+    let bmp_static_pruning_reader = rt.block_on(bmp_static_pruning.index.reader()).unwrap();
+    let bmp_static_pruning_searcher =
+        Arc::new(rt.block_on(bmp_static_pruning_reader.searcher()).unwrap());
+
+    let bmp_azeroth_reader = rt.block_on(bmp_azeroth.index.reader()).unwrap();
+    let bmp_azeroth_searcher = Arc::new(rt.block_on(bmp_azeroth_reader.searcher()).unwrap());
+
+    let bmp_threshold_only_reader = rt.block_on(bmp_threshold_only.index.reader()).unwrap();
+    let bmp_threshold_only_searcher =
+        Arc::new(rt.block_on(bmp_threshold_only_reader.searcher()).unwrap());
+
+    let bmp_mass_only_reader = rt.block_on(bmp_mass_only.index.reader()).unwrap();
+    let bmp_mass_only_searcher = Arc::new(rt.block_on(bmp_mass_only_reader.searcher()).unwrap());
+
+    let bmp_pruning_only_reader = rt.block_on(bmp_pruning_only.index.reader()).unwrap();
+    let bmp_pruning_only_searcher =
+        Arc::new(rt.block_on(bmp_pruning_only_reader.searcher()).unwrap());
+
     let ms_reader = rt.block_on(maxscore.index.reader()).unwrap();
     let ms_searcher = Arc::new(rt.block_on(ms_reader.searcher()).unwrap());
 
-    let alphas: &[f32] = &[1.0, 0.8, 0.6];
+    let alphas: &[f32] = &[1.0, 0.85, 0.7];
 
-    // Measure recall@10 for each alpha vs exact (alpha=1.0)
+    // Recall and latency against independent floating-point ground truth.
     {
-        eprintln!("\n  Recall@10 vs exact (alpha=1.0):");
-
-        // Exact BMP results (alpha=1.0)
-        let exact_bmp: Vec<Vec<u32>> = queries
+        let mut baseline = ExactSparseBaseline::new(&clustered.docs);
+        let original_truth: Vec<Vec<u32>> = queries
             .iter()
-            .map(|q| {
-                let query = SparseVectorQuery::new(bmp.sparse_field, q.clone());
-                let results = rt.block_on(bmp_searcher.search(&query, 10)).unwrap();
-                results.iter().map(|h| h.doc_id).collect()
-            })
+            .map(|query| baseline.top_k(query, 100))
             .collect();
-
-        // Exact MaxScore results (alpha=1.0)
-        let exact_ms: Vec<Vec<u32>> = queries
-            .iter()
-            .map(|q| {
-                let query = SparseVectorQuery::new(maxscore.sparse_field, q.clone());
-                let results = rt.block_on(ms_searcher.search(&query, 10)).unwrap();
-                results.iter().map(|h| h.doc_id).collect()
-            })
-            .collect();
-
-        for &alpha in alphas {
-            // BMP recall
-            let bmp_recall: f64 = queries
-                .iter()
-                .enumerate()
-                .map(|(i, q)| {
-                    let query =
-                        SparseVectorQuery::new(bmp.sparse_field, q.clone()).with_heap_factor(alpha);
-                    let results = rt.block_on(bmp_searcher.search(&query, 10)).unwrap();
-                    let approx: Vec<u32> = results.iter().map(|h| h.doc_id).collect();
-                    let overlap = approx.iter().filter(|d| exact_bmp[i].contains(d)).count();
-                    overlap as f64 / exact_bmp[i].len().max(1) as f64
-                })
-                .sum::<f64>()
-                / queries.len() as f64;
-
-            // MaxScore recall
-            let ms_recall: f64 = queries
-                .iter()
-                .enumerate()
-                .map(|(i, q)| {
-                    let query = SparseVectorQuery::new(maxscore.sparse_field, q.clone())
-                        .with_heap_factor(alpha);
-                    let results = rt.block_on(ms_searcher.search(&query, 10)).unwrap();
-                    let approx: Vec<u32> = results.iter().map(|h| h.doc_id).collect();
-                    let overlap = approx.iter().filter(|d| exact_ms[i].contains(d)).count();
-                    overlap as f64 / exact_ms[i].len().max(1) as f64
-                })
-                .sum::<f64>()
-                / queries.len() as f64;
-
+        let (indexed_truth, mut indexed_latencies) = sparse_search_batch(
+            &rt,
+            &bmp_searcher,
+            bmp.sparse_field,
+            &queries,
+            SparseSearchOptions::exhaustive(100),
+        );
+        let (quantization_only_results, mut quantization_only_latencies) = sparse_search_batch(
+            &rt,
+            &bmp_quantization_only_searcher,
+            bmp_quantization_only.sparse_field,
+            &queries,
+            SparseSearchOptions::exhaustive(100),
+        );
+        let (static_pruning_results, mut static_pruning_latencies) = sparse_search_batch(
+            &rt,
+            &bmp_static_pruning_searcher,
+            bmp_static_pruning.sparse_field,
+            &queries,
+            SparseSearchOptions::exhaustive(100),
+        );
+        let (azeroth_exhaustive_results, mut azeroth_exhaustive_latencies) = sparse_search_batch(
+            &rt,
+            &bmp_azeroth_searcher,
+            bmp_azeroth.sparse_field,
+            &queries,
+            SparseSearchOptions::exhaustive(100),
+        );
+        let (azeroth_api_results, mut azeroth_api_latencies) = sparse_search_batch(
+            &rt,
+            &bmp_azeroth_searcher,
+            bmp_azeroth.sparse_field,
+            &queries,
+            SparseSearchOptions {
+                limit: 100,
+                gamma: 500,
+                alpha: 0.85,
+                query_pruning: Some(0.8),
+                max_query_dims: Some(16),
+            },
+        );
+        let (fixed_storage_api_results, mut fixed_storage_api_latencies) = sparse_search_batch(
+            &rt,
+            &bmp_threshold_only_searcher,
+            bmp_threshold_only.sparse_field,
+            &queries,
+            SparseSearchOptions {
+                limit: 100,
+                gamma: 500,
+                alpha: 0.85,
+                query_pruning: Some(0.8),
+                max_query_dims: Some(16),
+            },
+        );
+        let (fixed_profile_results, mut fixed_profile_latencies) = sparse_search_batch(
+            &rt,
+            &bmp_threshold_only_searcher,
+            bmp_threshold_only.sparse_field,
+            &queries,
+            SparseSearchOptions {
+                limit: 100,
+                gamma: 500,
+                alpha: 0.85,
+                query_pruning: None,
+                max_query_dims: None,
+            },
+        );
+        let (threshold_only_results, mut threshold_only_latencies) = sparse_search_batch(
+            &rt,
+            &bmp_threshold_only_searcher,
+            bmp_threshold_only.sparse_field,
+            &queries,
+            SparseSearchOptions::exhaustive(100),
+        );
+        let (mass_only_results, mut mass_only_latencies) = sparse_search_batch(
+            &rt,
+            &bmp_mass_only_searcher,
+            bmp_mass_only.sparse_field,
+            &queries,
+            SparseSearchOptions::exhaustive(100),
+        );
+        let (pruning_only_results, mut pruning_only_latencies) = sparse_search_batch(
+            &rt,
+            &bmp_pruning_only_searcher,
+            bmp_pruning_only.sparse_field,
+            &queries,
+            SparseSearchOptions::exhaustive(100),
+        );
+        let baseline_postings = bmp_posting_count(
+            &bmp_quantization_only_searcher,
+            bmp_quantization_only.sparse_field,
+        );
+        eprintln!("\n  BMP quality decomposition vs original f32:");
+        eprintln!(
+            "    {:<24} {:>9} {:>9} {:>10} {:>11} {:>11}",
+            "index", "f32 R@10", "f32 R@100", "postings", "p50 us", "p95 us"
+        );
+        for (label, results, latencies, postings) in [
+            (
+                "uint8 only",
+                &quantization_only_results,
+                &mut quantization_only_latencies,
+                baseline_postings,
+            ),
+            (
+                "default (+threshold)",
+                &indexed_truth,
+                &mut indexed_latencies,
+                bmp_posting_count(&bmp_searcher, bmp.sparse_field),
+            ),
+            (
+                "threshold 0.1 only",
+                &threshold_only_results,
+                &mut threshold_only_latencies,
+                bmp_posting_count(
+                    &bmp_threshold_only_searcher,
+                    bmp_threshold_only.sparse_field,
+                ),
+            ),
+            (
+                "doc_mass 0.9 only",
+                &mass_only_results,
+                &mut mass_only_latencies,
+                bmp_posting_count(&bmp_mass_only_searcher, bmp_mass_only.sparse_field),
+            ),
+            (
+                "top-70% per list only",
+                &pruning_only_results,
+                &mut pruning_only_latencies,
+                bmp_posting_count(&bmp_pruning_only_searcher, bmp_pruning_only.sparse_field),
+            ),
+            (
+                "top-10% per list",
+                &static_pruning_results,
+                &mut static_pruning_latencies,
+                bmp_posting_count(
+                    &bmp_static_pruning_searcher,
+                    bmp_static_pruning.sparse_field,
+                ),
+            ),
+            (
+                "old azeroth storage",
+                &azeroth_exhaustive_results,
+                &mut azeroth_exhaustive_latencies,
+                bmp_posting_count(&bmp_azeroth_searcher, bmp_azeroth.sparse_field),
+            ),
+            (
+                "old + API defaults",
+                &azeroth_api_results,
+                &mut azeroth_api_latencies,
+                bmp_posting_count(&bmp_azeroth_searcher, bmp_azeroth.sparse_field),
+            ),
+            (
+                "fixed storage + old API",
+                &fixed_storage_api_results,
+                &mut fixed_storage_api_latencies,
+                bmp_posting_count(
+                    &bmp_threshold_only_searcher,
+                    bmp_threshold_only.sparse_field,
+                ),
+            ),
+            (
+                "fixed profile",
+                &fixed_profile_results,
+                &mut fixed_profile_latencies,
+                bmp_posting_count(
+                    &bmp_threshold_only_searcher,
+                    bmp_threshold_only.sparse_field,
+                ),
+            ),
+        ] {
+            let p50 = percentile_micros(latencies, 0.50);
+            let p95 = percentile_micros(latencies, 0.95);
             eprintln!(
-                "    alpha={:.1}: BMP recall={:.3}, MaxScore recall={:.3}",
-                alpha, bmp_recall, ms_recall
+                "    {:<24} {:>9.4} {:>9.4} {:>9.1}% {:>11.1} {:>11.1}",
+                label,
+                mean_recall_at(results, &original_truth, 10),
+                mean_recall_at(results, &original_truth, 100),
+                postings as f64 * 100.0 / baseline_postings.max(1) as f64,
+                p50,
+                p95,
+            );
+        }
+        let total_superblocks: usize = bmp_searcher
+            .segment_readers()
+            .iter()
+            .filter_map(|segment| segment.bmp_index(bmp.sparse_field))
+            .map(|index| index.num_superblocks as usize)
+            .sum();
+        let gamma_eighth = (total_superblocks / 8).max(1);
+        let gamma_quarter = (total_superblocks / 4).max(1);
+        let gamma_half = (total_superblocks / 2).max(1);
+        let settings = vec![
+            ("exhaustive".to_string(), 0usize, 1.0f32, None),
+            ("gamma250".to_string(), 250, 1.0, None),
+            ("gamma500".to_string(), 500, 1.0, None),
+            ("gamma1000".to_string(), 1_000, 1.0, None),
+            (
+                format!("gamma{gamma_eighth}-12pct"),
+                gamma_eighth,
+                1.0,
+                None,
+            ),
+            (
+                format!("gamma{gamma_quarter}-25pct"),
+                gamma_quarter,
+                1.0,
+                None,
+            ),
+            (format!("gamma{gamma_half}-50pct"), gamma_half, 1.0, None),
+            ("gamma250-alpha85".to_string(), 250, 0.85, None),
+            (format!("gamma{gamma_eighth}-a85"), gamma_eighth, 0.85, None),
+            (format!("gamma{gamma_eighth}-a70"), gamma_eighth, 0.70, None),
+            ("gamma250-beta33".to_string(), 250, 1.0, Some(0.33)),
+            (
+                format!("gamma{gamma_eighth}-b33"),
+                gamma_eighth,
+                1.0,
+                Some(0.33),
+            ),
+        ];
+        eprintln!("\n  Sparse retrieval quality vs original f32 dot-product ground truth:");
+        eprintln!(
+            "  f32 = end-to-end (index pruning + quantization + traversal); idx = traversal vs exhaustive BMP on the same stored index"
+        );
+        eprintln!(
+            "    {:<20} {:>9} {:>9} {:>9} {:>9} {:>11} {:>11}",
+            "setting", "f32 R@10", "f32 R@100", "idx R@10", "idx R@100", "p50 us", "p95 us"
+        );
+        for (label, gamma, alpha, query_pruning) in settings {
+            let (predicted, mut latencies) = sparse_search_batch(
+                &rt,
+                &bmp_searcher,
+                bmp.sparse_field,
+                &queries,
+                SparseSearchOptions {
+                    limit: 100,
+                    gamma,
+                    alpha,
+                    query_pruning,
+                    max_query_dims: None,
+                },
+            );
+            let p50 = percentile_micros(&mut latencies, 0.50);
+            let p95 = percentile_micros(&mut latencies, 0.95);
+            eprintln!(
+                "    {:<20} {:>9.4} {:>9.4} {:>9.4} {:>9.4} {:>11.1} {:>11.1}",
+                label,
+                mean_recall_at(&predicted, &original_truth, 10),
+                mean_recall_at(&predicted, &original_truth, 100),
+                mean_recall_at(&predicted, &indexed_truth, 10),
+                mean_recall_at(&predicted, &indexed_truth, 100),
+                p50,
+                p95,
             );
         }
     }
 
     // Benchmark latency at each alpha
     for &alpha in alphas {
-        let group_name = format!("approx_a{}_top10", (alpha * 10.0) as u32);
+        let group_name = format!("approx_a{}_top10", (alpha * 100.0).round() as u32);
         let mut group = c.benchmark_group(&group_name);
         group.sample_size(50);
 
