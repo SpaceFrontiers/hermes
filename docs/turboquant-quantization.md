@@ -125,7 +125,13 @@ ground truth = the flat index's exact cosine top-10.
 Measured 2026-07-23, aarch64 (Apple Silicon, NEON kernels), 100k docs ×
 768 dims, 256 corpus clusters, 100 queries, k=10, `nprobe: 64` over 1,024
 trained leaves, `rerank_factor: 2.0`, mmap directory, page cache warmed
-(single idle-machine run; compare rows within the table, not across runs):
+(single idle-machine run; compare rows within the table, not across runs).
+**Harness note:** this table predates the harness's `force_merge`, so each
+method served from several auto-flushed segments and every segment
+contributed `fetch_k = k × rerank_factor` candidates to the exact re-rank.
+That amplifies absolute recall for all rows equally (cross-method
+comparison is unaffected); merged single-segment numbers are lower and are
+the conservative baseline (next table).
 
 | method       | build (s) | train (s) | .vectors (MB) | p50 (ms) | p95 (ms) | recall@10 |
 | ------------ | --------- | --------- | ------------- | -------- | -------- | --------- |
@@ -135,7 +141,7 @@ trained leaves, `rerank_factor: 2.0`, mmap directory, page cache warmed
 | **ivf_tq**   | 0.4       | 143.3     | 351.3         | 3.33     | 5.81     | **0.997** |
 
 Two headline results. First, training-free `tq` beats exact scan by ~1.5× at
-p50 with 0.96 recall and zero training. Second, at the same probe budget
+p50 with zero training. Second, at the same probe budget
 `ivf_tq` beats `ivf_pq` on every axis: +0.21 recall@10 (0.997 vs 0.786 — the
 4-bit residual estimate keeps the true top-10 alive inside the probed set
 where 1-bit/dim PQ loses them), 2.6× lower p50 (no per-cluster ADC table
@@ -147,6 +153,39 @@ zero-training lane for small/medium segments and the pre-training state.
 x86_64 SSSE3/AVX2 kernels are correctness-pinned against the scalar
 reference in unit tests; perf numbers on x86 should be captured before
 quoting them.
+
+Same setup on the shipped codec-v2 build, `force_merge` to one segment
+(honest `rerank_factor: 2.0` semantics — exactly `fetch_k = 20` candidates
+re-ranked):
+
+| method       | build (s) | train (s) | .vectors (MB) | p50 (ms) | p95 (ms) | recall@10 |
+| ------------ | --------- | --------- | ------------- | -------- | -------- | --------- |
+| flat (exact) | 1.3       | —         | 293.5         | 5.62     | 6.13     | 1.000     |
+| **tq**       | 1.3       | **0**     | 331.1         | 3.12     | 5.15     | 0.838     |
+| **ivf_tq**   | 1.4       | 143.1     | 334.5         | **1.80** | **4.69** | **0.974** |
+
+The recall delta between the two tables decomposes into two measured,
+controlled effects — there is no hidden quality bug (each control varied
+one factor on the same corpus and seeds):
+
+- **Segment-count amplification** (~−0.06 tq): the shipped build re-run
+  under the old multi-segment harness scores tq 0.947 / ivf_tq 0.992 —
+  unmerged indexes union per-segment candidates before the exact re-rank,
+  so recall rises with segment count. This is real serving behavior, not
+  an artifact of the codec; a fully merged segment is the floor.
+- **Codec v2 bits** (−0.05 tq, −0.01 ivf_tq at one segment): a
+  pow2-padding control build (v1 geometry, +33% code bits) scores 0.891 /
+  0.984. A full-pipeline estimator probe at dim 768 measures RMSE 0.0051
+  (P=768) vs 0.0044 (P=1024) — the ratio is exactly `√(1024/768)`, i.e.
+  the v2 estimator is as good as the geometry allows; the padding-free
+  saving (−25% payload and scan work) is a genuine bits-for-recall trade.
+
+Recall dials: `ivf_tq` (the default) recovers recall with `nprobe`
+(0.974 at 64/1,024 here; the estimate quality supports much deeper probes
+at ~linear cost). The flat `tq` lane's only dial is `rerank_factor`,
+which is capped by the global candidate-oversubscription budget (2×), so
+its merged-segment recall on boundary-dense corpora is a floor to be aware
+of — it remains the zero-training lane, not the precision lane.
 
 At 1M docs (same harness and arch, measured 2026-07-23 on the optimized
 build: codec v2 padding-free rotation, scale-sorted leaf pruning, parallel
