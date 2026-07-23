@@ -127,7 +127,7 @@ async fn run_method(
     let build_secs = build_start.elapsed().as_secs_f64();
 
     let train_start = std::time::Instant::now();
-    let train_secs = if label == "ivf_pq" {
+    let train_secs = if label == "ivf_pq" || label == "ivf_tq" {
         let writer = IndexWriter::open(dir.clone(), index_config.clone())
             .await
             .expect("reopen writer for training");
@@ -148,6 +148,7 @@ async fn run_method(
             crate::segment::VectorIndex::IvfPq(_) => "ivf_pq",
             crate::segment::VectorIndex::BinaryIvf(_) => "binary_ivf",
             crate::segment::VectorIndex::Tq { .. } => "tq_flat",
+            crate::segment::VectorIndex::IvfTq { .. } => "ivf_tq",
         })
         .next()
         .unwrap_or("none")
@@ -235,6 +236,13 @@ async fn tq_ivf_pq_flat_benchmark() {
         &queries,
     )
     .await;
+    let ivf_tq = run_method(
+        "ivf_tq",
+        DenseVectorConfig::ivf_tq(DIM, Some(IVF_NUM_CLUSTERS), NPROBE),
+        &corpus,
+        &queries,
+    )
+    .await;
 
     assert_eq!(flat.ann_kind, "none", "flat must not build an ANN payload");
     assert_eq!(
@@ -245,12 +253,16 @@ async fn tq_ivf_pq_flat_benchmark() {
         ivf_pq.ann_kind, "ivf_pq",
         "ivf_pq must be trained and built"
     );
+    assert_eq!(
+        ivf_tq.ann_kind, "ivf_tq",
+        "ivf_tq must be trained and built"
+    );
 
     println!(
         "\n{:<8} {:>10} {:>10} {:>12} {:>9} {:>9} {:>9}",
         "method", "build(s)", "train(s)", "vectors(MB)", "p50(ms)", "p95(ms)", "recall@10"
     );
-    for report in [&flat, &tq, &ivf_pq] {
+    for report in [&flat, &tq, &ivf_pq, &ivf_tq] {
         println!(
             "{:<8} {:>10.1} {:>10.1} {:>12.1} {:>9.2} {:>9.2} {:>9.3}",
             report.label,
@@ -264,8 +276,9 @@ async fn tq_ivf_pq_flat_benchmark() {
     }
     let flat_bytes = flat.vectors_bytes as f64;
     println!(
-        "\nANN payload overhead vs flat storage: tq +{:.1} MB, ivf_pq +{:.1} MB",
+        "\nANN payload overhead vs flat storage: tq +{:.1} MB, ivf_pq +{:.1} MB, ivf_tq +{:.1} MB",
         (tq.vectors_bytes as f64 - flat_bytes) / (1024.0 * 1024.0),
         (ivf_pq.vectors_bytes as f64 - flat_bytes) / (1024.0 * 1024.0),
+        (ivf_tq.vectors_bytes as f64 - flat_bytes) / (1024.0 * 1024.0),
     );
 }

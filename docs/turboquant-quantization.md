@@ -1,6 +1,6 @@
 # TurboQuant (TQ) — training-free dense ANN codec
 
-Status: implemented (v1, `AnnKind::TqFlat`).
+Status: implemented (v1 `AnnKind::TqFlat`, v1.1 adds `AnnKind::IvfTq`).
 
 ## Motivation
 
@@ -117,28 +117,59 @@ ground truth = the flat index's exact cosine top-10.
 
 Measured 2026-07-23, aarch64 (Apple Silicon, NEON kernels), 100k docs ×
 768 dims, 256 corpus clusters, 100 queries, k=10, `nprobe: 64` over 1,024
-trained leaves, `rerank_factor: 2.0`, mmap directory, page cache warmed:
+trained leaves, `rerank_factor: 2.0`, mmap directory, page cache warmed
+(single idle-machine run; compare rows within the table, not across runs):
 
-| method       | build (s) | train (s) | .vectors (MB) | p50 (ms) | p95 (ms)  | recall@10 |
-| ------------ | --------- | --------- | ------------- | -------- | --------- | --------- |
-| flat (exact) | 0.5       | —         | 293.5         | 18.50    | 94.47     | 1.000     |
-| **tq**       | 1.4       | **0**     | 343.3         | **9.33** | **11.33** | **0.959** |
-| ivf_pq       | 0.5       | 466.9     | 303.4         | 31.16    | 43.14     | 0.786     |
+| method       | build (s) | train (s) | .vectors (MB) | p50 (ms) | p95 (ms) | recall@10 |
+| ------------ | --------- | --------- | ------------- | -------- | -------- | --------- |
+| flat (exact) | 0.4       | —         | 293.5         | 4.85     | 5.51     | 1.000     |
+| **tq**       | 0.7       | **0**     | 343.3         | **3.27** | **3.50** | 0.959     |
+| ivf_pq       | 0.8       | 212.2     | 303.4         | 8.54     | 12.29    | 0.786     |
+| **ivf_tq**   | 0.4       | 143.3     | 351.3         | 3.33     | 5.81     | **0.997** |
 
-At this scale TQ dominates: ~2× faster than exact at p50 with 0.96 recall and
-zero training, while IVF-PQ pays ~8 minutes of training and lands at 0.786
-recall at nprobe 64 (its per-query cost here is dominated by building 64 ADC
-tables per query). The caveat is asymptotic: TQ scans every code (O(N) per
-query, ~9 ms per 100k docs at 768 dims on this machine), while IVF-PQ scans
-`nprobe/num_clusters` of the corpus — at millions of vectors per segment the
-trained lane wins latency. TQ therefore replaces the brute-force lane and
-small-to-medium segments, not the billion-scale trained path. x86_64
-SSSE3/AVX2 kernels are correctness-pinned against the scalar reference in
-unit tests; perf numbers on x86 should be captured before quoting them.
+Two headline results. First, training-free `tq` beats exact scan by ~1.5× at
+p50 with 0.96 recall and zero training. Second, at the same probe budget
+`ivf_tq` beats `ivf_pq` on every axis: +0.21 recall@10 (0.997 vs 0.786 — the
+4-bit residual estimate keeps the true top-10 alive inside the probed set
+where 1-bit/dim PQ loses them), 2.6× lower p50 (no per-cluster ADC table
+builds, which dominate IVF-PQ's query cost at nprobe 64), and ~33% less
+training time (no PQ/OPQ stage). The asymptotic caveat applies to `tq` only:
+it scans every code (O(N)/query), so at millions of vectors per segment the
+probed lanes (`ivf_tq`, `ivf_pq`) win latency; `tq` remains the
+zero-training lane for small/medium segments and the pre-training state.
+x86_64 SSSE3/AVX2 kernels are correctness-pinned against the scalar
+reference in unit tests; perf numbers on x86 should be captured before
+quoting them.
+
+## IVF-TQ (`index_type: ivf_tq`)
+
+Sub-linear probing with the training-free leaf codec: the trained global
+coarse router (same `build_vector_index()` machinery, HNSW/SOAR supported)
+plus TQ codes of the centroid residual `r = x − c` per leaf. Residual norms
+carry ranking information, so each vector stores `scale = ‖r‖` next to
+`gamma`, and the leaf estimate is
+
+```
+⟨q̂, x⟩ = ⟨q̂, c⟩ + scale · est⟨q̂, r̂⟩
+```
+
+Because residuals are encoded in absolute rotated space (not per-cluster
+tables), the whole query needs **one** LUT set plus one `⟨q̂,c⟩` scalar per
+probed cluster — plan build is `O(P·16 + nprobe·dim)` instead of IVF-PQ's
+`nprobe` ADC tables (which dominated its measured per-query cost). Blocks are
+`[16 scales][16 gammas][nibbles]`; runs are per-leaf, merges byte-copy.
+On disk `quantizer_version` is the trained centroid generation and
+`codebook_version` carries the codec fingerprint; only centroids are stored
+as trained artifacts (`codebook_file` must be absent).
+
+```sdl
+field e: dense_vector<768, f16> [indexed<ivf_tq, num_clusters: 1024, nprobe: 64>]
+```
+
+`num_clusters`, `nprobe`, `routing`, and `soar` all apply (unlike `tq`).
 
 ## Explicit non-goals in v1
 
-- No IVF-routed TQ leaves (would reuse trained coarse centroids; follow-up).
 - No configurable bit width (4 = 3+1 fixed; header carries it for evolution).
 - No WASM in-browser TQ _encoding_ (WASM reads native-built payloads;
   `LocalIndex` encode support is a follow-up).
