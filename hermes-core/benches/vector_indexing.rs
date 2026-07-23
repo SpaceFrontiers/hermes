@@ -1,56 +1,110 @@
-//! Search benchmarks for the production dense ANN implementation.
+//! Dense ANN microbenchmarks: TQ LUT16 block scoring and IVF-TQ plan build.
+//!
+//! The end-to-end method comparison (flat vs tq vs ivf_tq, with recall)
+//! lives in the ignored `tq_dense_ann_benchmark` integration test; this file
+//! isolates the per-block scoring kernel and the per-query plan cost.
 
 use std::hint::black_box;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use hermes_core::dsl::IvfRoutingMode;
-use hermes_core::structures::{
-    CoarseCentroids, CoarseConfig, IVFPQConfig, IVFPQIndex, IvfPqQueryPlan, PQCodebook, PQConfig,
+use hermes_core::structures::vector::quantization::TqEncodeScratch;
+use hermes_core::structures::vector::quantization::{
+    TQ_BLOCK_LANES, tq_pack_ivf_block, tq_score_ivf_block, tq_shared_codec,
 };
+use hermes_core::structures::{CoarseCentroids, CoarseConfig, TqIvfQueryPlan, TqQueryPlan};
 use rand::prelude::*;
 
-const DIM: usize = 128;
-const VECTOR_COUNT: usize = 10_000;
-const CLUSTER_COUNT: usize = 256;
-const K: usize = 10;
+const DIM: usize = 768;
+const BLOCKS: usize = 256; // 4,096 vectors per iteration
 
-fn random_vectors(count: usize, dim: usize, seed: u64) -> Vec<Vec<f32>> {
+fn random_unit_vectors(count: usize, dim: usize, seed: u64) -> Vec<Vec<f32>> {
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
     (0..count)
-        .map(|_| (0..dim).map(|_| rng.random::<f32>() - 0.5).collect())
+        .map(|_| {
+            let mut vector: Vec<f32> = (0..dim).map(|_| rng.random::<f32>() - 0.5).collect();
+            let norm = vector.iter().map(|value| value * value).sum::<f32>().sqrt();
+            vector.iter_mut().for_each(|value| *value /= norm);
+            vector
+        })
         .collect()
 }
 
-fn build_index(vectors: &[Vec<f32>]) -> (CoarseCentroids, PQCodebook, IVFPQIndex) {
-    let coarse = CoarseCentroids::train(
-        &CoarseConfig::new(DIM, CLUSTER_COUNT).with_routing(IvfRoutingMode::Flat),
-        vectors,
-    );
-    let codebook = PQCodebook::train(PQConfig::new(DIM), vectors, 25);
-    let index = IVFPQIndex::build(
-        IVFPQConfig::new(DIM, codebook.config.num_subspaces),
-        &coarse,
-        &codebook,
-        vectors,
-        None,
-    );
-    (coarse, codebook, index)
+fn packed_blocks(dim: usize, seed: u64) -> (Vec<u8>, usize) {
+    let codec = tq_shared_codec(dim);
+    let padded = codec.padded_dim();
+    let vectors = random_unit_vectors(BLOCKS * TQ_BLOCK_LANES, dim, seed);
+    let mut scratch = TqEncodeScratch::default();
+    let mut codes = Vec::new();
+    let mut rows = vec![0u8; TQ_BLOCK_LANES * padded];
+    let mut gammas = [0.0f32; TQ_BLOCK_LANES];
+    let mut scales = [1.0f32; TQ_BLOCK_LANES];
+    for block in vectors.chunks_exact(TQ_BLOCK_LANES) {
+        for (lane, vector) in block.iter().enumerate() {
+            let (scale, gamma) = codec.encode_residual_into(
+                vector,
+                &mut rows[lane * padded..(lane + 1) * padded],
+                &mut scratch,
+            );
+            scales[lane] = scale;
+            gammas[lane] = gamma;
+        }
+        let row_refs: Vec<&[u8]> = (0..TQ_BLOCK_LANES)
+            .map(|lane| &rows[lane * padded..(lane + 1) * padded])
+            .collect();
+        tq_pack_ivf_block(&row_refs, &scales, &gammas, padded, &mut codes);
+    }
+    let block_bytes = codes.len() / BLOCKS;
+    (codes, block_bytes)
 }
 
-fn bench_ivf_pq_search(c: &mut Criterion) {
-    let vectors = random_vectors(VECTOR_COUNT, DIM, 42);
-    let query = random_vectors(1, DIM, 7).pop().unwrap();
-    let (coarse, codebook, index) = build_index(&vectors);
+fn bench_lut16_scan(c: &mut Criterion) {
+    let codec = tq_shared_codec(DIM);
+    let query = random_unit_vectors(1, DIM, 7).pop().unwrap();
+    let plan = TqQueryPlan::build(&codec, &query);
+    let (codes, block_bytes) = packed_blocks(DIM, 42);
 
-    let mut group = c.benchmark_group("ivf_pq_search");
-    for nprobe in [16, 32, 64, 128] {
-        let plan = IvfPqQueryPlan::build(&coarse, &codebook, &query, nprobe, IvfRoutingMode::Flat);
-        group.bench_with_input(BenchmarkId::from_parameter(nprobe), &nprobe, |b, _| {
-            b.iter(|| black_box(index.search_distinct_documents(K, black_box(&plan))));
+    let mut group = c.benchmark_group("tq_lut16_scan");
+    group.throughput(criterion::Throughput::Elements(
+        (BLOCKS * TQ_BLOCK_LANES) as u64,
+    ));
+    group.bench_function(BenchmarkId::from_parameter(DIM), |b| {
+        let mut scores = [0.0f32; TQ_BLOCK_LANES];
+        b.iter(|| {
+            for block in codes.chunks_exact(block_bytes) {
+                tq_score_ivf_block(black_box(&plan), black_box(block), 0.25, &mut scores);
+            }
+            black_box(scores)
+        });
+    });
+    group.finish();
+}
+
+fn bench_ivf_tq_plan(c: &mut Criterion) {
+    let vectors = random_unit_vectors(10_000, DIM, 42);
+    let coarse = CoarseCentroids::train(
+        &CoarseConfig::new(DIM, 256).with_routing(IvfRoutingMode::Flat),
+        &vectors,
+    );
+    let codec = tq_shared_codec(DIM);
+    let query = random_unit_vectors(1, DIM, 9).pop().unwrap();
+
+    let mut group = c.benchmark_group("ivf_tq_plan");
+    for nprobe in [16usize, 64] {
+        group.bench_with_input(BenchmarkId::from_parameter(nprobe), &nprobe, |b, &n| {
+            b.iter(|| {
+                black_box(TqIvfQueryPlan::build(
+                    &coarse,
+                    &codec,
+                    black_box(&query),
+                    n,
+                    IvfRoutingMode::Flat,
+                ))
+            });
         });
     }
     group.finish();
 }
 
-criterion_group!(benches, bench_ivf_pq_search);
+criterion_group!(benches, bench_lut16_scan, bench_ivf_tq_plan);
 criterion_main!(benches);

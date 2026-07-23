@@ -1,6 +1,11 @@
 # TurboQuant (TQ) — training-free dense ANN codec
 
 Status: implemented (v1 `AnnKind::TqFlat`, v1.1 adds `AnnKind::IvfTq`).
+v1.2 removes IVF-PQ entirely: IVF-TQ beat it on every measured axis (see
+Benchmark), so residual-PQ/OPQ, its trained codebooks, and `AnnKind 1` /
+TOC type 2 are retired. Legacy `ivf_pq` schemas, trained generations, and
+payloads fail loudly with a recreate-as-`ivf_tq` message; the discriminants
+are reserved and never reused.
 
 ## Motivation
 
@@ -21,14 +26,16 @@ full-precision ordering. It replaces the brute-force fallback lane, not
 IVF-PQ: at large N, IVF-PQ scans `nprobe/num_clusters` of the corpus while TQ
 scans all of it (at 1/8 the bytes of f32).
 
-## Codec (bits = 4 per padded dimension, fixed in v1)
+## Codec (bits = 4 per padded dimension, fixed)
 
 Encode, per vector `x` (always the L2-normalized vector; cosine and unit-norm
 dot coincide after normalization, exact re-rank applies the field's metric):
 
-1. Zero-pad to `P = dim.next_power_of_two()`, apply seeded rotation
-   `R1` = sign flips → normalized FWHT → permutation (orthonormal; seed is a
-   codec constant).
+1. Apply the seeded rotation `R1`. Since codec v2 this is padding-free:
+   three rounds of {sign flips → normalized FWHT over the largest
+   power-of-two prefix → full random permutation}, each factor orthonormal
+   on `R^P` with `P = dim` rounded up to even. (v1 zero-padded to the next
+   power of two, inflating 768-dim codes by 33%.)
 2. Stage 1: per-coordinate 3-bit code into the analytic codebook `C[8]` —
    Lloyd-Max levels for the marginal density of a unit-sphere coordinate in
    `R^P`, `f(t) ∝ (1 − t²)^((P−3)/2)` on `[−1, 1]`. Depends only on `P`.
@@ -100,14 +107,14 @@ works unchanged. `build_vector_index()` skips TQ fields (nothing to train).
 
 ## Cost model (768-dim example)
 
-| lane     | bytes/vector                     | trained artifacts        |
-| -------- | -------------------------------- | ------------------------ |
-| flat f32 | 3072                             | none                     |
-| IVF-PQ   | 96 codes + assignment            | centroids + OPQ codebook |
-| TQ       | 512 nibbles + 4 gamma (P = 1024) | none                     |
+| lane     | bytes/vector                    | trained artifacts        |
+| -------- | ------------------------------- | ------------------------ |
+| flat f32 | 3072                            | none                     |
+| IVF-PQ   | 96 codes + assignment           | centroids + OPQ codebook |
+| TQ       | 384 nibbles + 4 gamma (P = 768) | none                     |
 
-Non-power-of-two dims pay FWHT padding (768 → 1024, +33%). A structured
-non-pow2 transform (Kac walk / block butterfly) is possible follow-up work.
+Since codec v2 non-power-of-two dims pay no padding: a 768-dim vector costs
+384 nibble bytes + 4 (gamma).
 
 ## Benchmark
 
@@ -141,6 +148,28 @@ x86_64 SSSE3/AVX2 kernels are correctness-pinned against the scalar
 reference in unit tests; perf numbers on x86 should be captured before
 quoting them.
 
+At 1M docs (same harness and arch, measured 2026-07-23 on the optimized
+build: codec v2 padding-free rotation, scale-sorted leaf pruning, parallel
+flat scan, 256-points-per-centroid coarse-training ceiling; 8,192 corpus
+clusters, `nprobe: 64` over 1,024 leaves, recall against stored document
+keys so multi-segment merges cannot permute the ground truth):
+
+| method       | build (s) | train (s) | .vectors (MB) | p50 (ms) | p95 (ms)  | recall@10 |
+| ------------ | --------- | --------- | ------------- | -------- | --------- | --------- |
+| flat (exact) | 16.0      | —         | 2,935.4       | 80.56    | 113.05    | 1.000     |
+| **tq**       | 16.8      | **0**     | 3,311.2       | 18.79    | 20.09     | **0.918** |
+| **ivf_tq**   | 8.2       | 933.8     | 3,317.9       | **6.57** | **12.65** | 0.912     |
+
+The crossover the caveat predicts is now visible: the probed lane is 12×
+faster than exact scan and ~2.9× faster than the `tq` full scan at equal
+recall (`nprobe`/`rerank_factor` are the recall dials). The training ceiling
+cuts coarse training from 2,862 s (uncapped, same corpus shape) to 934 s
+with no measured recall penalty. For the removal record: on the pre-removal
+build at 1M, `ivf_pq` measured p50 16.04 ms (2.4× slower than optimized
+`ivf_tq`) and 3,517 s training; its 1M recall was never validly measured
+(the pre-fix harness compared permuted doc ids), so the 100k table above is
+the recall evidence.
+
 ## IVF-TQ (`index_type: ivf_tq`)
 
 Sub-linear probing with the training-free leaf codec: the trained global
@@ -167,6 +196,16 @@ field e: dense_vector<768, f16> [indexed<ivf_tq, num_clusters: 1024, nprobe: 64>
 ```
 
 `num_clusters`, `nprobe`, `routing`, and `soar` all apply (unlike `tq`).
+
+### Scan-time pruning and parallelism
+
+IVF-TQ leaves are serialized in descending residual-scale order. At scan
+time each block's best possible score is bounded by
+`⟨q̂,c⟩ + max_scale · 1.3` (the 1.3 covers estimator slack); once a block's
+bound cannot beat the running k-th score the rest of its run is skipped —
+equality with the unpruned scan is pinned by a regression test, and skipped
+block counts are logged at debug level. Flat `tq` scans fan out across the
+Rayon pool above 65k vectors (per-task collectors, merged top-k).
 
 ## Explicit non-goals in v1
 
