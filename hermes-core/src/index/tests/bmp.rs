@@ -2885,15 +2885,15 @@ async fn bench_aggressive_quantization() {
         crate::segment::format::SPARSE_FOOTER_MAGIC
     );
     let blob_len = u64::from_le_bytes(original[flen - 24..flen - 16].try_into().unwrap()) as usize;
-    let bfoot = blob_len - 64;
+    let bfoot = blob_len - crate::segment::format::BMP_BLOB_FOOTER_SIZE;
     assert_eq!(
-        u32::from_le_bytes(original[bfoot + 60..bfoot + 64].try_into().unwrap()),
-        crate::segment::format::BMP_BLOB_MAGIC_V14
+        u32::from_le_bytes(original[bfoot + 68..bfoot + 72].try_into().unwrap()),
+        crate::segment::format::BMP_BLOB_MAGIC
     );
     let grid_start =
-        u64::from_le_bytes(original[bfoot + 8..bfoot + 16].try_into().unwrap()) as usize;
-    let grid_end =
         u64::from_le_bytes(original[bfoot + 16..bfoot + 24].try_into().unwrap()) as usize;
+    let grid_end =
+        u64::from_le_bytes(original[bfoot + 24..bfoot + 32].try_into().unwrap()) as usize;
     println!(
         "\ncorpus: {DOCS} docs, {TOPICS} topics, {} blocks | grid {:.1} MB | k={K}, {QUERIES} queries, exact",
         num_blocks,
@@ -3277,8 +3277,8 @@ async fn bench_forward_index_build() {
 /// posting prefix sums at build time (bmp_block_size=256 × ~300-dim docs
 /// hits this in production), silently corrupting the block; the reader's
 /// `end - start` then underflowed into a wild posting slice — SIGSEGV in
-/// the BP forward-index build (optimizer-bp threads). V14 stores num_terms
-/// and prefix sums as u32.
+/// the BP forward-index build (optimizer-bp threads). V14 and later store
+/// num_terms and prefix sums as u32.
 #[tokio::test]
 async fn test_bmp_block_posting_overflow_256() {
     // 256 docs × 301 dims each → 77,056 postings in block 0 (> u16::MAX).
