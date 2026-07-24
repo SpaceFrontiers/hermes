@@ -4,14 +4,14 @@ A hybrid search engine combining BM25 text search, sparse vectors (SPLADE), and 
 
 ## Why Hermes?
 
-| Feature                 | Hermes                 | Tantivy | Qdrant  | Elasticsearch |
-| ----------------------- | ---------------------- | ------- | ------- | ------------- |
-| BM25 Full-text search   | Yes                    | Yes     | No      | Yes           |
-| Dense vectors (ANN)     | Yes (IVF-PQ + HNSW)    | No      | Yes     | Plugin        |
-| Sparse vectors (SPLADE) | Yes (native)           | No      | Partial | No            |
-| WASM / Browser          | Yes                    | No      | No      | No            |
-| IPFS storage            | Yes                    | No      | No      | No            |
-| Embeddable library      | Yes                    | Yes     | No      | No            |
+| Feature                 | Hermes              | Tantivy | Qdrant  | Elasticsearch |
+| ----------------------- | ------------------- | ------- | ------- | ------------- |
+| BM25 Full-text search   | Yes                 | Yes     | No      | Yes           |
+| Dense vectors (ANN)     | Yes (IVF-PQ + HNSW) | No      | Yes     | Plugin        |
+| Sparse vectors (SPLADE) | Yes (native)        | No      | Partial | No            |
+| WASM / Browser          | Yes                 | No      | No      | No            |
+| IPFS storage            | Yes                 | No      | No      | No            |
+| Embeddable library      | Yes                 | Yes     | No      | No            |
 
 ## Packages
 
@@ -151,6 +151,20 @@ Commit publication is cancellation-safe: after workers flush, an owned
 finalizer carries metadata publication, primary-key refresh, and worker resume
 to completion even if the client disconnects. A pre-publication storage error
 keeps that generation paused and retryable instead of mixing it with new input.
+
+Automatic compaction uses a budget-aware tiered policy with a 24-segment
+maximum fan-in. When the live topology exceeds twice its segment budget,
+Hermes temporarily favors fast block-copy compaction and leaves BP ordering to
+the optimizer. Explicit force merge uses a balanced 64-way hierarchy, applies
+BP only to each final output, and may produce multiple outputs when
+`--max-segment-docs` requires them. It locks only the requested index's writer;
+other indexes have independent writer locks, although all indexes still share
+the configured merge, BP CPU, and storage capacity.
+
+SIGTERM and Ctrl-C stop new lifecycle work, drain gRPC, join indexing workers,
+and wait for merge/reorder, metadata, and cleanup ownership before the final
+`Hermes server shut down gracefully` line. That line—not merely receipt of the
+signal—is the completion marker.
 
 Python client:
 

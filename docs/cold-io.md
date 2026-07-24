@@ -1,6 +1,6 @@
 # Cold IO for merges (hot-metadata-pinning Phase 2)
 
-Status: design (2026-07-09), implemented.
+Status: design, implemented; actualized 2026-07-24.
 
 ## Problem
 
@@ -38,6 +38,15 @@ with the write-behind discipline used by rsync/borg/RocksDB:
 
 Reads: the standalone-reorder whole-file copy now drops source pages behind
 the copy cursor (`MADV_DONTNEED` per copied chunk).
+
+`copy_file_range` is used only where the output bytes are provably identical.
+Files that require doc-id patching, grid regeneration, compression, or
+re-encoding still stream through bounded userspace buffers. The syscall may
+perform an in-kernel copy or a filesystem-native clone; Hermes does not assume
+either implementation, only that successful ranges avoid a Hermes-owned copy
+buffer. Unsupported cross-filesystem/kernel cases fall back before consuming
+the range, while short successful copies are continued until the requested
+length is complete.
 
 ## Wiring
 

@@ -36,10 +36,11 @@ await client.commit("articles");
 
 // Search
 const results = await client.search("articles", {
-  term: ["title", "hello"],
+  query: { match: { field: "title", text: "hello" } },
+  fieldsToLoad: ["title", "body"],
 });
 for (const hit of results.hits) {
-  console.log(hit.docId, hit.score, hit.fields);
+  console.log(hit.address, hit.score, hit.fields);
 }
 
 // Clean up
@@ -61,43 +62,57 @@ client.close();
 - `indexDocument(indexName, doc)` — Index a single document
 - `indexDocumentsStream(indexName, asyncIterable)` — Stream documents for indexing
 - `commit(indexName)` — Commit pending changes, returns total doc count
-- `forceMerge(indexName)` — Force merge segments
+- `forceMerge(indexName)` — Foreground compaction, returns the resulting segment count
+- `reorder(indexName)` — BP-reorder eligible BMP fields, returns the segment count
 
 ### Search
 
-- `search(indexName, options)` — Search with term, boolean, sparse/dense vector queries
-- `getDocument(indexName, docId)` — Get document by ID
+- `search(indexName, request)` — Search with the proto-shaped query union
+- `getDocument(indexName, address)` — Load a document using `SearchHit.address`
 
 ### Search Options
 
 ```typescript
 await client.search("docs", {
-  // Term query
-  term: ["field", "value"],
+  // Exact term query
+  query: { term: { field: "field", term: "value" } },
 
-  // Boolean query
-  boolean: {
-    must: [["title", "hello"]],
-    should: [["body", "world"]],
-  },
-
-  // Sparse vector (pre-tokenized)
-  sparseVector: ["embedding", [1, 5, 10], [0.5, 0.3, 0.2]],
-
-  // Sparse text (server-side tokenization)
-  sparseText: ["embedding", "what is machine learning?"],
-
-  // Dense vector
-  denseVector: ["embedding", [0.1, 0.2, 0.3]],
-
-  // Options
   limit: 10,
   offset: 0,
   fieldsToLoad: ["title", "body"],
-  combiner: "sum", // "sum" | "max" | "avg"
+});
 
-  // L2 reranker; candidateLimit is the shared first-stage pool.
-  reranker: ["embedding", [0.1, 0.2]],
+await client.search("docs", {
+  // Boolean query with server-side text tokenization
+  query: {
+    boolean: {
+      must: [{ match: { field: "title", text: "hello" } }],
+      should: [{ match: { field: "body", text: "world" } }],
+    },
+  },
+});
+
+await client.search("docs", {
+  // Sparse text; use indices + values instead of text for a precomputed query
+  query: {
+    sparseVector: {
+      field: "embedding",
+      text: "what is machine learning?",
+      pruning: 0.5,
+    },
+  },
+});
+
+await client.search("docs", {
+  // Dense retrieval plus exact L2 reranking
+  query: {
+    denseVector: {
+      field: "embedding",
+      vector: [0.1, 0.2, 0.3],
+      nprobe: 10,
+    },
+  },
+  reranker: { field: "embedding", vector: [0.1, 0.2, 0.3] },
   candidateLimit: 20,
 });
 ```

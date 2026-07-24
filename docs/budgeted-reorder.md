@@ -1,6 +1,6 @@
 # Budgeted (Partial) BP Reordering
 
-Status: design (2026-07-09), implemented.
+Status: design, implemented; actualized 2026-07-24.
 
 ## Problem
 
@@ -27,8 +27,9 @@ converge to full-BP quality.
   records a depth-capped optimizer pass as `bp_converged = false` so the
   deepening ladder can later reach full block depth.
 - `time_budget: Option<Duration>` — wall-clock deadline, checked between
-  refinement passes and before each recursion (atomic flag across the rayon
-  fan-out). Hitting it ends the pass cleanly with `converged = false`.
+  refinement passes and before each level partition (one shared atomic stop
+  flag across the level workers). Hitting it ends the pass cleanly with
+  `converged = false`.
 
 Per-segment metadata gains `bp_converged` (serde-default true for old
 metadata) and `bp_unconverged_passes` (serde-default zero). What you cannot
@@ -105,8 +106,8 @@ Semantics change for aggressive continuous background reordering:
   when it starts. This prevents long passes from continuously replacing and
   immediately requeueing their own unconverged output.
 
-- **Merge fan-in default raised** (`TieredMergePolicy::large_scale()`
-  `max_merge_at_once: 10 → 24`, baked in — no tuning flags): wide fan-in
+- **Merge fan-in default raised** (`TieredMergePolicy::large_scale()` and
+  server `--max-merge-at-once`: `10 → 24`): wide fan-in
   absorbs continuous-ingestion floods of small memtable segments in ~2.4×
   fewer merge passes. Giant merges are safe because output docs are capped
   by `max_merged_docs` and merge-time BP is wall-clock budgeted.
@@ -130,8 +131,9 @@ query pool:
    pool, and the CSR count/fill phases write disjoint per-block slices (safe
    `split_at_mut` carving, no locks). This avoids one vocabulary-sized hash map
    per worker. Candidate discovery retains only a budgeted low-frequency set.
-2. **Graph bisection** (already parallel: `rayon::join` halves + parallel
-   gain passes, wall-clock budgeted).
+2. **Graph bisection** (level-synchronized breadth-first scheduling, parallel
+   partition claiming, and coarse-partition inner parallelism; wall-clock
+   budgeted).
 3. **Permuted blob write** (was fully serial). Output blocks encode
    independently; they are encoded in parallel in memory-derived windows and
    written serially in blob order. Grid spill and encoded-window budgets share
@@ -170,15 +172,15 @@ Thread width and operation concurrency are intentionally independent:
   index budget and rewrite buffers.
 - `--bp-memory-budget-mb` is therefore a **per-pass algorithmic working-set
   bound**. It covers record maps, forward CSR, candidate/remap storage,
-  vocabulary degree arrays (including parallel recursion), and rewrite
+  vocabulary degree arrays (including level-worker lanes), and rewrite
   grid/encode windows. It does not include source/output mmap pages, directory
   implementation buffers, unrelated merge structures, or indexing. A
-  conservative process estimate starts with `concurrent passes × memory
-budget`, then adds those external consumers.
+  conservative process estimate starts with
+  `concurrent passes × per-pass budget`, then adds those external consumers.
 
 When the dense vocabulary table itself cannot fit, the pass emits identity or
-block order and remains explicitly unconverged. Recursion parallelism is
-reduced to the number of vocabulary-sized degree arrays that fit. Memory
+block order and remains explicitly unconverged. Level parallelism is reduced
+to the number of vocabulary-sized degree lanes that fit. Memory
 pressure can therefore reduce reorder quality or parallelism, but cannot be
 misreported as convergence and trigger an unbounded immediate loop.
 
@@ -212,3 +214,36 @@ cheaper gain-cooling stop because a serial full-vocabulary objective scan costs
 more there than the posting passes it can avoid. Long passes log progress every
 30 seconds and export aggregate depth, partition, iteration, entity-pass, swap,
 duration, and stop-reason metrics.
+
+## Level-synchronized BP scheduling (2026-07-24)
+
+The recursive fork-join scheduler was replaced completely. It assigned each
+worker a subtree too early: unequal convergence made some workers finish while
+one or a few long descendants retained the only reusable degree arrays. At
+deep levels logs could show a small `active` count and the host could have idle
+cores even though billions of entity visits remained.
+
+The current scheduler processes the bisection tree breadth-first:
+
+1. All active partitions at one depth are enumerated from deterministic ranges.
+2. When partitions outnumber memory-bounded degree lanes, one long-lived worker
+   per lane dynamically claims the next partition, so short branches do not
+   pin a worker to an already-finished subtree.
+3. When there are fewer partitions than lanes (especially the root and first
+   levels), lanes are divided among those partitions. Frequency counting,
+   gain computation, radix median selection, and moved-term accumulation use
+   inner parallelism to keep the shared pool useful.
+4. A level barrier completes before buffers are reused at the next depth.
+
+Entity, gain, output, and ranking scratch is allocated once for the pass.
+Vocabulary-sized `TermDegrees` lanes are the concurrency currency and remain
+bounded by `--bp-memory-budget-mb`; no worker creates an unaccounted full
+vocabulary table. The scheduler is deterministic across Rayon thread counts
+and has a sequential non-native/WASM path.
+
+The start log prints `scheduler=level_synchronized degree_lanes=N`. Progress
+`active` counts partitions, not threads. `entity_passes` counts cumulative
+entities scanned across refinements and is the best work counter for a long
+pass. CPU utilization is bounded by the smaller of useful parallel work,
+Rayon pool width, and the memory-derived lane plan; `degree_lanes=1` is the
+first signal to inspect when a BP phase leaves cores idle.

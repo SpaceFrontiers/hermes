@@ -1,14 +1,14 @@
 # Merge-Time BP Reordering
 
-Status: design (2026-07-08), implemented.
+Status: design, implemented; actualized 2026-07-24.
 
 ## Problem
 
-Recursive Graph Bisection (BP) reordering is currently a standalone,
-whole-segment operation: merges block-copy BMP data in concatenated source
+Recursive Graph Bisection (BP) reordering was originally a standalone,
+whole-segment operation: merges block-copied BMP data in concatenated source
 order, and a separate pass (`hermes-tool reorder` / the server's background
-optimizer) later rewrites the entire segment — copying every unchanged file
-and rebuilding the sparse file. For a freshly merged segment the index is
+optimizer) later rewrote the entire segment — copying every unchanged file and
+rebuilding the sparse file. For a freshly merged segment the index was
 rewritten **twice**: once by the merge, once by the reorder.
 
 That makes ordering quality arrive in one large, deferred, IO-heavy step
@@ -55,9 +55,29 @@ anyway:
 
 Amortization property: the tiered merge cascade rewrites small segments often
 and large segments rarely, so BP cost is paid in proportion to (and at the
-same moment as) IO the merge already spends. BP also warm-starts implicitly —
-`graph_bisection` refines from the input order, and merge inputs are usually
-already BP-ordered, so convergence at merge time is fast.
+same moment as) IO the merge already spends. BP warm-starts from input order,
+but concatenating individually ordered sources does not guarantee that their
+global record-level partition tree is already aligned. `BpGranularity::Auto`
+uses the cheap block-level path when source block coherence justifies it;
+otherwise record-level BP can still dominate merge wall time.
+
+## Backlog and explicit force-merge behavior
+
+Merge-time BP is optional optimization, not a prerequisite for a correct
+replacement. Under the large-scale tiered policy, a topology is “severe” when
+eligible live segments exceed twice the computed tier budget. Automatic
+merges then block-copy BMP payloads and mark outputs unreordered. Wide (up to
+24-input) compaction drains the segment backlog first, and the optimizer later
+orders the much smaller output set. This prevents every automatic merge slot
+from serializing behind long BP passes during instant indexing.
+
+Explicit force merge reserves foreground merge capacity and, when
+`reorder_on_merge` is enabled, foreground BP capacity. It packs sources under
+`max_segment_docs`, reduces groups through a balanced 64-way hierarchy when
+needed, and runs BP only on a group's final reduction.
+Intermediate reductions use the fast block-copy path, so hundreds of tiny
+segments do not repeatedly reorder the same documents. Reader and primary-key
+snapshots refresh after every replacement to retire source files incrementally.
 
 ## Interior-padding correctness (bug fixed alongside)
 
@@ -87,7 +107,8 @@ output always has tail-only padding.
 - Saved: one full segment rewrite per merge (the optimizer pass), including
   its read traffic against the page cache.
 - Merge wall-clock grows; for latency-sensitive ingest keep the flag off and
-  rely on the background optimizer as before.
+  rely on the background optimizer. Severe automatic-merge backlogs make this
+  trade automatically until topology returns within budget.
 
 ## Future (not implemented)
 

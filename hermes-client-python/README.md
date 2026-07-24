@@ -42,12 +42,16 @@ async def main():
         await client.commit("articles")
 
         # Search
-        results = await client.search("articles", term=("title", "hello"), limit=10)
+        results = await client.search(
+            "articles",
+            query={"match": {"field": "title", "text": "hello"}},
+            limit=10,
+        )
         for hit in results.hits:
-            print(f"Doc {hit.doc_id}: score={hit.score}, fields={hit.fields}")
+            print(f"Doc {hit.address}: score={hit.score}, fields={hit.fields}")
 
-        # Get document by ID
-        doc = await client.get_document("articles", 0)
+        # Addresses are segment-local and come from search results.
+        doc = await client.get_document("articles", results.hits[0].address)
         print(doc.fields)
 
         # Delete index
@@ -148,30 +152,43 @@ num_segments = await client.force_merge("myindex")
 #### Searching
 
 ```python
-# Term query
-results = await client.search("myindex", term=("title", "hello"), limit=10)
-
-# Boolean query
+# Exact term query
 results = await client.search(
     "myindex",
-    boolean={
-        "must": [("title", "hello")],
-        "should": [("body", "world")],
-        "must_not": [("title", "spam")],
+    query={"term": {"field": "title", "term": "hello"}},
+    limit=10,
+)
+
+# Natural-language match + Boolean composition
+results = await client.search(
+    "myindex",
+    query={
+        "boolean": {
+            "must": [{"match": {"field": "title", "text": "hello"}}],
+            "should": [{"match": {"field": "body", "text": "world"}}],
+            "must_not": [{"term": {"field": "title", "term": "spam"}}],
+        }
     },
 )
 
 # With pagination
-results = await client.search("myindex", term=("title", "hello"), limit=10, offset=20)
+results = await client.search(
+    "myindex",
+    query={"match": {"field": "title", "text": "hello"}},
+    limit=10,
+    offset=20,
+)
 
 # With field loading
 results = await client.search(
-    "myindex", term=("title", "hello"), fields_to_load=["title", "body"]
+    "myindex",
+    query={"match": {"field": "title", "text": "hello"}},
+    fields_to_load=["title", "body"],
 )
 
 # Access results
 for hit in results.hits:
-    print(f"Doc {hit.doc_id}: {hit.score}")
+    print(f"Doc {hit.address}: {hit.score}")
     print(f"  Title: {hit.fields.get('title')}")
 
 print(f"Total hits: {results.total_hits}")
@@ -181,8 +198,8 @@ print(f"Took: {results.took_ms}ms")
 #### Document Retrieval
 
 ```python
-# Get document by ID
-doc = await client.get_document("myindex", doc_id=42)
+# Document addresses come from SearchHit.address.
+doc = await client.get_document("myindex", results.hits[0].address)
 if doc:
     print(doc.fields["title"])
 ```
@@ -206,7 +223,10 @@ if doc:
 import grpc
 
 try:
-    await client.search("nonexistent", term=("field", "value"))
+    await client.search(
+        "nonexistent",
+        query={"term": {"field": "field", "term": "value"}},
+    )
 except grpc.RpcError as e:
     if e.code() == grpc.StatusCode.NOT_FOUND:
         print("Index not found")

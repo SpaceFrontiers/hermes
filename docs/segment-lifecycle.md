@@ -1,6 +1,6 @@
 # Segment Lifecycle and Recovery
 
-Status: design and operational contract (2026-07-15), implemented.
+Status: design and operational contract, implemented; actualized 2026-07-24.
 
 Hermes treats publication, replacement, cleanup, and deletion as one segment
 ownership protocol. This document defines that protocol and the operator-facing
@@ -71,6 +71,30 @@ aborting only its async wrapper while deleting an index would let filesystem
 writes continue into a removed directory. Hermes therefore drains blocking
 merge/reorder work instead of pretending to cancel it.
 
+Process shutdown begins by closing lifecycle admission for every open index
+before tonic drains its in-flight RPCs. The same cancellation flag is visible
+inside BP refinement, merge copy loops, ANN reads, stores, and output writers;
+those stages stop at bounded checkpoints and abandon unpublished outputs under
+their existing operation guards. The optimizer supervisor joins all tasks it
+already launched. Writers then wait for cancellation-safe commit finalizers,
+signal and join native indexing workers, discard unpublished prepared
+segments, and finally drain merge handles, lifecycle metadata tasks, and
+deferred deletion ownership.
+
+The log ordering is an operational invariant:
+
+```text
+Received SIGTERM, starting graceful shutdown...
+[shutdown] gRPC server drained; waiting for background work
+[shutdown] index '<name>' drained
+Hermes server shut down gracefully
+```
+
+The first line acknowledges the signal; it does not claim that background work
+has finished. The last line is emitted only after all registered work has
+drained successfully. A deployment grace period must cover the longest bounded
+cancellation stage; SIGKILL forfeits this contract.
+
 Index deletion follows this order:
 
 1. Acquire the per-index registry lease and create `.deleting`, serializing
@@ -86,6 +110,23 @@ The delete transaction is detached from the requesting RPC after the marker is
 installed, so client cancellation does not abandon a live writer. If the
 process exits during step 7, the `.deleting` marker causes the remaining
 directory to be removed on the next server startup.
+
+## Force-merge replacement lifecycle
+
+Explicit force merge claims one final output group and all of its intermediate
+output IDs before writing. This freezes that group's topology against
+background merge/reorder races without claiming unrelated indexes. Inputs are
+best-fit packed under `max_segment_docs`; groups with more than 64 sources use
+a balanced 64-way reduction hierarchy. Intermediate reductions are streaming
+block copies, while only the final reduction performs configured BP.
+
+Each durable replacement immediately publishes metadata, refreshes the
+writer's primary-key topology and the server's reader snapshot, and releases
+retired sources when their last reader drops. Consequently, a large hierarchy
+does not retain every source file until the final BP pass. The target writer
+lock does pause indexing for that index while the foreground RPC runs. Other
+indexes have independent writer locks, though their operations share global
+merge/BP/resource limits.
 
 ## Orphans versus corruption
 

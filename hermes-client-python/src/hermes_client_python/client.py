@@ -314,7 +314,7 @@ class HermesClient:
         return response.num_docs
 
     async def force_merge(self, index_name: str, timeout: float | None = None) -> int:
-        """Force merge all segments.
+        """Compact the index into maximal segments under the configured cap.
 
         Args:
             index_name: Name of the index
@@ -330,11 +330,11 @@ class HermesClient:
         return response.num_segments
 
     async def reorder(self, index_name: str, timeout: float | None = None) -> int:
-        """Reorder BMP blocks by SimHash similarity for better pruning.
+        """BP-reorder eligible BMP fields for better pruning.
 
-        Performs record-level reordering: shuffles individual ordinals across
-        blocks so that ordinals with similar SimHash cluster tightly. This
-        improves block-max pruning effectiveness for BMP sparse vector queries.
+        The schema's ``reorder`` attribute selects eligible fields. Hermes may
+        use record- or block-level graph bisection according to the segment
+        layout and configured resource budgets.
 
         Args:
             index_name: Name of the index
@@ -395,7 +395,8 @@ class HermesClient:
         Args:
             index_name: Name of the index
             query: Query dict with one key: "term", "match", "boolean",
-                "sparse_vector", "dense_vector", "boost", "all", or "fusion".
+                "sparse_vector", "dense_vector", "binary_dense_vector",
+                "boost", "all", "range", "prefix", or "fusion".
                 Fusion (hybrid union of sub-queries, top-level only):
                 {"fusion": {"queries": [{"query": {...}, "weight": 1.0}, ...],
                 "method": "rrf" | "normalized_weighted_sum",

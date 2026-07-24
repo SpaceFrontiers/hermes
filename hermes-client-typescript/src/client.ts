@@ -205,7 +205,7 @@ export class HermesClient {
     return response.numDocs;
   }
 
-  /** Force merge all segments. Returns number of segments after merge. */
+  /** Compact into maximal segments under the configured cap. Returns the resulting count. */
   async forceMerge(indexName: string, timeoutMs?: number): Promise<number> {
     this.ensureConnected();
     const response = await this.indexClient!.forceMerge({ indexName }, this.callOptions(timeoutMs));
@@ -219,7 +219,7 @@ export class HermesClient {
     return response.success;
   }
 
-  /** Reorder BMP blocks by SimHash similarity for better pruning. Returns number of segments. */
+  /** Reorder eligible BMP fields with BP for better pruning. Returns number of segments. */
   async reorder(indexName: string, timeoutMs?: number): Promise<number> {
     this.ensureConnected();
     const response = await this.indexClient!.reorder({ indexName }, this.callOptions(timeoutMs));
