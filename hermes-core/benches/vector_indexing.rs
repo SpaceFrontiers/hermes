@@ -1,4 +1,5 @@
-//! Dense ANN microbenchmarks: TQ LUT16 block scoring and IVF-TQ plan build.
+//! Dense ANN microbenchmarks: coarse training, TQ LUT16 block scoring, and
+//! IVF-TQ plan build.
 //!
 //! The end-to-end method comparison (flat vs tq vs ivf_tq, with recall)
 //! lives in the ignored `tq_dense_ann_benchmark` integration test; this file
@@ -82,10 +83,11 @@ fn bench_lut16_scan(c: &mut Criterion) {
 
 fn bench_ivf_tq_plan(c: &mut Criterion) {
     let vectors = random_unit_vectors(10_000, DIM, 42);
-    let coarse = CoarseCentroids::train(
+    let mut coarse = CoarseCentroids::train(
         &CoarseConfig::new(DIM, 256).with_routing(IvfRoutingMode::Flat),
         &vectors,
     );
+    coarse.version = hermes_core::structures::mark_ivf_tq_cosine_generation(coarse.version);
     let codec = tq_shared_codec(DIM);
     let query = random_unit_vectors(1, DIM, 9).pop().unwrap();
 
@@ -106,5 +108,38 @@ fn bench_ivf_tq_plan(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_lut16_scan, bench_ivf_tq_plan);
+fn bench_ivf_coarse_training(c: &mut Criterion) {
+    const TRAIN_DIM: usize = 16;
+    const POINTS_PER_CENTROID: usize = 39;
+
+    let mut group = c.benchmark_group("ivf_coarse_training");
+    group.sample_size(10);
+    // Exercise both sides of the adaptive initialization boundary. The larger
+    // case guards the bounded-total-candidate k-means|| path without making
+    // routine benchmark runs prohibitively long.
+    for clusters in [64usize, 257] {
+        let points = clusters * POINTS_PER_CENTROID;
+        let vectors = random_unit_vectors(points, TRAIN_DIM, clusters as u64);
+        let config = CoarseConfig::new(TRAIN_DIM, clusters)
+            .with_routing(IvfRoutingMode::Flat)
+            .with_max_iters(5);
+        group.throughput(criterion::Throughput::Elements(points as u64));
+        group.bench_with_input(BenchmarkId::new("clusters", clusters), &clusters, |b, _| {
+            b.iter(|| {
+                black_box(CoarseCentroids::train(
+                    black_box(&config),
+                    black_box(&vectors),
+                ))
+            })
+        });
+    }
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    bench_lut16_scan,
+    bench_ivf_tq_plan,
+    bench_ivf_coarse_training
+);
 criterion_main!(benches);
