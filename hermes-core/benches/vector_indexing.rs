@@ -86,6 +86,7 @@ fn bench_ivf_tq_plan(c: &mut Criterion) {
     let mut coarse = CoarseCentroids::train(
         &CoarseConfig::new(DIM, 256).with_routing(IvfRoutingMode::Flat),
         &vectors,
+        "bench",
     );
     coarse.version = hermes_core::structures::mark_ivf_tq_cosine_generation(coarse.version);
     let codec = tq_shared_codec(DIM);
@@ -129,6 +130,7 @@ fn bench_ivf_coarse_training(c: &mut Criterion) {
                 black_box(CoarseCentroids::train(
                     black_box(&config),
                     black_box(&vectors),
+                    "bench",
                 ))
             })
         });

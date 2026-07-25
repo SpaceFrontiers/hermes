@@ -186,7 +186,7 @@ fn trained_quantizer(
     config.train_iters = 3;
     config.max_train_samples = points;
     config.routing = routing;
-    BinaryCoarseQuantizer::train(config, codes, points).expect("binary coarse training")
+    BinaryCoarseQuantizer::train(config, codes, points, "bench").expect("binary coarse training")
 }
 
 /// Query-time probing and build-time assignment against a realistic codebook.
@@ -292,6 +292,23 @@ fn bench_training(criterion: &mut Criterion) {
                 bencher.iter(|| {
                     let quantizer =
                         trained_quantizer(clusters, IvfRoutingMode::Flat, &corpus, CODE_BYTES);
+                    black_box(quantizer.num_clusters)
+                });
+            },
+        );
+    }
+
+    // Hierarchical training: sqrt(K) parent cells plus one child codebook per
+    // parent. This is what every production-sized codebook uses, and the child
+    // codebooks are the level that parallelises.
+    for clusters in [1_024usize, 4_096] {
+        group.bench_with_input(
+            BenchmarkId::new("hierarchical", clusters),
+            &clusters,
+            |bencher, &clusters| {
+                bencher.iter(|| {
+                    let quantizer =
+                        trained_quantizer(clusters, IvfRoutingMode::TwoLevel, &corpus, CODE_BYTES);
                     black_box(quantizer.num_clusters)
                 });
             },
