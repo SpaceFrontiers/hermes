@@ -6,10 +6,22 @@
 //!     tq_dense_ann_benchmark -- --ignored --nocapture
 //! ```
 //!
+//! Compare the previous IVF-TQ default (SOAR disabled) with the selective
+//! SOAR default:
+//! ```bash
+//! cargo test --release -p hermes-core --features native \
+//!     ivf_tq_selective_soar_benchmark -- --ignored --nocapture
+//! ```
+//! The SOAR comparison defaults to a quicker 6k × 96-dimensional corpus.
+//! Override it with `SOAR_BENCH_DOCS`, `SOAR_BENCH_CLUSTERS`,
+//! `SOAR_BENCH_QUERIES`, `SOAR_BENCH_IVF_CLUSTERS`, and
+//! `SOAR_BENCH_NPROBE`.
+//!
 //! Clustered unit-norm corpus, queries perturbed from corpus points. Ground
 //! truth is the flat index's own exact cosine top-k. Reports recall@k after
-//! re-rank, p50/p95 end-to-end query latency, .vectors bytes, and build/train
-//! wall time per method.
+//! re-rank, p50/p95 end-to-end query latency, sequential query throughput,
+//! ANN postings per source vector, .vectors bytes, and build/train wall time
+//! per method.
 
 use crate::directories::MmapDirectory;
 use crate::dsl::{DenseVectorConfig, Document, SchemaBuilder};
@@ -23,6 +35,14 @@ const QUERIES: usize = 100;
 const K: usize = 10;
 const IVF_NUM_CLUSTERS: usize = 1_024;
 const NPROBE: usize = 64;
+
+const SOAR_DIM: usize = 96;
+const SOAR_DOCS: usize = 6_000;
+const SOAR_CLUSTERS: usize = 32;
+const SOAR_QUERIES: usize = 100;
+const SOAR_IVF_NUM_CLUSTERS: usize = 64;
+const SOAR_NPROBE: usize = 4;
+const SELECTIVE_SOAR_TARGET: f64 = 0.30;
 
 /// Scale overrides so the same harness runs 100k smoke and 1M validation:
 /// TQ_BENCH_DOCS, TQ_BENCH_CLUSTERS, TQ_BENCH_QUERIES, TQ_BENCH_IVF_CLUSTERS,
@@ -60,6 +80,20 @@ impl BenchScale {
                 .unwrap_or(2.0),
         }
     }
+
+    fn soar_from_env() -> Self {
+        Self {
+            docs: env_usize("SOAR_BENCH_DOCS", SOAR_DOCS),
+            clusters: env_usize("SOAR_BENCH_CLUSTERS", SOAR_CLUSTERS),
+            queries: env_usize("SOAR_BENCH_QUERIES", SOAR_QUERIES),
+            ivf_clusters: env_usize("SOAR_BENCH_IVF_CLUSTERS", SOAR_IVF_NUM_CLUSTERS),
+            nprobe: env_usize("SOAR_BENCH_NPROBE", SOAR_NPROBE),
+            rerank_factor: std::env::var("SOAR_BENCH_RERANK")
+                .ok()
+                .map(|value| value.parse().expect("SOAR_BENCH_RERANK must be a float"))
+                .unwrap_or(2.0),
+        }
+    }
 }
 
 fn splitmix(state: &mut u64) -> u64 {
@@ -91,16 +125,16 @@ fn normalize(mut values: Vec<f32>) -> Vec<f32> {
     values
 }
 
-fn build_corpus(scale: BenchScale) -> (Vec<Vec<f32>>, Vec<Vec<f32>>) {
+fn build_corpus(dim: usize, scale: BenchScale) -> (Vec<Vec<f32>>, Vec<Vec<f32>>) {
     use rayon::prelude::*;
     let centers: Vec<Vec<f32>> = (0..scale.clusters)
-        .map(|c| gaussian_unit(DIM, 1_000 + c as u64))
+        .map(|c| gaussian_unit(dim, 1_000 + c as u64))
         .collect();
     let corpus: Vec<Vec<f32>> = (0..scale.docs)
         .into_par_iter()
         .map(|i| {
             let center = &centers[i % scale.clusters];
-            let noise = gaussian_unit(DIM, 50_000 + i as u64);
+            let noise = gaussian_unit(dim, 50_000 + i as u64);
             normalize(
                 center
                     .iter()
@@ -113,7 +147,7 @@ fn build_corpus(scale: BenchScale) -> (Vec<Vec<f32>>, Vec<Vec<f32>>) {
     let queries: Vec<Vec<f32>> = (0..scale.queries)
         .map(|q| {
             let base = &corpus[(q * 977) % scale.docs];
-            let noise = gaussian_unit(DIM, 900_000 + q as u64);
+            let noise = gaussian_unit(dim, 900_000 + q as u64);
             normalize(base.iter().zip(&noise).map(|(v, n)| v + 0.3 * n).collect())
         })
         .collect();
@@ -128,6 +162,8 @@ struct MethodReport {
     ann_kind: String,
     p50_ms: f64,
     p95_ms: f64,
+    query_qps: f64,
+    ann_postings: usize,
     results: Vec<Vec<u64>>,
 }
 
@@ -139,6 +175,7 @@ async fn run_method(
     nprobe: usize,
     rerank_factor: f32,
 ) -> MethodReport {
+    let should_train = config.uses_ivf();
     let temp = tempfile::tempdir().expect("bench tempdir");
     let dir = MmapDirectory::new(temp.path());
     let mut sb = SchemaBuilder::default();
@@ -177,7 +214,7 @@ async fn run_method(
     let build_secs = build_start.elapsed().as_secs_f64();
 
     let train_start = std::time::Instant::now();
-    let train_secs = if label == "ivf_tq" {
+    let train_secs = if should_train {
         let writer = IndexWriter::open(dir.clone(), index_config.clone())
             .await
             .expect("reopen writer for training");
@@ -205,6 +242,15 @@ async fn run_method(
         .next()
         .unwrap_or("none")
         .to_string();
+    let ann_postings = segments
+        .iter()
+        .filter_map(|segment| segment.vector_indexes().get(&embedding.0))
+        .map(|ann| match ann {
+            crate::segment::VectorIndex::BinaryIvf(index) => index.get().header().vector_count,
+            crate::segment::VectorIndex::Tq { index, .. }
+            | crate::segment::VectorIndex::IvfTq { index, .. } => index.get().header().vector_count,
+        })
+        .sum();
     let vectors_bytes: u64 = {
         let mut total = 0u64;
         for entry in std::fs::read_dir(temp.path()).expect("read bench dir") {
@@ -251,6 +297,8 @@ async fn run_method(
         }
         results.push(originals);
     }
+    let measured_secs = latencies.iter().sum::<f64>() / 1_000.0;
+    let query_qps = queries.len() as f64 / measured_secs;
     latencies.sort_by(|a, b| a.total_cmp(b));
     let p50_ms = latencies[latencies.len() / 2];
     let p95_ms = latencies[(latencies.len() * 95) / 100];
@@ -263,6 +311,8 @@ async fn run_method(
         ann_kind,
         p50_ms,
         p95_ms,
+        query_qps,
+        ann_postings,
         results,
     }
 }
@@ -290,7 +340,7 @@ async fn tq_dense_ann_benchmark() {
         scale.docs, scale.clusters, scale.queries, scale.nprobe, scale.ivf_clusters,
     );
     let corpus_start = std::time::Instant::now();
-    let (corpus, queries) = build_corpus(scale);
+    let (corpus, queries) = build_corpus(DIM, scale);
     println!(
         "corpus generated in {:.1}s",
         corpus_start.elapsed().as_secs_f64()
@@ -335,18 +385,26 @@ async fn tq_dense_ann_benchmark() {
     );
 
     println!(
-        "\n{:<8} {:>10} {:>10} {:>12} {:>9} {:>9} {:>9}",
-        "method", "build(s)", "train(s)", "vectors(MB)", "p50(ms)", "p95(ms)", "recall@10"
+        "\n{:<8} {:>10} {:>10} {:>12} {:>9} {:>9} {:>10} {:>9}",
+        "method",
+        "build(s)",
+        "train(s)",
+        "vectors(MB)",
+        "p50(ms)",
+        "p95(ms)",
+        "query/s",
+        "recall@10"
     );
     for report in [&flat, &tq, &ivf_tq] {
         println!(
-            "{:<8} {:>10.1} {:>10.1} {:>12.1} {:>9.2} {:>9.2} {:>9.3}",
+            "{:<8} {:>10.1} {:>10.1} {:>12.1} {:>9.2} {:>9.2} {:>10.1} {:>9.3}",
             report.label,
             report.build_secs,
             report.train_secs,
             report.vectors_bytes as f64 / (1024.0 * 1024.0),
             report.p50_ms,
             report.p95_ms,
+            report.query_qps,
             recall(&flat.results, &report.results),
         );
     }
@@ -355,5 +413,125 @@ async fn tq_dense_ann_benchmark() {
         "\nANN payload overhead vs flat storage: tq +{:.1} MB, ivf_tq +{:.1} MB",
         (tq.vectors_bytes as f64 - flat_bytes) / (1024.0 * 1024.0),
         (ivf_tq.vectors_bytes as f64 - flat_bytes) / (1024.0 * 1024.0),
+    );
+}
+
+/// Deterministic quality/storage comparison for the selective SOAR default.
+///
+/// This is deliberately a reporting benchmark rather than a recall gate:
+/// selective spilling may trade a different amount of latency for recall as
+/// the corpus, nprobe, and rerank settings change. Assertions cover format and
+/// metric invariants so experiments with the environment overrides remain
+/// useful instead of becoming flaky pass/fail tests.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore]
+async fn ivf_tq_selective_soar_benchmark() {
+    let arch = std::env::consts::ARCH;
+    let scale = BenchScale::soar_from_env();
+    println!(
+        "\n=== Selective SOAR benchmark: {} docs, dim {SOAR_DIM}, {} source clusters, \
+         {} queries, k={K}, nprobe={}/{}, arch={arch} ===",
+        scale.docs, scale.clusters, scale.queries, scale.nprobe, scale.ivf_clusters,
+    );
+
+    let corpus_start = std::time::Instant::now();
+    let (corpus, queries) = build_corpus(SOAR_DIM, scale);
+    println!(
+        "corpus generated in {:.1}s",
+        corpus_start.elapsed().as_secs_f64()
+    );
+
+    let flat = run_method(
+        "flat",
+        DenseVectorConfig::flat(SOAR_DIM),
+        &corpus,
+        &queries,
+        scale.nprobe,
+        scale.rerank_factor,
+    )
+    .await;
+    let off = run_method(
+        "ivf_tq_off",
+        DenseVectorConfig::ivf_tq(SOAR_DIM, Some(scale.ivf_clusters), scale.nprobe).without_soar(),
+        &corpus,
+        &queries,
+        scale.nprobe,
+        scale.rerank_factor,
+    )
+    .await;
+    let selective = run_method(
+        "ivf_tq_default",
+        DenseVectorConfig::ivf_tq(SOAR_DIM, Some(scale.ivf_clusters), scale.nprobe),
+        &corpus,
+        &queries,
+        scale.nprobe,
+        scale.rerank_factor,
+    )
+    .await;
+
+    assert_eq!(flat.ann_kind, "none", "flat truth must remain exact");
+    assert_eq!(off.ann_kind, "ivf_tq");
+    assert_eq!(selective.ann_kind, "ivf_tq");
+    assert_eq!(
+        off.ann_postings,
+        corpus.len(),
+        "SOAR-off must write exactly one posting per source vector"
+    );
+    assert!(
+        (corpus.len()..=corpus.len().saturating_mul(2)).contains(&selective.ann_postings),
+        "one-secondary SOAR must write between one and two postings per source vector"
+    );
+
+    let off_recall = recall(&flat.results, &off.results);
+    let selective_recall = recall(&flat.results, &selective.results);
+    assert!((0.0..=1.0).contains(&off_recall));
+    assert!((0.0..=1.0).contains(&selective_recall));
+    assert!(off.p50_ms.is_finite() && off.p95_ms.is_finite() && off.query_qps.is_finite());
+    assert!(
+        selective.p50_ms.is_finite()
+            && selective.p95_ms.is_finite()
+            && selective.query_qps.is_finite()
+    );
+
+    let off_amplification = off.ann_postings as f64 / corpus.len() as f64;
+    let selective_amplification = selective.ann_postings as f64 / corpus.len() as f64;
+    println!(
+        "\n{:<15} {:>10} {:>12} {:>12} {:>9} {:>9} {:>10} {:>10} {:>10}",
+        "method",
+        "recall@10",
+        "postings",
+        "postings/x",
+        "p50(ms)",
+        "p95(ms)",
+        "query/s",
+        "build(s)",
+        "train(s)"
+    );
+    for (report, method_recall, amplification) in [
+        (&off, off_recall, off_amplification),
+        (&selective, selective_recall, selective_amplification),
+    ] {
+        println!(
+            "{:<15} {:>10.4} {:>12} {:>12.3} {:>9.2} {:>9.2} {:>10.1} {:>10.1} {:>10.1}",
+            report.label,
+            method_recall,
+            report.ann_postings,
+            amplification,
+            report.p50_ms,
+            report.p95_ms,
+            report.query_qps,
+            report.build_secs,
+            report.train_secs,
+        );
+    }
+    println!(
+        "\nselective - off: recall@10 {:+.4}, postings {:+.3}x \
+         (training target +{SELECTIVE_SOAR_TARGET:.2}x), p95 {:+.2} ms, query/s {:+.1}, \
+         .vectors {:+.2} MiB",
+        selective_recall - off_recall,
+        selective_amplification - off_amplification,
+        selective.p95_ms - off.p95_ms,
+        selective.query_qps - off.query_qps,
+        (selective.vectors_bytes as f64 - off.vectors_bytes as f64) / (1024.0 * 1024.0),
     );
 }

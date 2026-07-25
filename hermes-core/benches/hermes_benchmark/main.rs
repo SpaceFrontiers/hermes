@@ -225,6 +225,10 @@ async fn run_benchmarks() {
         }
     }
     writer.commit().await.expect("Failed to commit");
+    writer
+        .build_vector_index()
+        .await
+        .expect("Failed to train and build IVF-TQ index");
     writer.wait_for_merging_thread().await;
     println!("\r    Indexed {} docs", num_docs);
 
