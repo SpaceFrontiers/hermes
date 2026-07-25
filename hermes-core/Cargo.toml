@@ -98,6 +98,10 @@ name = "vector_indexing"
 harness = false
 
 [[bench]]
+name = "binary_vectors"
+harness = false
+
+[[bench]]
 name = "bmp_vs_maxscore"
 harness = false
 
