@@ -1498,6 +1498,10 @@ pub(crate) fn predicted_merge_fragmentation(sources: &[(&AnnDiskIndex, u32)]) ->
     }
 }
 
+/// Doc IDs rewritten per scratch flush during compaction (256 KiB of u32s).
+#[cfg(feature = "native")]
+const DOC_ID_REWRITE_CHUNK: usize = 64 * 1024;
+
 /// Cluster-major compacting merge for binary IVF payloads.
 ///
 /// The byte-copy merge keeps each source payload as one physical extent, so a
@@ -1517,21 +1521,13 @@ pub(crate) fn predicted_merge_fragmentation(sources: &[(&AnnDiskIndex, u32)]) ->
 /// concatenating runs is trivially valid. TQ payloads pack codes into
 /// fixed-lane blocks with per-run tail padding; concatenating those without
 /// re-packing would corrupt block boundaries, so TQ merges stay byte-copy.
-/// Compact binary ANN runs when a byte-copy merge would leave this many
-/// physical extents per probed cluster.
 ///
-/// A rebuilt segment is 1.0 and each byte-copy merge multiplies by its source
-/// count, so 4 permits roughly two cheap 2-way generations before a merge
-/// pays the compaction pass. Explicit reorder/optimize passes compact at any
-/// fragmentation above 1.0 instead — an optimize command should hand back the
-/// freshly-built layout.
-#[cfg(feature = "native")]
-pub(crate) const ANN_COMPACTION_FRAGMENTATION_THRESHOLD: f64 = 4.0;
-
-/// Doc IDs rewritten per scratch flush during compaction (256 KiB of u32s).
-#[cfg(feature = "native")]
-const DOC_ID_REWRITE_CHUNK: usize = 64 * 1024;
-
+/// Every binary merge whose prediction is fragmented takes this path.
+/// Measured (interleaved best-of-3, pre-faulted buffers, aarch64): byte-copy
+/// 38.0 GiB/s vs compaction 32.4 GiB/s — ~17% more CPU on a stage that is a
+/// rounding error of merge wall-clock (a production dense stage is ~0.7s of
+/// a 20s+ merge), so there is no threshold below which byte-copy is worth
+/// the fragmentation it leaves behind.
 #[cfg(feature = "native")]
 pub(crate) fn write_compacted_ann_cancellable(
     sources: &[(&AnnDiskIndex, u32)],
@@ -2358,17 +2354,32 @@ mod tests {
             .collect();
         let payload_bytes = sources_bytes.iter().map(Vec::len).sum::<usize>();
 
-        let mut out = Vec::with_capacity(payload_bytes + (1 << 20));
-        let start = std::time::Instant::now();
-        write_merged_ann(&sources, &mut out).unwrap();
-        let copy_secs = start.elapsed().as_secs_f64();
-
+        // Fault the output buffer in before timing anything: the first pass
+        // over a fresh Vec pays demand paging + kernel page zeroing for the
+        // whole capacity, which the earlier version of this bench silently
+        // charged to whichever writer ran first (making compaction look 2×
+        // faster than the byte-copy purely by running second).
+        let mut out = vec![0u8; payload_bytes + (1 << 20)];
         out.clear();
-        let start = std::time::Instant::now();
-        write_compacted_ann_cancellable(&sources, &mut out, None).unwrap();
-        let compact_secs = start.elapsed().as_secs_f64();
+        // Interleave rounds and keep the best of each so neither path is
+        // systematically first.
+        let mut copy_secs = f64::INFINITY;
+        let mut compact_secs = f64::INFINITY;
+        let mut compacted_bytes = Vec::new();
+        for _ in 0..3 {
+            out.clear();
+            let start = std::time::Instant::now();
+            write_merged_ann(&sources, &mut out).unwrap();
+            copy_secs = copy_secs.min(start.elapsed().as_secs_f64());
+
+            out.clear();
+            let start = std::time::Instant::now();
+            write_compacted_ann_cancellable(&sources, &mut out, None).unwrap();
+            compact_secs = compact_secs.min(start.elapsed().as_secs_f64());
+            compacted_bytes = out.clone();
+        }
         let compacted = AnnDiskIndex::open(
-            OwnedBytes::new(out),
+            OwnedBytes::new(compacted_bytes),
             AnnKind::BinaryIvf,
             (vectors_per_source * sources_count) as u32,
         )
