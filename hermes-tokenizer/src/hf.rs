@@ -168,11 +168,21 @@ fn build(tokenizer: TokenizerJson) -> Result<LoadedTokenizer> {
         "BPE unk_token is not supported"
     );
     ensure!(
-        tokenizer.model.continuing_subword_prefix.is_none(),
+        tokenizer
+            .model
+            .continuing_subword_prefix
+            .as_deref()
+            .unwrap_or("")
+            .is_empty(),
         "BPE continuing_subword_prefix is not supported"
     );
     ensure!(
-        tokenizer.model.end_of_word_suffix.is_none(),
+        tokenizer
+            .model
+            .end_of_word_suffix
+            .as_deref()
+            .unwrap_or("")
+            .is_empty(),
         "BPE end_of_word_suffix is not supported"
     );
     ensure!(!tokenizer.model.fuse_unk, "BPE fuse_unk is not supported");
@@ -324,18 +334,25 @@ fn validate_added_tokens(tokens: &[AddedToken]) -> Result<()> {
 }
 
 fn validate_pretokenizer(pretokenizer: &Option<PreTokenizerJson>) -> Result<()> {
-    fn walk(node: &PreTokenizerJson) -> Result<()> {
+    fn has_split_regex(node: &PreTokenizerJson) -> bool {
+        (node.kind == "Split" && matches!(&node.pattern, Some(PatternJson { regex: Some(_) })))
+            || node.pretokenizers.iter().any(has_split_regex)
+    }
+    fn walk(node: &PreTokenizerJson, split_present: bool) -> Result<()> {
         ensure!(
-            node.kind != "ByteLevel" || node.use_regex != Some(false),
+            node.kind != "ByteLevel" || node.use_regex != Some(false) || split_present,
             "ByteLevel pre_tokenizer with use_regex=false is not supported"
         );
         for child in &node.pretokenizers {
-            walk(child)?;
+            walk(child, split_present)?;
         }
         Ok(())
     }
 
-    pretokenizer.as_ref().map_or(Ok(()), walk)
+    let split_present = pretokenizer.as_ref().is_some_and(has_split_regex);
+    pretokenizer
+        .as_ref()
+        .map_or(Ok(()), |node| walk(node, split_present))
 }
 
 fn validate_decoder(decoder: &Option<ComponentJson>) -> Result<()> {

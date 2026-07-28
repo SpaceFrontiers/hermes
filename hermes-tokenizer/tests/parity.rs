@@ -222,3 +222,115 @@ fn current_checkpoint_tokenizer_matches_hugging_face_when_available() {
         );
     }
 }
+
+/// A Qwen3-family-shaped `tokenizer.json`: BPE with EMPTY (not absent)
+/// `continuing_subword_prefix`/`end_of_word_suffix`, and a
+/// `Sequence[Split(qwen2 regex), ByteLevel(use_regex=false)]`
+/// pre_tokenizer, where ByteLevel only remaps bytes because the Split
+/// already segmented. Real artifacts with exactly this shape include
+/// Qwen/Qwen3-Embedding-0.6B and perplexity-ai/pplx-embed-context-v1-4b;
+/// the loader previously rejected both fields as unsupported.
+#[test]
+fn qwen_family_artifact_shape_matches_hugging_face() {
+    use tokenizers::normalizers::unicode::NFC;
+    use tokenizers::pre_tokenizers::sequence::Sequence;
+    use tokenizers::pre_tokenizers::split::{Split, SplitPattern};
+    use tokenizers::{PreTokenizerWrapper, SplitDelimiterBehavior};
+
+    const QWEN2_SPLIT_REGEX: &str = r"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+";
+
+    let byte_chars = byte_to_unicode();
+    let mut vocab = AHashMap::new();
+    for (byte, character) in byte_chars.iter().enumerate() {
+        vocab.insert(character.to_string(), byte as u32);
+    }
+    let merge_defs = [
+        ("h", "e", "he"),
+        ("he", "l", "hel"),
+        ("hel", "l", "hell"),
+        ("hell", "o", "hello"),
+        ("Ġ", "hello", "Ġhello"),
+        ("w", "o", "wo"),
+        ("wo", "r", "wor"),
+        ("wor", "l", "worl"),
+        ("worl", "d", "world"),
+        ("Ġ", "world", "Ġworld"),
+    ];
+    let mut merges = Vec::new();
+    for (left, right, merged) in merge_defs {
+        let id = vocab.len() as u32;
+        vocab.insert(merged.to_owned(), id);
+        merges.push((left.to_owned(), right.to_owned()));
+    }
+
+    let model = BPE::builder()
+        .vocab_and_merges(vocab, merges)
+        .continuing_subword_prefix(String::new())
+        .end_of_word_suffix(String::new())
+        .build()
+        .unwrap();
+    let mut tokenizer = HfTokenizer::new(model);
+    tokenizer.with_normalizer(Some(NFC)).unwrap();
+    let split = Split::new(
+        SplitPattern::Regex(QWEN2_SPLIT_REGEX.to_owned()),
+        SplitDelimiterBehavior::Isolated,
+        false,
+    )
+    .unwrap();
+    tokenizer.with_pre_tokenizer(Some(PreTokenizerWrapper::Sequence(Sequence::new(vec![
+        split.into(),
+        ByteLevel::new(false, false, false).into(),
+    ]))));
+    tokenizer.with_decoder(Some(ByteLevel::new(false, true, true)));
+
+    let json = tokenizer.to_string(false).unwrap();
+    assert!(
+        json.contains(r#""continuing_subword_prefix":"""#),
+        "fixture must exercise the empty-string affix shape"
+    );
+    assert!(
+        json.contains(r#""use_regex":false"#),
+        "fixture must exercise ByteLevel(use_regex=false) after a Split"
+    );
+
+    let ours = Tokenizer::from_bytes(json.as_bytes()).unwrap();
+    for text in [
+        "",
+        "hello",
+        " hello world",
+        "Hello, world!",
+        "it's ISN'T world's",
+        "a   b\t\n",
+        "line one\nline two\r\nline three",
+        "digits 123 456,789",
+        "caf\u{e9}",
+        "cafe\u{301}",
+        "Русский 中文 العربية",
+        "emoji: 🦀🚀",
+    ] {
+        assert_text_parity(&ours, &tokenizer, text);
+    }
+}
+
+/// A ByteLevel(use_regex=false) pre_tokenizer WITHOUT a Split regex still
+/// has no segmentation source and must keep failing at load time.
+#[test]
+fn bare_bytelevel_without_regex_is_still_rejected() {
+    let byte_chars = byte_to_unicode();
+    let mut vocab = AHashMap::new();
+    for (byte, character) in byte_chars.iter().enumerate() {
+        vocab.insert(character.to_string(), byte as u32);
+    }
+    let model = BPE::builder()
+        .vocab_and_merges(vocab, Vec::new())
+        .build()
+        .unwrap();
+    let mut tokenizer = HfTokenizer::new(model);
+    tokenizer.with_pre_tokenizer(Some(ByteLevel::new(false, false, false)));
+    tokenizer.with_decoder(Some(ByteLevel::new(false, true, true)));
+    let json = tokenizer.to_string(false).unwrap();
+    let error = Tokenizer::from_bytes(json.as_bytes())
+        .err()
+        .expect("ByteLevel(use_regex=false) without Split must be rejected");
+    assert!(error.to_string().contains("use_regex=false"), "{error:#}");
+}
