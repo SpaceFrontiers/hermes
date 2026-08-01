@@ -68,8 +68,8 @@ pub mod trace;
 
 // Core types
 pub use model::{
-    Device, InferenceState, MambaBackend, Transformer, default_device, load_safetensors,
-    save_safetensors,
+    Device, InferenceState, MambaBackend, MemoryRouting, MemorySlotStatus, Transformer,
+    default_device, load_safetensors, save_safetensors, upgrade_safetensors_to_memory,
 };
 
 // Generation
@@ -78,9 +78,9 @@ pub use trace::{TraceGeneration, TraceOptions, TraceRequest, VisualizationBundle
 
 // Model Architecture Language (MAL)
 pub use mal::{
-    Activation, AttentionDef, BlockDef, FfnDef, MalFile, ModelDef, NormPosition, NormType,
-    PositionEncoding, get_builtin_model, get_wellknown_mal, list_wellknown_models, parse_mal,
-    parse_mal_file, parse_mal_full,
+    Activation, AttentionDef, BlockDef, FfnDef, MalFile, MemoryDef, MemoryTierDef, MemoryTierInit,
+    ModelDef, NormPosition, NormType, PositionEncoding, ReserveExpertsDef, get_builtin_model,
+    get_wellknown_mal, list_wellknown_models, parse_mal, parse_mal_file, parse_mal_full,
 };
 
 // Tokenization

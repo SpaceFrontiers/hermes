@@ -36,6 +36,7 @@ mod grouped_linear;
 mod linear_cross_entropy;
 mod mamba;
 mod matmul;
+mod memory;
 #[cfg(feature = "cuda")]
 mod moe_dispatch;
 #[cfg(feature = "cuda")]
@@ -54,10 +55,11 @@ pub use ffn::FeedForward;
 pub use fused_attention::AttentionBackend;
 pub use linear_cross_entropy::LinearCrossEntropyBackend;
 pub use mamba::{MambaMixer, MambaState};
+pub use memory::{MemoryChain, MemoryRouting, MemorySlotStatus};
 pub use norm::Norm;
 pub use scan::MambaBackend;
 pub use transformer::Transformer;
-pub use weights::{load_safetensors, save_safetensors};
+pub use weights::{load_safetensors, save_safetensors, upgrade_safetensors_to_memory};
 
 #[cfg(all(test, any(feature = "metal", feature = "cuda")))]
 mod test_support {

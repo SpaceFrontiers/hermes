@@ -19,6 +19,7 @@ use super::matmul::matmul_input;
 use super::matmul::{
     batched_linear_low_precision, linear_low_precision, prepare_linear_for_inference,
 };
+use super::memory::MemoryRouting;
 #[cfg(feature = "cuda")]
 use super::moe_dispatch::{route_combine, route_gather};
 #[cfg(feature = "cuda")]
@@ -97,6 +98,19 @@ impl DenseFeedForward {
     fn prepare_inference(&mut self) {
         prepare_linear_for_inference(&mut self.in_proj);
         prepare_linear_for_inference(&mut self.down_proj);
+    }
+
+    fn zero_output(&mut self) {
+        self.down_proj.weight = self
+            .down_proj
+            .weight
+            .clone()
+            .map(|weight| Tensor::zeros_like(&weight));
+        self.down_proj.bias = self
+            .down_proj
+            .bias
+            .take()
+            .map(|bias| bias.map(|value| Tensor::zeros_like(&value)));
     }
 }
 
@@ -408,6 +422,17 @@ impl ExpertBank {
             .take()
             .map(|bias| bias.map(super::matmul::matmul_input));
     }
+
+    fn zero_output(&mut self) {
+        self.down_weight = self
+            .down_weight
+            .clone()
+            .map(|weight| Tensor::zeros_like(&weight));
+        self.down_bias = self
+            .down_bias
+            .take()
+            .map(|bias| bias.map(|value| Tensor::zeros_like(&value)));
+    }
 }
 
 /// Dropless token-choice routing with top-k gate renormalization.
@@ -450,6 +475,7 @@ impl SparseMoe {
         &self,
         x: Tensor<D>,
         collect_auxiliary: bool,
+        routing: MemoryRouting,
     ) -> (Tensor<D>, Option<Tensor<1>>) {
         let shape = x.dims();
         let hidden = shape[D - 1];
@@ -467,8 +493,22 @@ impl SparseMoe {
         } else {
             logits.clone().topk_with_indices(self.top_k, 1)
         };
-        let top_weights = softmax(top_logits, 1);
         let expert_count = self.experts.expert_count;
+        let random_expert = routing.random_index(expert_count);
+        let all_weights = match random_expert {
+            Some(expert) => softmax(
+                Tensor::cat(
+                    vec![
+                        top_logits,
+                        logits.clone().slice([0..tokens, expert..expert + 1]),
+                    ],
+                    1,
+                ),
+                1,
+            ),
+            None => softmax(top_logits, 1),
+        };
+        let top_weights = all_weights.clone().slice([0..tokens, 0..self.top_k]);
         let routes = tokens
             .checked_mul(self.top_k)
             .expect("MoE route count overflow");
@@ -596,6 +636,12 @@ impl SparseMoe {
                 .reshape([tokens, self.top_k, 1]))
         .sum_dim(1)
         .reshape([tokens, hidden]);
+        if let Some(expert) = random_expert {
+            let weight = all_weights
+                .slice([0..tokens, self.top_k..self.top_k + 1])
+                .cast(flat.dtype());
+            output = output + self.experts.forward_expert(flat.clone(), expert) * weight;
+        }
         for expert in &self.shared_experts {
             output = output + expert.forward(flat.clone());
         }
@@ -653,6 +699,13 @@ impl SparseMoe {
             expert.prepare_inference();
         }
     }
+
+    fn zero_output(&mut self) {
+        self.experts.zero_output();
+        for expert in &mut self.shared_experts {
+            expert.zero_output();
+        }
+    }
 }
 
 impl FeedForward {
@@ -695,22 +748,40 @@ impl FeedForward {
     }
 
     pub fn forward<const D: usize>(&self, x: Tensor<D>) -> Tensor<D> {
-        self.forward_internal(x, false).0
+        self.forward_internal_with_routing(x, false, MemoryRouting::Wake)
+            .0
     }
 
     /// Training forward pass including configured router regularization.
     pub fn forward_with_aux<const D: usize>(&self, x: Tensor<D>) -> (Tensor<D>, Option<Tensor<1>>) {
-        self.forward_internal(x, true)
+        self.forward_internal_with_routing(x, true, MemoryRouting::Wake)
     }
 
-    fn forward_internal<const D: usize>(
+    pub(crate) fn forward_internal_with_routing<const D: usize>(
         &self,
         x: Tensor<D>,
         collect_auxiliary: bool,
+        routing: MemoryRouting,
     ) -> (Tensor<D>, Option<Tensor<1>>) {
         match &self.moe {
-            Some(moe) => moe.forward(x, collect_auxiliary),
+            Some(moe) => moe.forward(x, collect_auxiliary, routing),
             None => (self.dense_view().forward(x), None),
+        }
+    }
+
+    pub(crate) fn zero_output(&mut self) {
+        if let Some(down_proj) = &mut self.down_proj {
+            down_proj.weight = down_proj
+                .weight
+                .clone()
+                .map(|weight| Tensor::zeros_like(&weight));
+            down_proj.bias = down_proj
+                .bias
+                .take()
+                .map(|bias| bias.map(|value| Tensor::zeros_like(&value)));
+        }
+        if let Some(moe) = &mut self.moe {
+            moe.zero_output();
         }
     }
 
@@ -765,7 +836,7 @@ fn activate<const D: usize>(activation: Activation, tensor: Tensor<D>) -> Tensor
     }
 }
 
-fn host_route_plan(
+pub(super) fn host_route_plan(
     top_indices: Tensor<2, Int>,
     expert_count: usize,
     routes: usize,
@@ -927,5 +998,34 @@ mod tests {
 
         assert!(experts.in_weight.grad(&gradients).is_some());
         assert!(experts.down_weight.grad(&gradients).is_some());
+    }
+
+    #[test]
+    fn random_extra_expert_is_dream_only() {
+        let config = crate::mal::parse_mal(
+            r#"
+            ffn routed { hidden_dim: 12 moe { experts: 4 top_k: 2 } }
+            model sparse_test {
+                vocab_size: 16 hidden_size: 8 num_layers: 1
+                block: { attention: { num_heads: 1 } ffn: routed }
+            }
+            "#,
+        )
+        .unwrap();
+        let device = Device::ndarray();
+        device.seed(37);
+        let layer = FeedForward::new(&config, &config.block, &device);
+        let input = Tensor::<2>::random([7, 8], Distribution::Default, &device);
+        let ordinary = layer.forward(input.clone());
+        let wake = layer
+            .forward_internal_with_routing(input.clone(), false, MemoryRouting::Wake)
+            .0;
+        let dream = layer
+            .forward_internal_with_routing(input, false, MemoryRouting::Dream { seed: 11 })
+            .0;
+        let wake_difference: f32 = (ordinary - wake.clone()).abs().max().into_scalar();
+        let dream_difference: f32 = (dream - wake).abs().max().into_scalar();
+        assert_eq!(wake_difference, 0.0);
+        assert!(dream_difference > 0.0);
     }
 }

@@ -6,7 +6,10 @@ use burn_nn::{Dropout, DropoutConfig, RotaryEncoding};
 
 use crate::mal::{BlockDef, ModelDef, NormPosition};
 
-use super::{AttnCache, FeedForward, MambaMixer, MambaState, MultiHeadAttention, Norm};
+use super::{
+    AttnCache, FeedForward, MambaMixer, MambaState, MemoryChain, MemoryRouting, MemorySlotStatus,
+    MultiHeadAttention, Norm,
+};
 
 pub(crate) struct BlockDiagnostic {
     pub attention_weights: Option<Tensor<4>>,
@@ -18,7 +21,8 @@ pub(crate) struct BlockDiagnostic {
 pub struct TransformerBlock {
     attention: Option<MultiHeadAttention>,
     ssm: Option<MambaMixer>,
-    feed_forward: FeedForward,
+    feed_forward: Option<FeedForward>,
+    memory: Option<MemoryChain>,
     attn_norm: Norm,
     ffn_norm: Norm,
     residual_dropout: Dropout,
@@ -45,7 +49,14 @@ impl TransformerBlock {
         Self {
             attention,
             ssm,
-            feed_forward: FeedForward::new(config, block, device),
+            feed_forward: block
+                .memory
+                .is_none()
+                .then(|| FeedForward::new(config, block, device)),
+            memory: block
+                .memory
+                .as_ref()
+                .map(|memory| MemoryChain::new(config, block, memory, device)),
             attn_norm: make_norm(),
             ffn_norm: make_norm(),
             residual_dropout: DropoutConfig::new(block.dropout).init(),
@@ -82,6 +93,15 @@ impl TransformerBlock {
         x: Tensor<3>,
         mut mix: impl FnMut(Tensor<3>) -> Tensor<3>,
     ) -> Tensor<3> {
+        self.forward_with_mixer_and_routing(x, &mut mix, MemoryRouting::Wake)
+    }
+
+    fn forward_with_mixer_and_routing(
+        &self,
+        x: Tensor<3>,
+        mut mix: impl FnMut(Tensor<3>) -> Tensor<3>,
+        routing: MemoryRouting,
+    ) -> Tensor<3> {
         let x = match self.norm_position {
             NormPosition::Pre => {
                 let branch = mix(self.attn_norm.forward(x.clone()));
@@ -92,13 +112,40 @@ impl TransformerBlock {
                 self.attn_norm.forward(self.residual(x, branch))
             }
         };
+        if let Some(memory) = &self.memory {
+            let (output, _) = match self.norm_position {
+                NormPosition::Pre => memory.forward_with(
+                    x,
+                    false,
+                    routing,
+                    |state| self.ffn_norm.forward(state),
+                    |state, branch| self.residual(state, branch),
+                ),
+                NormPosition::Post => memory.forward_with(
+                    x,
+                    false,
+                    routing,
+                    |state| state,
+                    |state, branch| self.ffn_norm.forward(self.residual(state, branch)),
+                ),
+            };
+            return output;
+        }
+        let feed_forward = self
+            .feed_forward
+            .as_ref()
+            .expect("a block has either an FFN or a memory chain");
         match self.norm_position {
             NormPosition::Pre => {
-                let branch = self.feed_forward.forward(self.ffn_norm.forward(x.clone()));
+                let branch = feed_forward
+                    .forward_internal_with_routing(self.ffn_norm.forward(x.clone()), false, routing)
+                    .0;
                 self.residual(x, branch)
             }
             NormPosition::Post => {
-                let branch = self.feed_forward.forward(x.clone());
+                let branch = feed_forward
+                    .forward_internal_with_routing(x.clone(), false, routing)
+                    .0;
                 self.ffn_norm.forward(self.residual(x, branch))
             }
         }
@@ -120,15 +167,36 @@ impl TransformerBlock {
             }
         };
 
+        if let Some(memory) = &self.memory {
+            return match self.norm_position {
+                NormPosition::Pre => memory.forward_with(
+                    x,
+                    true,
+                    MemoryRouting::Wake,
+                    |state| self.ffn_norm.forward(state),
+                    |state, branch| self.residual(state, branch),
+                ),
+                NormPosition::Post => memory.forward_with(
+                    x,
+                    true,
+                    MemoryRouting::Wake,
+                    |state| state,
+                    |state, branch| self.ffn_norm.forward(self.residual(state, branch)),
+                ),
+            };
+        }
+        let feed_forward = self
+            .feed_forward
+            .as_ref()
+            .expect("a block has either an FFN or a memory chain");
         let (output, auxiliary) = match self.norm_position {
             NormPosition::Pre => {
-                let (branch, auxiliary) = self
-                    .feed_forward
-                    .forward_with_aux(self.ffn_norm.forward(x.clone()));
+                let (branch, auxiliary) =
+                    feed_forward.forward_with_aux(self.ffn_norm.forward(x.clone()));
                 (self.residual(x, branch), auxiliary)
             }
             NormPosition::Post => {
-                let (branch, auxiliary) = self.feed_forward.forward_with_aux(x.clone());
+                let (branch, auxiliary) = feed_forward.forward_with_aux(x.clone());
                 (self.ffn_norm.forward(self.residual(x, branch)), auxiliary)
             }
         };
@@ -137,6 +205,16 @@ impl TransformerBlock {
 
     pub fn forward(&self, x: Tensor<3>, rope: &RotaryEncoding, start_pos: usize) -> Tensor<3> {
         self.forward_with_mixer(x, |x| self.mix(x, rope, start_pos))
+    }
+
+    pub(crate) fn forward_with_routing(
+        &self,
+        x: Tensor<3>,
+        rope: &RotaryEncoding,
+        start_pos: usize,
+        routing: MemoryRouting,
+    ) -> Tensor<3> {
+        self.forward_with_mixer_and_routing(x, |x| self.mix(x, rope, start_pos), routing)
     }
 
     pub(crate) fn forward_with_aux(
@@ -215,11 +293,20 @@ impl TransformerBlock {
         if let Some(ssm) = &mut self.ssm {
             ssm.prepare_inference();
         }
-        self.feed_forward.prepare_inference();
+        if let Some(feed_forward) = &mut self.feed_forward {
+            feed_forward.prepare_inference();
+        }
+        if let Some(memory) = &mut self.memory {
+            memory.prepare_inference();
+        }
     }
 
-    pub(crate) fn router_parameter_id(&self) -> Option<ParamId> {
-        self.feed_forward.router_parameter_id()
+    pub(crate) fn non_muon_parameter_ids(&self) -> Vec<ParamId> {
+        match (&self.feed_forward, &self.memory) {
+            (Some(feed_forward), None) => feed_forward.router_parameter_id().into_iter().collect(),
+            (None, Some(memory)) => memory.non_muon_parameter_ids(),
+            _ => unreachable!("a block has either an FFN or a memory chain"),
+        }
     }
 
     pub fn forward_with_state(
@@ -229,13 +316,85 @@ impl TransformerBlock {
         start_pos: usize,
         state: &mut LayerState,
     ) -> Tensor<3> {
-        self.forward_with_mixer(x, |x| match (&self.attention, &self.ssm, &mut *state) {
-            (Some(attention), None, LayerState::Attn(cache)) => {
-                attention.forward_cached(x, rope, start_pos, cache)
-            }
-            (None, Some(ssm), LayerState::Mamba(mamba)) => ssm.forward_with_state(x, Some(mamba)),
-            _ => panic!("layer state type does not match the configured mixer type"),
-        })
+        self.forward_with_state_and_routing(x, rope, start_pos, state, MemoryRouting::Wake)
+    }
+
+    pub(crate) fn forward_with_state_and_routing(
+        &self,
+        x: Tensor<3>,
+        rope: &RotaryEncoding,
+        start_pos: usize,
+        state: &mut LayerState,
+        routing: MemoryRouting,
+    ) -> Tensor<3> {
+        self.forward_with_mixer_and_routing(
+            x,
+            |x| match (&self.attention, &self.ssm, &mut *state) {
+                (Some(attention), None, LayerState::Attn(cache)) => {
+                    attention.forward_cached(x, rope, start_pos, cache)
+                }
+                (None, Some(ssm), LayerState::Mamba(mamba)) => {
+                    ssm.forward_with_state(x, Some(mamba))
+                }
+                _ => panic!("layer state type does not match the configured mixer type"),
+            },
+            routing,
+        )
+    }
+
+    pub(crate) fn sync_memory_state(&mut self) {
+        if let Some(memory) = &mut self.memory {
+            memory.sync_state();
+        }
+    }
+
+    pub(crate) fn prepare_memory_upgrade_state(&mut self) {
+        if let Some(memory) = &mut self.memory {
+            memory.prepare_upgrade_state();
+        }
+    }
+
+    pub(crate) fn memory_statuses(&self, layer: usize) -> Vec<MemorySlotStatus> {
+        self.memory
+            .as_ref()
+            .map_or_else(Vec::new, |memory| memory.statuses(layer))
+    }
+
+    pub(crate) fn activate_memory_slot(&mut self, tier: usize, slot: usize) -> anyhow::Result<()> {
+        self.memory
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("layer has no memory chain"))?
+            .activate_slot(tier, slot)
+    }
+
+    pub(crate) fn deactivate_memory_slot(
+        &mut self,
+        tier: usize,
+        slot: usize,
+    ) -> anyhow::Result<()> {
+        self.memory
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("layer has no memory chain"))?
+            .deactivate_slot(tier, slot)
+    }
+
+    pub(crate) fn reset_memory_slot(
+        &mut self,
+        tier: usize,
+        slot: usize,
+        seed: u64,
+    ) -> anyhow::Result<()> {
+        self.memory
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("layer has no memory chain"))?
+            .reset_slot(tier, slot, seed)
+    }
+
+    pub(crate) fn memory_tier_parameter_ids(&self, tier: usize) -> anyhow::Result<Vec<ParamId>> {
+        self.memory
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("layer has no memory chain"))?
+            .tier_parameter_ids(tier)
     }
 }
 

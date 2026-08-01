@@ -11,7 +11,7 @@ use crate::mal::{BlockDef, ModelDef, NormConfig, PositionEncoding};
 
 use super::linear_cross_entropy::linear_cross_entropy;
 use super::matmul::{matmul_2, matmul_input, prepare_linear_for_inference, stream_cast};
-use super::{InferenceState, Norm, TransformerBlock};
+use super::{InferenceState, MemoryRouting, MemorySlotStatus, Norm, TransformerBlock};
 
 pub(crate) struct RawLayerDiagnostic {
     pub activation: Tensor<3>,
@@ -68,40 +68,82 @@ fn validate_config(config: &ModelDef) -> Result<()> {
         for (name, dropout) in [
             ("block", block.dropout),
             ("attention", block.attention.dropout),
-            ("ffn", block.ffn.dropout),
         ] {
             if !(0.0..1.0).contains(&dropout) {
                 bail!("layer {i} {name} dropout must be in [0, 1), got {dropout}");
             }
         }
         validate_norm(&format!("layer {i} norm"), &block.norm)?;
-        let intermediate = match block.ffn.hidden_dim {
-            Some(size) => size,
-            None => config
-                .hidden_size
-                .checked_mul(4)
-                .ok_or_else(|| anyhow::anyhow!("layer {i} default FFN size overflows usize"))?,
-        };
-        if intermediate == 0 {
-            bail!("layer {i} FFN hidden_dim must be positive");
-        }
-        if let Some(moe) = &block.ffn.moe {
-            if moe.experts < 2 {
-                bail!("layer {i} MoE experts must be at least 2");
+        let ffns = match &block.memory {
+            Some(memory) => {
+                if block.ffn != crate::mal::FfnDef::default() {
+                    bail!("layer {i} cannot configure both ffn and memory");
+                }
+                if memory.tiers.is_empty() {
+                    bail!("layer {i} memory must contain at least one tier");
+                }
+                let mut names = std::collections::HashSet::new();
+                for tier in &memory.tiers {
+                    if !names.insert(&tier.name) {
+                        bail!("layer {i} memory tier names must be unique");
+                    }
+                    let reserve = &tier.reserve_experts;
+                    if reserve.capacity == 0 || reserve.rank == 0 {
+                        bail!(
+                            "layer {i} memory tier '{}' reserve capacity and rank must be positive",
+                            tier.name
+                        );
+                    }
+                    if reserve.top_k == 0 || reserve.top_k > reserve.capacity {
+                        bail!(
+                            "layer {i} memory tier '{}' reserve top_k must be in 1..={}",
+                            tier.name,
+                            reserve.capacity
+                        );
+                    }
+                }
+                memory
+                    .tiers
+                    .iter()
+                    .map(|tier| (format!("memory tier '{}'", tier.name), &tier.ffn))
+                    .collect::<Vec<_>>()
             }
-            if moe.top_k == 0 || moe.top_k > moe.experts {
+            None => vec![("ffn".to_string(), &block.ffn)],
+        };
+        for (name, ffn) in ffns {
+            if !(0.0..1.0).contains(&ffn.dropout) {
                 bail!(
-                    "layer {i} MoE top_k must be in 1..={}, got {}",
-                    moe.experts,
-                    moe.top_k
+                    "layer {i} {name} dropout must be in [0, 1), got {}",
+                    ffn.dropout
                 );
             }
-            for (name, weight) in [
-                ("load_balance_loss_weight", moe.load_balance_loss_weight),
-                ("router_z_loss_weight", moe.router_z_loss_weight),
-            ] {
-                if !weight.is_finite() || weight < 0.0 {
-                    bail!("layer {i} MoE {name} must be finite and non-negative");
+            let intermediate = match ffn.hidden_dim {
+                Some(size) => size,
+                None => config.hidden_size.checked_mul(4).ok_or_else(|| {
+                    anyhow::anyhow!("layer {i} default {name} size overflows usize")
+                })?,
+            };
+            if intermediate == 0 {
+                bail!("layer {i} {name} hidden_dim must be positive");
+            }
+            if let Some(moe) = &ffn.moe {
+                if moe.experts < 2 {
+                    bail!("layer {i} {name} MoE experts must be at least 2");
+                }
+                if moe.top_k == 0 || moe.top_k > moe.experts {
+                    bail!(
+                        "layer {i} {name} MoE top_k must be in 1..={}, got {}",
+                        moe.experts,
+                        moe.top_k
+                    );
+                }
+                for (loss_name, weight) in [
+                    ("load_balance_loss_weight", moe.load_balance_loss_weight),
+                    ("router_z_loss_weight", moe.router_z_loss_weight),
+                ] {
+                    if !weight.is_finite() || weight < 0.0 {
+                        bail!("layer {i} {name} MoE {loss_name} must be finite and non-negative");
+                    }
                 }
             }
         }
@@ -342,6 +384,28 @@ impl Transformer {
         self.project_logits(self.forward_hidden(input_ids, start_pos))
     }
 
+    /// Full-sequence logits with dream-only random expert routing enabled.
+    /// Wake execution must continue to use [`Self::forward`].
+    pub fn forward_with_memory_routing(
+        &self,
+        input_ids: Tensor<2, Int>,
+        start_pos: usize,
+        routing: MemoryRouting,
+    ) -> Tensor<3> {
+        let [_, seq_len] = input_ids.dims();
+        assert!(start_pos + seq_len <= self.config.max_seq_len);
+        let mut hidden = stream_cast(self.embed(input_ids));
+        for (index, layer) in self.layers.iter().enumerate() {
+            hidden = layer.forward_with_routing(
+                hidden,
+                &self.rope,
+                start_pos,
+                routing.salted(index as u64),
+            );
+        }
+        self.project_logits(self.final_norm.forward(hidden))
+    }
+
     fn forward_hidden(&self, input_ids: Tensor<2, Int>, start_pos: usize) -> Tensor<3> {
         self.forward_hidden_through(input_ids, start_pos, self.layers.len())
     }
@@ -465,6 +529,39 @@ impl Transformer {
             selected_tokens.div_ceil(LOSS_CHUNKS),
         );
         (loss, router_loss)
+    }
+
+    /// Vocabulary logits only for selected row-major token positions.
+    ///
+    /// Knowledge-seeding callers can chunk `positions` to avoid materializing
+    /// a `[batch, sequence, vocabulary]` tensor for teacher/student divergence.
+    pub fn forward_selected_logits(
+        &self,
+        input_ids: Tensor<2, Int>,
+        positions: Tensor<1, Int>,
+    ) -> Tensor<2> {
+        let [batch, sequence] = input_ids.dims();
+        let [selected] = positions.dims();
+        assert!(
+            selected > 0,
+            "selected logits require at least one position"
+        );
+        let hidden = self
+            .forward_hidden_through(input_ids, 0, self.layers.len())
+            .reshape([batch * sequence, self.config.hidden_size])
+            .select(0, positions);
+        let stored_vocab = self.config.padded_vocab_size();
+        let (weight, bias) = self.output_parameters();
+        let logits = matmul_2(hidden, weight.transpose());
+        let logits = match bias {
+            Some(bias) => logits + bias.reshape([1, stored_vocab]),
+            None => logits,
+        };
+        if stored_vocab == self.config.vocab_size {
+            logits
+        } else {
+            logits.slice([0..selected, 0..self.config.vocab_size])
+        }
     }
 
     /// L2-normalized last-meaningful-token embeddings for retrieval training.
@@ -597,12 +694,12 @@ impl Transformer {
         for layer in &self.layers {
             layer.visit(&mut visitor);
         }
-        let router_ids = self
+        let non_muon_ids = self
             .layers
             .iter()
-            .filter_map(TransformerBlock::router_parameter_id)
+            .flat_map(TransformerBlock::non_muon_parameter_ids)
             .collect::<Vec<_>>();
-        visitor.ids.retain(|id| !router_ids.contains(id));
+        visitor.ids.retain(|id| !non_muon_ids.contains(id));
         visitor.ids
     }
 
@@ -707,10 +804,31 @@ impl Transformer {
         self.project_last_logits(self.forward_hidden_with_state(input_ids, state))
     }
 
+    /// Cached generation with optional dream-only random expert routing.
+    pub fn forward_next_logits_with_state_and_memory_routing(
+        &self,
+        input_ids: Tensor<2, Int>,
+        state: &mut InferenceState,
+        routing: MemoryRouting,
+    ) -> Tensor<2> {
+        self.project_last_logits(
+            self.forward_hidden_with_state_and_routing(input_ids, state, routing),
+        )
+    }
+
     fn forward_hidden_with_state(
         &self,
         input_ids: Tensor<2, Int>,
         state: &mut InferenceState,
+    ) -> Tensor<3> {
+        self.forward_hidden_with_state_and_routing(input_ids, state, MemoryRouting::Wake)
+    }
+
+    fn forward_hidden_with_state_and_routing(
+        &self,
+        input_ids: Tensor<2, Int>,
+        state: &mut InferenceState,
+        routing: MemoryRouting,
     ) -> Tensor<3> {
         let [batch, seq_len] = input_ids.dims();
         assert!(
@@ -731,11 +849,91 @@ impl Transformer {
         );
 
         let mut x = self.embed(input_ids);
-        for (layer, layer_state) in self.layers.iter().zip(state.layers.iter_mut()) {
-            x = layer.forward_with_state(x, &self.rope, state.pos, layer_state);
+        for (index, (layer, layer_state)) in
+            self.layers.iter().zip(state.layers.iter_mut()).enumerate()
+        {
+            x = layer.forward_with_state_and_routing(
+                x,
+                &self.rope,
+                state.pos,
+                layer_state,
+                routing.salted(index as u64),
+            );
         }
         state.pos += seq_len;
         self.final_norm.forward(x)
+    }
+
+    /// Refresh runtime mirrors from checkpointed memory masks. Strict Hermes
+    /// loaders call this automatically; call it after applying snapshots with
+    /// Burn APIs directly.
+    pub fn sync_memory_state(&mut self) {
+        for layer in &mut self.layers {
+            layer.sync_memory_state();
+        }
+    }
+
+    pub(crate) fn prepare_memory_upgrade_state(&mut self) {
+        for layer in &mut self.layers {
+            layer.prepare_memory_upgrade_state();
+        }
+    }
+
+    pub fn memory_slot_statuses(&self) -> Vec<MemorySlotStatus> {
+        self.layers
+            .iter()
+            .enumerate()
+            .flat_map(|(index, layer)| layer.memory_statuses(index))
+            .collect()
+    }
+
+    /// Activate one preallocated low-rank reserve slot.
+    pub fn activate_memory_slot(&mut self, layer: usize, tier: usize, slot: usize) -> Result<()> {
+        self.layers
+            .get_mut(layer)
+            .ok_or_else(|| anyhow::anyhow!("layer {layer} does not exist"))?
+            .activate_memory_slot(tier, slot)
+    }
+
+    /// Deactivate a reserve slot without modifying its learned tensors.
+    /// Transaction rollback can use this; capacity reclamation should use
+    /// [`Self::reset_memory_slot`] instead.
+    pub fn deactivate_memory_slot(&mut self, layer: usize, tier: usize, slot: usize) -> Result<()> {
+        self.layers
+            .get_mut(layer)
+            .ok_or_else(|| anyhow::anyhow!("layer {layer} does not exist"))?
+            .deactivate_memory_slot(tier, slot)
+    }
+
+    /// Reset a reclaimed slot to a dormant no-op and advance its serialized
+    /// generation. Optimizer moments for the returned parameter IDs must be
+    /// cleared by the trainer in the same transaction.
+    pub fn reset_memory_slot(
+        &mut self,
+        layer_index: usize,
+        tier: usize,
+        slot: usize,
+        seed: u64,
+    ) -> Result<Vec<ParamId>> {
+        let layer = self
+            .layers
+            .get_mut(layer_index)
+            .ok_or_else(|| anyhow::anyhow!("layer {layer_index} does not exist"))?;
+        layer.reset_memory_slot(tier, slot, seed)?;
+        Ok(layer
+            .memory_statuses(layer_index)
+            .into_iter()
+            .find(|status| status.tier == tier && status.slot == slot)
+            .expect("reset slot remains allocated")
+            .parameter_ids)
+    }
+
+    /// Float parameters belonging to a complete memory tier.
+    pub fn memory_tier_parameter_ids(&self, layer: usize, tier: usize) -> Result<Vec<ParamId>> {
+        self.layers
+            .get(layer)
+            .ok_or_else(|| anyhow::anyhow!("layer {layer} does not exist"))?
+            .memory_tier_parameter_ids(tier)
     }
 }
 
@@ -994,6 +1192,32 @@ mod tests {
         let masked = model.forward_masked_loss(input, target, positions);
         let value = |loss: Tensor<1>| loss.into_data().convert::<f32>().to_vec::<f32>().unwrap()[0];
         assert!((value(full) - value(masked)).abs() < 1e-5);
+    }
+
+    #[test]
+    fn selected_logits_match_materialized_positions() {
+        let mut config = get_builtin_model("tiny").unwrap();
+        config.vocab_size = 32;
+        config.hidden_size = 8;
+        config.num_layers = 1;
+        config.max_seq_len = 8;
+        config.block.attention.num_heads = Some(2);
+        config.block.attention.num_kv_heads = Some(1);
+        config.block.attention.head_dim = Some(4);
+        config.block.ffn.hidden_dim = Some(16);
+        let device = Device::ndarray();
+        device.seed(41);
+        let model = Transformer::new(&config, &device).unwrap();
+        let ids = vec![1_i64, 2, 3, 4, 5, 6, 7, 8];
+        let input = || Tensor::<2, Int>::from_data(TensorData::new(ids.clone(), [2, 4]), &device);
+        let positions = Tensor::<1, Int>::from_data([0_i64, 3, 5], &device);
+        let expected = model
+            .forward(input(), 0)
+            .reshape([8, config.vocab_size])
+            .select(0, positions.clone());
+        let selected = model.forward_selected_logits(input(), positions);
+        let maximum: f32 = (expected - selected).abs().max().into_scalar();
+        assert!(maximum < 1e-6, "selected logits differ by {maximum}");
     }
 
     #[test]
