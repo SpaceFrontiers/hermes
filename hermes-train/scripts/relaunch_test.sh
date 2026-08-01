@@ -20,7 +20,8 @@ write_checkpoint() {
   printf 'weights-%s\n' "$step" >"$directory/weights.safetensors"
   printf 'adamw-%s\n' "$step" >"$directory/adamw-state.bpk"
   printf 'muon-%s\n' "$step" >"$directory/muon-state.bpk"
-  printf '{"step":%s}\n' "$step" >"$directory/training-state.json"
+  printf '{"schema_version":2,"sequence":0,"emitted_at_unix_ms":1,"run_id":"test","global_step":%s,"phase":{"index":0,"name":"test","kind":"pretrain"},"event":{"type":"throughput","values":{"optimizer_steps":1,"compute_tokens":1,"supervised_tokens":1,"examples":1,"elapsed_seconds":1.0,"tokens_per_second":1.0,"examples_per_second":1.0,"input_wait_seconds":0.0,"host_to_device_seconds":0.0,"gpu_busy_seconds":0.0}}}\n' "$step" >"$directory/metrics.jsonl"
+  printf '{"version":2,"global_step":%s,"metric_records":1}\n' "$step" >"$directory/training-state.json"
 }
 
 fake_trainer=$TEST_ROOT/fake-trainer
@@ -59,14 +60,14 @@ if [[ ${TEST_FAIL_ONCE:-false} == true && ! -e $TEST_FAILURE_MARKER ]]; then
   printf 'weights-3\n' >"$output/weights.safetensors"
   printf 'adamw-3\n' >"$output/adamw-state.bpk"
   printf 'muon-3\n' >"$output/muon-state.bpk"
-  printf '{"step":3}\n' >"$output/training-state.json"
-  printf '{"step":3,"loss":1.0}\n' >"$output/metrics.jsonl"
+  printf '{"version":2,"global_step":3,"metric_records":1}\n' >"$output/training-state.json"
+  printf '{"schema_version":2,"sequence":0,"emitted_at_unix_ms":1,"run_id":"test","global_step":3,"phase":{"index":0,"name":"test","kind":"pretrain"},"event":{"type":"throughput","values":{"optimizer_steps":1,"compute_tokens":1,"supervised_tokens":1,"examples":1,"elapsed_seconds":1.0,"tokens_per_second":1.0,"examples_per_second":1.0,"input_wait_seconds":0.0,"host_to_device_seconds":0.0,"gpu_busy_seconds":0.0}}}\n' >"$output/metrics.jsonl"
   : >"$TEST_FAILURE_MARKER"
   exit 17
 fi
 if [[ -n ${TEST_EXPECT_STEP:-} ]]; then
   [[ $resume == true ]] || exit 91
-  actual=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["step"])' \
+  actual=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["global_step"])' \
     "$output/training-state.json")
   [[ $actual == "$TEST_EXPECT_STEP" ]] || exit 92
 fi
@@ -118,7 +119,7 @@ EOF
     sed -n '1,160p' "$case_root/state/sync.log" >&2 || true
     fail "checkpoint payload was not synced"
   fi
-  [[ $(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["step"])' \
+  [[ $(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["global_step"])' \
     "$case_root/remote/latest.json") == 3 ]] || fail "latest manifest was not published last"
 }
 
@@ -211,8 +212,34 @@ EOF
     || fail "duplicate supervisor did not report the held lock"
 }
 
+run_version_one_checkpoint_rejected_test() {
+  local case_root=$TEST_ROOT/version-one
+  local config=$case_root/relaunch.conf
+  mkdir -p -- "$case_root"
+  write_checkpoint "$case_root/output" 11
+  printf '{"version":1,"global_step":11,"metric_records":1}\n' \
+    >"$case_root/output/training-state.json"
+  cat >"$config" <<EOF
+HERMES_TRAIN_OUTPUT=$case_root/output
+HERMES_TRAIN_STATE_DIR=$case_root/state
+HERMES_TRAIN_COMMAND=($fake_trainer train)
+HERMES_TRAIN_MAX_RESTARTS=0
+EOF
+  export TEST_CALLS=$case_root/calls
+  export TEST_FAIL_ONCE=false
+  unset TEST_EXPECT_STEP TEST_WANDB_CALLS TEST_FAILURE_MARKER TEST_BLOCK
+
+  if "$TEST_SCRIPT_DIR/relaunch.sh" "$config" >"$case_root/log" 2>&1; then
+    fail "version-one checkpoint was accepted"
+  fi
+  [[ ! -e $TEST_CALLS ]] || fail "trainer launched with a version-one checkpoint"
+  grep -q 'local checkpoint is incomplete' "$case_root/log" \
+    || fail "version-one checkpoint failure was not explained"
+}
+
 run_restart_and_reporting_test
 run_remote_restore_test
 run_newer_local_wins_test
 run_idempotent_lock_test
+run_version_one_checkpoint_rejected_test
 printf 'relaunch_test: ok\n'

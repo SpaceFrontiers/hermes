@@ -4,15 +4,15 @@
 
 HERMES_TRAIN_OUTPUT=/opt/hermes-run/checkpoint
 HERMES_TRAIN_STATE_DIR=/opt/hermes-run/relaunch-state
-HERMES_TRAIN_REMOTE_URL=gs://example-training-bucket/retriever-100m-stage1
+HERMES_TRAIN_REMOTE_URL=gs://example-training-bucket/retriever-300m-moe-sleep
 
 # `--output` and `--resume` are owned by relaunch.sh and must not appear here.
 HERMES_TRAIN_COMMAND=(
   /opt/hermes-run/bin/hermes-train
   train
-  --config /opt/hermes-run/retriever-100m.json
+  --config /opt/hermes-run/retriever_300m_moe_sleep.mal
   --tokenizer /opt/hermes-run/tokenizer.json
-  --curriculum /opt/hermes-run/curriculum.json
+  --workflow /opt/hermes-run/workflow.json
   --checkpoint-every 500
 )
 
@@ -34,5 +34,5 @@ HERMES_TRAIN_WANDB_PYTHON=/opt/hermes-run/wandb-venv/bin/python
 # WANDB_API_KEY=replace-me
 # WANDB_ENTITY=space-frontiers
 # WANDB_PROJECT=hermes-retriever
-# WANDB_NAME=retriever-100m
-# WANDB_RUN_ID=retriever-100m-stage1
+# WANDB_NAME=retriever-300m-moe-sleep
+# WANDB_RUN_ID=retriever-300m-moe-sleep-workflow-v2

@@ -13,6 +13,7 @@ readonly -a CHECKPOINT_FILES=(
   weights.safetensors
   adamw-state.bpk
   muon-state.bpk
+  metrics.jsonl
   training-state.json
 )
 
@@ -139,9 +140,19 @@ import sys
 
 with open(sys.argv[1], encoding="utf-8") as handle:
     state = json.load(handle)
-step = state.get("step")
+version = state.get("version")
+if not isinstance(version, int) or isinstance(version, bool) or version != 2:
+    raise SystemExit("training-state.json is not checkpoint version 2")
+step = state.get("global_step")
 if not isinstance(step, int) or isinstance(step, bool) or step < 0:
-    raise SystemExit("training-state.json has an invalid step")
+    raise SystemExit("training-state.json has an invalid global_step")
+metric_records = state.get("metric_records")
+if (
+    not isinstance(metric_records, int)
+    or isinstance(metric_records, bool)
+    or metric_records < 0
+):
+    raise SystemExit("training-state.json has an invalid metric_records")
 print(step)
 PY
 }
@@ -258,7 +269,7 @@ restore_remote_checkpoint() {
   # Keep the marker present until all data files and training-state.json have
   # been atomically published. A reboot during restore is therefore detected.
   printf '%s\n' "$expected_step" >"$OUTPUT/.checkpoint-in-progress"
-  for file in weights.safetensors adamw-state.bpk muon-state.bpk; do
+  for file in weights.safetensors adamw-state.bpk muon-state.bpk metrics.jsonl; do
     mv -- "$restore_dir/$file" "$OUTPUT/$file.restore"
     mv -f -- "$OUTPUT/$file.restore" "$OUTPUT/$file"
   done
