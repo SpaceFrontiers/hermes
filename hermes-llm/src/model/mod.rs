@@ -58,7 +58,7 @@ pub use mamba::{MambaMixer, MambaState};
 pub use memory::{MemoryChain, MemoryRouting, MemorySlotStatus};
 pub use norm::Norm;
 pub use scan::MambaBackend;
-pub use transformer::Transformer;
+pub use transformer::{SelectedLogitProjector, Transformer};
 pub use weights::{load_safetensors, save_safetensors, upgrade_safetensors_to_memory};
 
 #[cfg(all(test, any(feature = "metal", feature = "cuda")))]

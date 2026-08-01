@@ -68,8 +68,8 @@ pub mod trace;
 
 // Core types
 pub use model::{
-    Device, InferenceState, MambaBackend, MemoryRouting, MemorySlotStatus, Transformer,
-    default_device, load_safetensors, save_safetensors, upgrade_safetensors_to_memory,
+    Device, InferenceState, MambaBackend, MemoryRouting, MemorySlotStatus, SelectedLogitProjector,
+    Transformer, default_device, load_safetensors, save_safetensors, upgrade_safetensors_to_memory,
 };
 
 // Generation

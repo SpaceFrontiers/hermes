@@ -67,7 +67,7 @@ pub fn upgrade_safetensors_to_memory(
     let unexpected_missing = result
         .missing
         .iter()
-        .filter(|(path, _)| !path.contains(".memory."))
+        .filter(|(path, _)| !is_expected_upgrade_tensor(path))
         .map(|(path, _)| path.as_str())
         .collect::<Vec<_>>();
     if !unexpected_missing.is_empty() {
@@ -86,6 +86,35 @@ pub fn upgrade_safetensors_to_memory(
     }
     save_safetensors(target, output_path)?;
     Ok(result)
+}
+
+/// An ordinary checkpoint can omit only tensors introduced by the target
+/// memory topology. Tier zero's base FFN is *not* new: every one of those
+/// tensors must have been remapped from the source checkpoint. Keeping this
+/// predicate structural prevents a damaged source checkpoint from being
+/// accepted merely because the remapped key happens to contain `.memory.`.
+fn is_expected_upgrade_tensor(path: &str) -> bool {
+    let mut segments = path.split('.');
+    if segments.next() != Some("layers")
+        || segments
+            .next()
+            .and_then(|value| value.parse::<usize>().ok())
+            .is_none()
+        || segments.next() != Some("memory")
+        || segments.next() != Some("tiers")
+    {
+        return false;
+    }
+    let Some(tier) = segments
+        .next()
+        .and_then(|value| value.parse::<usize>().ok())
+    else {
+        return false;
+    };
+    if tier > 0 {
+        return segments.next().is_some();
+    }
+    segments.next() == Some("reserve") && segments.next().is_some()
 }
 
 fn validate_upgrade_topology(source: &ModelDef, target: &ModelDef) -> Result<()> {
@@ -237,8 +266,16 @@ mod tests {
         let target_path = directory.path().join("target.safetensors");
         let active_target_path = directory.path().join("target-active.safetensors");
         save_safetensors(&source, &source_path).unwrap();
-        upgrade_safetensors_to_memory(&mut target, &source_config, &source_path, &target_path)
-            .unwrap();
+        let upgrade =
+            upgrade_safetensors_to_memory(&mut target, &source_config, &source_path, &target_path)
+                .unwrap();
+        assert!(
+            upgrade
+                .missing
+                .iter()
+                .all(|(path, _)| is_expected_upgrade_tensor(path)),
+            "upgrade accepted an unexpected missing tensor: {upgrade}"
+        );
 
         let input = Tensor::<2, Int>::from_data([[1, 3, 5, 7]], &device);
         let source_logits = source.forward(input.clone(), 0).into_data();
@@ -265,5 +302,107 @@ mod tests {
         let statuses = reloaded.memory_slot_statuses();
         assert!(statuses.iter().any(|slot| slot.tier == 1 && slot.active));
         assert!(statuses.iter().all(|slot| slot.tier == 1 || !slot.active));
+    }
+
+    #[test]
+    fn upgrade_missing_tensor_allowlist_is_structural() {
+        assert!(is_expected_upgrade_tensor(
+            "layers.0.memory.tiers.0.reserve.slots.1.a"
+        ));
+        assert!(is_expected_upgrade_tensor(
+            "layers.17.memory.tiers.2.feed_forward.down_proj.weight"
+        ));
+        assert!(!is_expected_upgrade_tensor(
+            "layers.0.memory.tiers.0.feed_forward.down_proj.weight"
+        ));
+        assert!(!is_expected_upgrade_tensor(
+            "layers.0.memoryish.tiers.1.feed_forward.down_proj.weight"
+        ));
+        assert!(!is_expected_upgrade_tensor("embedding.weight"));
+    }
+
+    #[test]
+    fn moe_checkpoint_upgrade_is_reloadable_and_logit_exact() {
+        let source_config = crate::mal::parse_mal(
+            r#"
+            ffn routed {
+                hidden_dim: 12 activation: swiglu bias: false
+                moe { experts: 3 top_k: 2 }
+            }
+            block b {
+                attention: { num_heads: 2 num_kv_heads: 1 head_dim: 4 position_encoding: none }
+                ffn: routed
+                norm: rmsnorm { eps: 1e-5 }
+            }
+            model source {
+                vocab_size: 29 max_seq_len: 8 hidden_size: 8 num_layers: 1 block: b
+                embeddings { tie_weights: true }
+            }
+            "#,
+        )
+        .unwrap();
+        let target_config = crate::mal::parse_mal(
+            r#"
+            ffn routed {
+                hidden_dim: 12 activation: swiglu bias: false
+                moe { experts: 3 top_k: 2 }
+            }
+            ffn slow { hidden_dim: 4 activation: swiglu bias: false }
+            memory cms {
+                tier fast {
+                    ffn: routed
+                    reserve_experts { capacity: 2 rank: 2 top_k: 1 }
+                }
+                tier slow {
+                    ffn: slow
+                    reserve_experts { capacity: 2 rank: 2 top_k: 1 }
+                    residual_init: zero
+                }
+            }
+            block b {
+                attention: { num_heads: 2 num_kv_heads: 1 head_dim: 4 position_encoding: none }
+                memory: cms
+                norm: rmsnorm { eps: 1e-5 }
+            }
+            model target {
+                vocab_size: 29 max_seq_len: 8 hidden_size: 8 num_layers: 1 block: b
+                embeddings { tie_weights: true }
+            }
+            "#,
+        )
+        .unwrap();
+        let device = Device::ndarray();
+        device.seed(113);
+        let source = Transformer::new(&source_config, &device).unwrap();
+        device.seed(127);
+        let mut upgraded = Transformer::new(&target_config, &device).unwrap();
+        let directory = tempdir().unwrap();
+        let source_path = directory.path().join("source-moe.safetensors");
+        let target_path = directory.path().join("target-moe.safetensors");
+        save_safetensors(&source, &source_path).unwrap();
+        upgrade_safetensors_to_memory(&mut upgraded, &source_config, &source_path, &target_path)
+            .unwrap();
+
+        let mut reloaded = Transformer::new(&target_config, &device).unwrap();
+        load_safetensors(&mut reloaded, &target_path).unwrap();
+        let input = Tensor::<2, Int>::from_data([[2, 4, 6, 8]], &device);
+        let source_values = source
+            .forward(input.clone(), 0)
+            .into_data()
+            .convert::<f32>()
+            .to_vec::<f32>()
+            .unwrap();
+        let target_values = reloaded
+            .forward(input, 0)
+            .into_data()
+            .convert::<f32>()
+            .to_vec::<f32>()
+            .unwrap();
+        let maximum = source_values
+            .iter()
+            .zip(target_values)
+            .map(|(source, target)| (source - target).abs())
+            .fold(0.0_f32, f32::max);
+        assert!(maximum < 1e-6, "reloaded MoE logits differ by {maximum}");
     }
 }

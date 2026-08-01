@@ -16,7 +16,15 @@ use crate::mal::{BlockDef, MemoryDef, MemoryTierInit, ModelDef};
 
 use super::FeedForward;
 use super::ffn::host_route_plan;
+#[cfg(feature = "cuda")]
+use super::grouped_linear::{grouped_linear, is_cuda_device};
 use super::matmul::matmul_2;
+#[cfg(feature = "cuda")]
+use super::matmul::matmul_input;
+#[cfg(feature = "cuda")]
+use super::moe_dispatch::{route_combine, route_gather};
+#[cfg(feature = "cuda")]
+use super::moe_route::route_plan;
 use super::row_permute::row_permute;
 
 /// Expert-routing behavior for ordinary wake execution and dream generation.
@@ -104,10 +112,6 @@ impl LowRankExpertSlot {
             ),
             runtime_active: false,
         }
-    }
-
-    fn logit(&self, input: Tensor<2>) -> Tensor<2> {
-        self.router.forward(input.cast(DType::F32))
     }
 
     fn forward(&self, input: Tensor<2>) -> Tensor<2> {
@@ -200,11 +204,11 @@ impl LowRankExpertReserve {
         }
     }
 
-    fn forward<const D: usize>(&self, input: Tensor<D>, routing: MemoryRouting) -> Tensor<D> {
-        let shape = input.dims();
-        let hidden = shape[D - 1];
-        let tokens = shape[..D - 1].iter().product::<usize>();
-        let flat = input.reshape([tokens, hidden]);
+    fn forward<const D: usize>(
+        &self,
+        input: Tensor<D>,
+        routing: MemoryRouting,
+    ) -> Option<Tensor<D>> {
         let active = self
             .slots
             .iter()
@@ -212,16 +216,34 @@ impl LowRankExpertReserve {
             .filter(|(_, slot)| slot.runtime_active)
             .collect::<Vec<_>>();
         if active.is_empty() {
-            return Tensor::zeros_like(&flat).reshape(shape);
+            // Do not put a zero allocation or residual add on the accelerator
+            // graph. Besides avoiding wake-time kernels, this is what makes a
+            // dormant reserve completely absent from forward and backward.
+            return None;
         }
 
-        let logits = Tensor::cat(
+        let shape = input.dims();
+        let hidden = shape[D - 1];
+        let tokens = shape[..D - 1].iter().product::<usize>();
+        let flat = input.reshape([tokens, hidden]);
+        if active.len() == 1 {
+            // A one-candidate top-1 router is identically one. Avoid a device
+            // synchronization and all dispatch/permutation kernels in the
+            // common first-active-slot case.
+            return Some(active[0].1.forward(flat).reshape(shape));
+        }
+
+        // Concatenate only active router rows, then evaluate them with one
+        // projection. Dormant rows stay off the graph and acquire no gradient
+        // or optimizer state.
+        let router_weight = Tensor::cat(
             active
                 .iter()
-                .map(|(_, slot)| slot.logit(flat.clone()))
+                .map(|(_, slot)| slot.router.weight.val())
                 .collect(),
             1,
         );
+        let logits = matmul_2(flat.clone().cast(DType::F32), router_weight);
         let routed_k = self.top_k.min(active.len());
         let (top_logits, top_indices) = logits.clone().topk_with_indices(routed_k, 1);
         let extra = routing.random_index(active.len());
@@ -240,14 +262,107 @@ impl LowRankExpertReserve {
         };
         let top_weights = all_weights.clone().slice([0..tokens, 0..routed_k]);
         let routes = tokens * routed_k;
+        let device = flat.device();
+        #[cfg(feature = "cuda")]
+        let (route_order, inverse_order, mut counts, device_counts) = if is_cuda_device(&device) {
+            let (order, inverse, counts) = route_plan(top_indices.clone(), active.len());
+            (order, inverse, Vec::new(), Some(counts))
+        } else {
+            let (order, inverse, counts) =
+                host_route_plan(top_indices.clone(), active.len(), routes, &device);
+            (order, inverse, counts, None)
+        };
+        #[cfg(not(feature = "cuda"))]
         let (route_order, inverse_order, counts) =
-            host_route_plan(top_indices, active.len(), routes, &flat.device());
-        let repeated = flat
-            .clone()
-            .unsqueeze_dim::<3>(1)
-            .repeat_dim(1, routed_k)
-            .reshape([routes, hidden]);
-        let routed_input = row_permute(repeated, route_order.clone(), inverse_order.clone());
+            host_route_plan(top_indices, active.len(), routes, &device);
+
+        #[cfg(feature = "cuda")]
+        let routed_input = if is_cuda_device(&device) {
+            route_gather(
+                flat.clone(),
+                route_order.clone(),
+                inverse_order.clone(),
+                routed_k,
+            )
+        } else {
+            let repeated = flat
+                .clone()
+                .unsqueeze_dim::<3>(1)
+                .repeat_dim(1, routed_k)
+                .reshape([routes, hidden]);
+            row_permute(repeated, route_order.clone(), inverse_order.clone())
+        };
+        #[cfg(not(feature = "cuda"))]
+        let routed_input = {
+            let repeated = flat
+                .clone()
+                .unsqueeze_dim::<3>(1)
+                .repeat_dim(1, routed_k)
+                .reshape([routes, hidden]);
+            row_permute(repeated, route_order.clone(), inverse_order.clone())
+        };
+
+        #[cfg(feature = "cuda")]
+        if let Some(device_counts) = device_counts {
+            // Keep the route plan on-device. Only the small per-slot count
+            // vector crosses to the host to define grouped-GEMM descriptors.
+            counts = device_counts
+                .into_data()
+                .convert::<i64>()
+                .to_vec::<i64>()
+                .expect("memory route counts must be readable")
+                .into_iter()
+                .map(|count| count as usize)
+                .collect();
+        }
+
+        #[cfg(feature = "cuda")]
+        let routed_output = if is_cuda_device(&device) {
+            let a = Tensor::stack::<3>(active.iter().map(|(_, slot)| slot.a.val()).collect(), 0);
+            let b = Tensor::stack::<3>(active.iter().map(|(_, slot)| slot.b.val()).collect(), 0);
+            let projected = grouped_linear(routed_input, matmul_input(a), &counts);
+            grouped_linear(projected, matmul_input(b), &counts).cast(flat.dtype())
+        } else {
+            Self::forward_compact(&active, routed_input, &counts, hidden)
+        };
+        #[cfg(not(feature = "cuda"))]
+        let routed_output = Self::forward_compact(&active, routed_input, &counts, hidden);
+
+        #[cfg(feature = "cuda")]
+        let mut output = if is_cuda_device(&device) {
+            route_combine(routed_output, top_weights, inverse_order, routed_k)
+        } else {
+            (row_permute(routed_output, inverse_order, route_order)
+                .reshape([tokens, routed_k, hidden])
+                * top_weights
+                    .cast(flat.dtype())
+                    .reshape([tokens, routed_k, 1]))
+            .sum_dim(1)
+            .reshape([tokens, hidden])
+        };
+        #[cfg(not(feature = "cuda"))]
+        let mut output = (row_permute(routed_output, inverse_order, route_order)
+            .reshape([tokens, routed_k, hidden])
+            * top_weights
+                .cast(flat.dtype())
+                .reshape([tokens, routed_k, 1]))
+        .sum_dim(1)
+        .reshape([tokens, hidden]);
+        if let Some(index) = extra {
+            let weight = all_weights
+                .slice([0..tokens, routed_k..routed_k + 1])
+                .cast(flat.dtype());
+            output = output + active[index].1.forward(flat.clone()) * weight;
+        }
+        Some(output.reshape(shape))
+    }
+
+    fn forward_compact(
+        active: &[(usize, &LowRankExpertSlot)],
+        routed_input: Tensor<2>,
+        counts: &[usize],
+        hidden: usize,
+    ) -> Tensor<2> {
         let mut offset = 0;
         let mut outputs = Vec::new();
         for (local, count) in counts.iter().copied().enumerate() {
@@ -263,21 +378,8 @@ impl LowRankExpertReserve {
             );
             offset += count;
         }
-        let routed_output = Tensor::cat(outputs, 0);
-        let mut output = (row_permute(routed_output, inverse_order, route_order)
-            .reshape([tokens, routed_k, hidden])
-            * top_weights
-                .cast(flat.dtype())
-                .reshape([tokens, routed_k, 1]))
-        .sum_dim(1)
-        .reshape([tokens, hidden]);
-        if let Some(index) = extra {
-            let weight = all_weights
-                .slice([0..tokens, routed_k..routed_k + 1])
-                .cast(flat.dtype());
-            output = output + active[index].1.forward(flat.clone()) * weight;
-        }
-        output.reshape(shape)
+        debug_assert_eq!(offset, routed_input.dims()[0]);
+        Tensor::cat(outputs, 0)
     }
 
     fn sync_state(&mut self) {
@@ -302,12 +404,19 @@ impl MemoryTier {
         collect_auxiliary: bool,
         routing: MemoryRouting,
     ) -> (Tensor<D>, Option<Tensor<1>>) {
+        let reserve = self.reserve.forward(input.clone(), routing);
         let (base, auxiliary) = self.feed_forward.forward_internal_with_routing(
             input.clone(),
             collect_auxiliary,
             routing,
         );
-        (base + self.reserve.forward(input, routing), auxiliary)
+        (
+            match reserve {
+                Some(reserve) => base + reserve,
+                None => base,
+            },
+            auxiliary,
+        )
     }
 }
 
@@ -402,15 +511,20 @@ impl MemoryChain {
     }
 
     pub(crate) fn activate_slot(&mut self, tier: usize, slot: usize) -> Result<()> {
+        let tier_index = tier;
+        let slot_index = slot;
         let tier = self
             .tiers
-            .get_mut(tier)
-            .ok_or_else(|| anyhow::anyhow!("memory tier {tier} does not exist"))?;
+            .get_mut(tier_index)
+            .ok_or_else(|| anyhow::anyhow!("memory tier {tier_index} does not exist"))?;
         let slot = tier
             .reserve
             .slots
-            .get_mut(slot)
-            .ok_or_else(|| anyhow::anyhow!("memory slot {slot} does not exist"))?;
+            .get_mut(slot_index)
+            .ok_or_else(|| anyhow::anyhow!("memory slot {slot_index} does not exist"))?;
+        if slot.runtime_active {
+            anyhow::bail!("memory slot {slot_index} in tier {tier_index} is already active");
+        }
         slot.set_active(true);
         Ok(())
     }
@@ -559,10 +673,31 @@ mod tests {
         let dormant = &memory.tiers[0].reserve.slots[1];
         assert!(active.a.grad(&active_gradients).is_some());
         assert!(active.b.grad(&active_gradients).is_some());
-        assert!(active.router.weight.grad(&active_gradients).is_some());
+        // With exactly one candidate the top-1 decision is constant, so the
+        // router row is intentionally absent until there is a real choice.
+        assert!(active.router.weight.grad(&active_gradients).is_none());
         assert!(dormant.a.grad(&active_gradients).is_none());
         assert!(dormant.b.grad(&active_gradients).is_none());
         assert!(dormant.router.weight.grad(&active_gradients).is_none());
+
+        let error = memory.activate_slot(0, 0).unwrap_err().to_string();
+        assert!(error.contains("already active"), "{error}");
+        memory.activate_slot(0, 1).unwrap();
+        let routed_gradients = run(&memory);
+        assert!(
+            memory.tiers[0].reserve.slots[0]
+                .router
+                .weight
+                .grad(&routed_gradients)
+                .is_some()
+        );
+        assert!(
+            memory.tiers[0].reserve.slots[1]
+                .router
+                .weight
+                .grad(&routed_gradients)
+                .is_some()
+        );
     }
 
     #[test]

@@ -1,5 +1,7 @@
 //! Full language model assembled from the MAL definition.
 
+use std::ops::Range;
+
 use anyhow::{Result, bail};
 use burn::module::{Initializer, ModuleVisitor, Param, ParamId};
 use burn::prelude::*;
@@ -24,6 +26,42 @@ pub(crate) struct RawModelDiagnostic {
     pub embedding: Tensor<3>,
     pub layers: Vec<RawLayerDiagnostic>,
     pub final_norm: Tensor<3>,
+}
+
+/// Reusable hidden states for chunked teacher/student distribution losses.
+///
+/// Constructing this value runs the backbone exactly once. Callers can then
+/// project small position ranges to vocabulary logits without retaining a
+/// full `[batch, sequence, vocabulary]` tensor or rerunning the backbone for
+/// every chunk.
+pub struct SelectedLogitProjector<'a> {
+    model: &'a Transformer,
+    hidden: Tensor<2>,
+    positions: Tensor<1, Int>,
+    selected: usize,
+}
+
+impl SelectedLogitProjector<'_> {
+    pub fn len(&self) -> usize {
+        self.selected
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.selected == 0
+    }
+
+    pub fn logits(&self, range: Range<usize>) -> Tensor<2> {
+        assert!(
+            range.start < range.end && range.end <= self.selected,
+            "selected-logit range {}..{} is outside 0..{}",
+            range.start,
+            range.end,
+            self.selected
+        );
+        let positions = self.positions.clone().slice([range.clone()]);
+        self.model
+            .project_flat_hidden(self.hidden.clone().select(0, positions), range.len())
+    }
 }
 
 const EMBEDDING_STD: f64 = 0.02;
@@ -540,6 +578,17 @@ impl Transformer {
         input_ids: Tensor<2, Int>,
         positions: Tensor<1, Int>,
     ) -> Tensor<2> {
+        let projector = self.prepare_selected_logits(input_ids, positions);
+        projector.logits(0..projector.len())
+    }
+
+    /// Run the backbone once and retain its flattened hidden states for
+    /// chunked selected-position projection.
+    pub fn prepare_selected_logits(
+        &self,
+        input_ids: Tensor<2, Int>,
+        positions: Tensor<1, Int>,
+    ) -> SelectedLogitProjector<'_> {
         let [batch, sequence] = input_ids.dims();
         let [selected] = positions.dims();
         assert!(
@@ -548,8 +597,16 @@ impl Transformer {
         );
         let hidden = self
             .forward_hidden_through(input_ids, 0, self.layers.len())
-            .reshape([batch * sequence, self.config.hidden_size])
-            .select(0, positions);
+            .reshape([batch * sequence, self.config.hidden_size]);
+        SelectedLogitProjector {
+            model: self,
+            hidden,
+            positions,
+            selected,
+        }
+    }
+
+    fn project_flat_hidden(&self, hidden: Tensor<2>, selected: usize) -> Tensor<2> {
         let stored_vocab = self.config.padded_vocab_size();
         let (weight, bias) = self.output_parameters();
         let logits = matmul_2(hidden, weight.transpose());
@@ -848,6 +905,10 @@ impl Transformer {
             "inference state belongs to a model with a different layer count"
         );
 
+        // Autoregressive dreaming normally calls this path once per token.
+        // Include the absolute position in the exploration seed so its random
+        // extra expert does not stay fixed for an entire generated sequence.
+        let routing = routing.salted(state.pos as u64);
         let mut x = self.embed(input_ids);
         for (index, (layer, layer_state)) in
             self.layers.iter().zip(state.layers.iter_mut()).enumerate()
@@ -1215,9 +1276,19 @@ mod tests {
             .forward(input(), 0)
             .reshape([8, config.vocab_size])
             .select(0, positions.clone());
-        let selected = model.forward_selected_logits(input(), positions);
-        let maximum: f32 = (expected - selected).abs().max().into_scalar();
+        let selected = model.forward_selected_logits(input(), positions.clone());
+        let maximum: f32 = (expected.clone() - selected).abs().max().into_scalar();
         assert!(maximum < 1e-6, "selected logits differ by {maximum}");
+
+        let projector = model.prepare_selected_logits(input(), positions);
+        assert_eq!(projector.len(), 3);
+        assert!(!projector.is_empty());
+        let chunked = Tensor::cat(vec![projector.logits(0..1), projector.logits(1..3)], 0);
+        let maximum: f32 = (expected - chunked).abs().max().into_scalar();
+        assert!(
+            maximum < 1e-6,
+            "chunked selected logits differ by {maximum}"
+        );
     }
 
     #[test]
