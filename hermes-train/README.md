@@ -105,19 +105,19 @@ python hermes-train/scripts/audit_education_curriculum.py \
   --tokenizer tokenizer.json
 ```
 
-Training is defined by a versioned JSON curriculum; stage geometry is not split
-between CLI flags and a data manifest. Start from
+Training is defined by a strict version-2 JSON workflow; phase geometry is not
+split between CLI flags and a data manifest. Start from
 [`curriculum.example.json`](curriculum.example.json), then set its data paths,
 step budgets, and measured batch sizes. Relative paths resolve against the
-curriculum file. Set a stage's `shuffle_buffer` to zero only for ordered
+workflow file. Set a phase's `shuffle_buffer` to zero only for ordered
 diagnostic runs.
 
-The four objectives are causal LM (`text`), target-only summarization
-(`document`, `summary`), target-only retrieval planning (`request`, `plan`, and
-optional `context`), and normalized in-batch contrastive retrieval (`query`,
-`positive`, and optional `negatives`). Structured objectives require JSONL;
-causal LM also accepts plain text. All formats may be Zstandard-compressed.
-The complete schema, loss masks, truncation behavior, and resume contract are in
+Built-in task adapters cover causal LM, summarization, retrieval
+representation/ranking/planning, instruction tuning, QA/reasoning, pairwise
+preference learning, and verifiable RL. Structured tasks require JSONL; causal
+LM also accepts plain text. All formats may be Zstandard-compressed. The
+complete phase and task schemas, loss masks, truncation behavior, and resume
+contract are in
 [`docs/training-objectives-and-curricula.md`](../docs/training-objectives-and-curricula.md).
 
 The trainer uses batched Muon updates for hidden 2D matrices and AdamW for

@@ -1,67 +1,33 @@
-//! Versioned training curriculum configuration.
+//! Strict WorkflowV2 projection for the current wake-training loop.
+//!
+//! Full lifecycle orchestration consumes [`hermes_train::workflow`] directly.
+//! This module keeps the existing trainer executable while making unsupported
+//! phase/task execution fail loudly instead of dropping workflow phases.
 
-use std::collections::BTreeSet;
-use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, ensure};
-use serde::{Deserialize, Serialize};
+use anyhow::{Result, bail};
+use hermes_train::task::{TaskAdapter, TaskConfig};
+use hermes_train::workflow::{PhaseKind, ResolvedWorkflow, WORKFLOW_VERSION, load_workflow};
+use serde::Serialize;
 
-pub(crate) const CURRICULUM_VERSION: u32 = 1;
+pub(crate) const CURRICULUM_VERSION: u32 = WORKFLOW_VERSION;
 
-fn default_temperature() -> f64 {
-    0.05
-}
-
-fn default_summary_instruction() -> String {
-    "Summarize the document faithfully and concisely.".to_owned()
-}
-
-fn default_planning_instruction() -> String {
-    "Create a concise retrieval plan as an ordered action trace.".to_owned()
-}
-
-fn default_query_prefix() -> String {
-    "Represent this query for retrieval:\n".to_owned()
-}
-
-fn default_document_prefix() -> String {
-    "Represent this document for retrieval:\n".to_owned()
-}
-
-fn default_one_f64() -> f64 {
-    1.0
-}
-
-fn default_one_usize() -> usize {
-    1
-}
-
-fn default_shuffle_buffer() -> usize {
-    8192
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub(crate) enum ObjectiveConfig {
     CausalLm,
     Summarization {
-        #[serde(default = "default_summary_instruction")]
         instruction: String,
     },
     RetrievalPlanning {
-        #[serde(default = "default_planning_instruction")]
         instruction: String,
     },
     ContrastiveRetrieval {
-        #[serde(default = "default_temperature")]
         temperature: f64,
-        /// One-based Transformer layer; omitted means the final layer.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         layer: Option<usize>,
-        #[serde(default = "default_query_prefix")]
         query_prefix: String,
-        #[serde(default = "default_document_prefix")]
         document_prefix: String,
     },
 }
@@ -72,7 +38,7 @@ impl ObjectiveConfig {
             Self::CausalLm => "causal_lm",
             Self::Summarization { .. } => "summarization",
             Self::RetrievalPlanning { .. } => "retrieval_planning",
-            Self::ContrastiveRetrieval { .. } => "contrastive_retrieval",
+            Self::ContrastiveRetrieval { .. } => "retrieval_representation",
         }
     }
 
@@ -89,70 +55,39 @@ impl ObjectiveConfig {
             _ => None,
         }
     }
+}
 
-    fn validate(&self, stage_name: &str) -> Result<()> {
-        match self {
-            Self::CausalLm => {}
-            Self::Summarization { instruction } | Self::RetrievalPlanning { instruction } => {
-                ensure!(
-                    !instruction.trim().is_empty(),
-                    "curriculum stage `{stage_name}` objective instruction must not be empty"
-                )
-            }
-            Self::ContrastiveRetrieval {
-                temperature,
-                layer,
-                query_prefix,
-                document_prefix,
-            } => {
-                ensure!(
-                    temperature.is_finite() && *temperature > 0.0,
-                    "curriculum stage `{stage_name}` retrieval temperature must be finite and positive"
-                );
-                ensure!(
-                    layer.is_none_or(|layer| layer > 0),
-                    "curriculum stage `{stage_name}` retrieval layer is one-based and must be positive"
-                );
-                ensure!(
-                    !query_prefix.is_empty() && !document_prefix.is_empty(),
-                    "curriculum stage `{stage_name}` retrieval prefixes must not be empty"
-                );
-            }
-        }
-        Ok(())
+fn project_task(phase_name: &str, task: &TaskConfig) -> Result<ObjectiveConfig> {
+    match task {
+        TaskConfig::CausalLm {} => Ok(ObjectiveConfig::CausalLm),
+        TaskConfig::Summarization { instruction } => Ok(ObjectiveConfig::Summarization {
+            instruction: instruction.clone(),
+        }),
+        TaskConfig::RetrievalPlanning { instruction } => Ok(ObjectiveConfig::RetrievalPlanning {
+            instruction: instruction.clone(),
+        }),
+        TaskConfig::RetrievalRepresentation {
+            temperature,
+            layer,
+            query_prefix,
+            document_prefix,
+        } => Ok(ObjectiveConfig::ContrastiveRetrieval {
+            temperature: *temperature,
+            layer: *layer,
+            query_prefix: query_prefix.clone(),
+            document_prefix: document_prefix.clone(),
+        }),
+        task => bail!(
+            "workflow phase `{phase_name}` task `{}` is not executable by the wake trainer; dispatch it through its WorkflowV2 task executor",
+            task.name()
+        ),
     }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CurriculumFile {
-    version: u32,
-    stages: Vec<StageFile>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct StageFile {
-    name: String,
-    data: PathBuf,
-    objective: ObjectiveConfig,
-    sequence_length: usize,
-    batch_size: usize,
-    gradient_accumulation: usize,
-    #[serde(default = "default_one_usize")]
-    epochs: usize,
-    #[serde(default = "default_shuffle_buffer")]
-    shuffle_buffer: usize,
-    steps: Option<usize>,
-    #[serde(default = "default_one_f64")]
-    loss_weight: f64,
-    #[serde(default = "default_one_f64")]
-    learning_rate_scale: f64,
 }
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct ResolvedStage {
     pub(crate) name: String,
+    pub(crate) phase_kind: PhaseKind,
     pub(crate) data: PathBuf,
     pub(crate) objective: ObjectiveConfig,
     pub(crate) sequence_length: usize,
@@ -171,108 +106,80 @@ pub(crate) struct ResolvedCurriculum {
     pub(crate) stages: Vec<ResolvedStage>,
 }
 
-fn validate_stage(stage: &ResolvedStage) -> Result<()> {
-    let name = &stage.name;
-    ensure!(
-        !name.trim().is_empty(),
-        "curriculum stage name must not be empty"
-    );
-    ensure!(
-        stage.sequence_length > 0,
-        "curriculum stage `{name}` sequence_length must be positive"
-    );
-    ensure!(
-        stage.batch_size > 0,
-        "curriculum stage `{name}` batch_size must be positive"
-    );
-    ensure!(
-        stage.gradient_accumulation > 0,
-        "curriculum stage `{name}` gradient_accumulation must be positive"
-    );
-    ensure!(
-        stage.epochs > 0,
-        "curriculum stage `{name}` epochs must be positive"
-    );
-    ensure!(
-        stage.steps.is_none_or(|steps| steps > 0),
-        "curriculum stage `{name}` steps must be positive when set"
-    );
-    ensure!(
-        stage.loss_weight.is_finite() && stage.loss_weight > 0.0,
-        "curriculum stage `{name}` loss_weight must be finite and positive"
-    );
-    ensure!(
-        stage.learning_rate_scale.is_finite() && stage.learning_rate_scale > 0.0,
-        "curriculum stage `{name}` learning_rate_scale must be finite and positive"
-    );
-    stage.objective.validate(name)
-}
-
-pub(crate) fn load_curriculum(path: &Path) -> Result<ResolvedCurriculum> {
-    let bytes =
-        fs::read(path).with_context(|| format!("failed to read curriculum {}", path.display()))?;
-    let file: CurriculumFile = serde_json::from_slice(&bytes)
-        .with_context(|| format!("invalid curriculum JSON in {}", path.display()))?;
-    ensure!(
-        file.version == CURRICULUM_VERSION,
-        "unsupported curriculum version {}; this build supports version {CURRICULUM_VERSION}",
-        file.version
-    );
-    ensure!(!file.stages.is_empty(), "curriculum contains no stages");
-
-    let base = path.parent().unwrap_or_else(|| Path::new("."));
-    let mut names = BTreeSet::new();
-    let mut stages = Vec::with_capacity(file.stages.len());
-    for stage in file.stages {
-        ensure!(
-            names.insert(stage.name.clone()),
-            "duplicate curriculum stage name `{}`",
-            stage.name
-        );
-        let data = if stage.data.is_absolute() {
-            stage.data
-        } else {
-            base.join(stage.data)
-        };
-        let stage = ResolvedStage {
-            name: stage.name,
-            data,
-            objective: stage.objective,
-            sequence_length: stage.sequence_length,
-            batch_size: stage.batch_size,
-            gradient_accumulation: stage.gradient_accumulation,
-            epochs: stage.epochs,
-            shuffle_buffer: stage.shuffle_buffer,
-            steps: stage.steps,
-            loss_weight: stage.loss_weight,
-            learning_rate_scale: stage.learning_rate_scale,
-        };
-        validate_stage(&stage)?;
-        stages.push(stage);
+fn project_wake_workflow(workflow: ResolvedWorkflow) -> Result<ResolvedCurriculum> {
+    let mut stages = Vec::with_capacity(workflow.phases.len());
+    for phase in workflow.phases {
+        if !matches!(
+            phase.kind,
+            PhaseKind::Pretrain | PhaseKind::ContinuedPretrain | PhaseKind::Sft
+        ) {
+            bail!(
+                "workflow phase `{}` ({}) requires a WorkflowV2 phase executor and cannot be run by the wake-only trainer",
+                phase.name,
+                phase.kind.name()
+            );
+        }
+        let task = phase
+            .task
+            .as_ref()
+            .expect("validated task-data phase has a task");
+        let objective = project_task(&phase.name, task)?;
+        let epochs = phase.epochs_or_default();
+        let shuffle_buffer = phase.shuffle_buffer_or_default();
+        let loss_weight = phase.loss_weight_or_default();
+        let learning_rate_scale = phase.learning_rate_scale_or_default();
+        stages.push(ResolvedStage {
+            name: phase.name,
+            phase_kind: phase.kind,
+            data: phase
+                .data
+                .expect("validated task-data phase has a data path"),
+            objective,
+            sequence_length: phase
+                .sequence_length
+                .expect("validated task-data phase has sequence_length"),
+            batch_size: phase
+                .batch_size
+                .expect("validated task-data phase has batch_size"),
+            gradient_accumulation: phase
+                .gradient_accumulation
+                .expect("validated optimization phase has gradient_accumulation"),
+            epochs,
+            shuffle_buffer,
+            steps: phase.steps,
+            loss_weight,
+            learning_rate_scale,
+        });
     }
-
     Ok(ResolvedCurriculum {
-        version: CURRICULUM_VERSION,
+        version: workflow.version,
         stages,
     })
 }
 
+pub(crate) fn load_curriculum(path: &Path) -> Result<ResolvedCurriculum> {
+    project_wake_workflow(load_workflow(path)?)
+}
+
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
 
     #[test]
-    fn curriculum_resolves_paths_and_applies_documented_defaults() {
+    fn workflow_v2_resolves_paths_and_projects_supported_wake_phases() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("curriculum.json");
+        let path = dir.path().join("workflow.json");
         fs::write(
             &path,
             r#"{
-                "version": 1,
-                "stages": [{
+                "version": 2,
+                "phases": [{
                     "name": "summaries",
+                    "type": "sft",
                     "data": "data/summaries.jsonl",
-                    "objective": {"type": "summarization"},
+                    "task": {"type": "summarization"},
                     "sequence_length": 512,
                     "batch_size": 8,
                     "gradient_accumulation": 2,
@@ -285,6 +192,8 @@ mod tests {
 
         let curriculum = load_curriculum(&path).unwrap();
         let stage = &curriculum.stages[0];
+        assert_eq!(curriculum.version, 2);
+        assert_eq!(stage.phase_kind, PhaseKind::Sft);
         assert_eq!(stage.data, dir.path().join("data/summaries.jsonl"));
         assert_eq!(stage.sequence_length, 512);
         assert_eq!(stage.batch_size, 8);
@@ -297,29 +206,73 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_curriculum_version_fails_loudly() {
+    fn curriculum_version_one_has_no_legacy_parser() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("curriculum.json");
-        fs::write(&path, r#"{"version":2,"stages":[]}"#).unwrap();
+        let path = dir.path().join("workflow.json");
+        fs::write(&path, r#"{"version":1,"stages":[]}"#).unwrap();
         let error = load_curriculum(&path).unwrap_err().to_string();
-        assert!(
-            error.contains("unsupported curriculum version 2"),
-            "{error}"
-        );
+        assert!(error.contains("unsupported workflow version 1"), "{error}");
     }
 
     #[test]
-    fn unknown_stage_fields_are_rejected() {
+    fn unsupported_phase_is_never_silently_projected_away() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("curriculum.json");
+        let path = dir.path().join("workflow.json");
         fs::write(
             &path,
             r#"{
-                "version": 1,
-                "stages": [{
+                "version": 2,
+                "phases": [{
+                    "name": "sleep",
+                    "type": "sleep"
+                }]
+            }"#,
+        )
+        .unwrap();
+        let error = load_curriculum(&path).unwrap_err().to_string();
+        assert!(error.contains("sleep"), "{error}");
+        assert!(error.contains("cannot be run"), "{error}");
+    }
+
+    #[test]
+    fn unsupported_task_is_never_coerced_to_a_different_loss() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("workflow.json");
+        fs::write(
+            &path,
+            r#"{
+                "version": 2,
+                "phases": [{
+                    "name": "reasoning",
+                    "type": "sft",
+                    "data": "reasoning.jsonl",
+                    "task": {"type": "qa_reasoning"},
+                    "sequence_length": 512,
+                    "batch_size": 8,
+                    "gradient_accumulation": 2,
+                    "steps": 10
+                }]
+            }"#,
+        )
+        .unwrap();
+        let error = load_curriculum(&path).unwrap_err().to_string();
+        assert!(error.contains("qa_reasoning"), "{error}");
+        assert!(error.contains("not executable"), "{error}");
+    }
+
+    #[test]
+    fn unknown_phase_fields_are_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("workflow.json");
+        fs::write(
+            &path,
+            r#"{
+                "version": 2,
+                "phases": [{
                     "name": "retrieval",
+                    "type": "continued_pretrain",
                     "data": "pairs.jsonl",
-                    "objective": {"type": "contrastive_retrieval"},
+                    "task": {"type": "retrieval_representation"},
                     "sequence_length": 512,
                     "batch_size": 8,
                     "gradient_accumulation": 2,
