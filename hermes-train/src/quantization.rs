@@ -294,6 +294,32 @@ impl WorkflowQuantizationPlan {
         Some(self.recipe.format)
     }
 
+    /// Ensure the concrete optimizer-step interval assigned to this workflow
+    /// phase executes the target codec at least once. Calibration, full-
+    /// precision warm-up, and a different warm-up codec are allowed, but they
+    /// cannot consume the whole phase before an archive for `recipe.format` is
+    /// published.
+    pub fn validate_phase_window(&self, phase_start: u64, phase_steps: u64) -> Result<()> {
+        self.validate()?;
+        ensure!(phase_steps > 0, "quantization phase has no optimizer steps");
+        let phase_end = phase_start
+            .checked_add(phase_steps)
+            .context("quantization phase optimizer window overflows u64")?;
+        let target_start = self
+            .start_step
+            .checked_add(self.warmup_steps)
+            .context("quantization target-format start overflows u64")?;
+        let target_end = self.end_step.unwrap_or(u64::MAX);
+        ensure!(
+            phase_start.max(target_start) < phase_end.min(target_end),
+            "quantization phase optimizer window [{phase_start}, {phase_end}) contains no target-format {:?} step from configured interval [{target_start}, {})",
+            self.recipe.format,
+            self.end_step
+                .map_or_else(|| "unbounded".to_owned(), |end| end.to_string())
+        );
+        Ok(())
+    }
+
     pub fn fingerprint(&self) -> Result<String> {
         self.validate()?;
         Ok(sha256_label(&serde_json::to_vec(self)?))
@@ -2373,6 +2399,35 @@ mod tests {
         assert_eq!(plan.format_at(102), None);
         assert_eq!(plan.format_at(103), Some(UltraQuantFormat::TernaryG128));
         assert_eq!(plan.recipe.fake_quant_start_step, 103);
+    }
+
+    #[test]
+    fn target_format_must_intersect_the_concrete_phase_window() {
+        let config: QuantizationConfig = serde_json::from_value(serde_json::json!({
+            "format": "binary_g128",
+            "warmup_format": "ternary_g128",
+            "start_step": 10,
+            "end_step": 30,
+            "training": {"type": "qat", "warmup_steps": 5}
+        }))
+        .unwrap();
+        let plan = WorkflowQuantizationPlan::from_workflow(&config).unwrap();
+
+        assert!(plan.validate_phase_window(0, 15).is_err());
+        plan.validate_phase_window(0, 16).unwrap();
+        plan.validate_phase_window(29, 1).unwrap();
+        assert!(plan.validate_phase_window(30, 1).is_err());
+
+        let delayed: QuantizationConfig = serde_json::from_value(serde_json::json!({
+            "format": "ternary_g128",
+            "start_step": 100,
+            "training": {"type": "qat", "warmup_steps": 3}
+        }))
+        .unwrap();
+        let delayed = WorkflowQuantizationPlan::from_workflow(&delayed).unwrap();
+        assert!(delayed.validate_phase_window(0, 100).is_err());
+        assert!(delayed.validate_phase_window(100, 3).is_err());
+        delayed.validate_phase_window(100, 4).unwrap();
     }
 
     #[test]

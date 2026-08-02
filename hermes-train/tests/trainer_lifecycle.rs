@@ -5,6 +5,7 @@ use std::process::{Command, Output};
 use burn::tensor::{Int, Tensor};
 use burn_optim::GradientsParams;
 use hermes_llm::{Device, Transformer, parse_mal};
+use hermes_train::metrics::{MetricEvent, MetricRecord, QuantizationStage};
 use hermes_train::native_sleep::{NativeCheckpointRef, NativeSleepCheckpoint};
 use hermes_train::qat_candidate::open_qat_candidate;
 use hermes_train::quantization::{UltraQuantFormat, fake_quantized_transformer};
@@ -504,6 +505,56 @@ fn cli_enforces_memory_and_periodic_runtime_pairing() {
 }
 
 #[test]
+fn qat_cli_rejects_a_phase_that_never_reaches_its_target_format() {
+    let temporary = TempDir::new().unwrap();
+    let (model, tokenizer, data) = write_common_inputs(temporary.path(), ORDINARY_MODEL);
+    let workflow = temporary.path().join("inactive-qat.json");
+    fs::write(
+        &workflow,
+        serde_json::to_vec_pretty(&json!({
+            "version": 2,
+            "phases": [{
+                "name": "inactive-binary-qat",
+                "type": "quantization",
+                "task": {"type": "causal_lm"},
+                "data": data,
+                "sequence_length": 4,
+                "batch_size": 1,
+                "gradient_accumulation": 1,
+                "steps": 2,
+                "quantization": {
+                    "format": "binary_g128",
+                    "group_size": 128,
+                    "start_step": 0,
+                    "training": {
+                        "type": "qat",
+                        "warmup_steps": 2,
+                        "straight_through": true
+                    }
+                }
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let result = run_train(
+        &model,
+        &tokenizer,
+        &workflow,
+        &temporary.path().join("inactive-output"),
+        &[],
+    );
+    assert!(!result.status.success(), "{}", diagnostic(&result));
+    let diagnostic = diagnostic(&result);
+    assert!(
+        diagnostic.contains("never trains its target format")
+            && diagnostic.contains("contains no target-format"),
+        "{diagnostic}"
+    );
+}
+
+#[test]
 fn qat_cli_publishes_a_sealed_candidate_and_resume_authenticates_it() {
     let temporary = TempDir::new().unwrap();
     let (model, tokenizer, data) = write_common_inputs(temporary.path(), ORDINARY_MODEL);
@@ -577,6 +628,19 @@ fn qat_cli_publishes_a_sealed_candidate_and_resume_authenticates_it() {
     assert!(candidate.archive_manifest_path.is_file());
     assert!(candidate.metrics.quantized_tensors > 0);
     assert!(candidate.metrics.quantized_elements > 0);
+    assert!(candidate.metrics.packed_bytes < candidate.metrics.archive_weight_bytes);
+    let export = fs::read_to_string(output.join("metrics.jsonl"))
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<MetricRecord>(line).unwrap())
+        .find_map(|record| match record.event {
+            MetricEvent::Quantization(metric) if metric.stage == QuantizationStage::Export => {
+                Some(metric)
+            }
+            _ => None,
+        })
+        .expect("QAT export metric");
+    assert_eq!(export.packed_bytes, Some(candidate.metrics.packed_bytes));
     let sealed_before = fs::read(&candidate.candidate_manifest_path).unwrap();
 
     let pointer: Value =

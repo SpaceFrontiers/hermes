@@ -544,7 +544,7 @@ fn publish_quantization_phase_candidate(
             tensors_quantized: publication.metrics.quantized_tensors,
             weights_quantized: publication.metrics.quantized_elements,
             average_bits_per_weight: Some(publication.metrics.average_bits_per_weight),
-            packed_bytes: Some(publication.metrics.archive_weight_bytes),
+            packed_bytes: Some(publication.metrics.packed_bytes),
             mean_squared_error: Some(publication.metrics.weighted_mean_squared_error),
             max_absolute_error: Some(publication.metrics.maximum_absolute_error),
             distillation_forward_kl: None,

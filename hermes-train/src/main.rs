@@ -12,7 +12,7 @@ use burn_nn::loss::CrossEntropyLossConfig;
 use burn_optim::{AdamWConfig, GradientsAccumulator, GradientsParams};
 use clap::{Parser, Subcommand, ValueEnum};
 use hermes_llm::{
-    ModelDef, Tokenizer, Transformer, load_safetensors, save_safetensors,
+    BlockDef, ModelDef, Tokenizer, Transformer, load_safetensors, save_safetensors,
     upgrade_safetensors_to_memory,
 };
 use hermes_train::acceptance::{AcceptancePolicy, PromotionReport};
@@ -723,6 +723,20 @@ fn plan_training(
             "workflow phase `{}` produces zero complete optimizer steps",
             phase.name
         );
+        if let Some(quantization) = &phase.quantization {
+            let phase_start = u64::try_from(total_steps)
+                .context("workflow phase start exceeds the quantization clock")?;
+            let phase_steps = u64::try_from(steps)
+                .context("workflow phase length exceeds the quantization clock")?;
+            quantization
+                .validate_phase_window(phase_start, phase_steps)
+                .with_context(|| {
+                    format!(
+                        "workflow quantization phase `{}` never trains its target format",
+                        phase.name
+                    )
+                })?;
+        }
         total_steps = total_steps
             .checked_add(steps)
             .ok_or_else(|| anyhow::anyhow!("workflow optimizer-step count overflows usize"))?;
@@ -1171,6 +1185,29 @@ struct LoadedQuantizationTeacher {
     loss_weight: f64,
 }
 
+fn disable_quantization_teacher_dropout(config: &mut ModelDef) {
+    fn disable_block(block: &mut BlockDef) {
+        block.dropout = 0.0;
+        block.attention.dropout = 0.0;
+        block.ffn.dropout = 0.0;
+        if let Some(memory) = &mut block.memory {
+            for tier in &mut memory.tiers {
+                // A tier's FfnDef owns dropout for both dense and MoE expert
+                // execution; MoeDef has no independent dropout setting.
+                tier.ffn.dropout = 0.0;
+            }
+        }
+    }
+
+    config.embeddings.dropout = 0.0;
+    disable_block(&mut config.block);
+    if let Some(pattern) = &mut config.pattern {
+        for block in pattern {
+            disable_block(block);
+        }
+    }
+}
+
 fn load_quantization_teacher(
     plan: Option<&WorkflowQuantizationPlan>,
     config: &ModelDef,
@@ -1200,17 +1237,7 @@ fn load_quantization_teacher(
         "quantization teacher checkpoint hash mismatch"
     );
     let mut teacher_config = config.clone();
-    teacher_config.embeddings.dropout = 0.0;
-    teacher_config.block.dropout = 0.0;
-    teacher_config.block.attention.dropout = 0.0;
-    teacher_config.block.ffn.dropout = 0.0;
-    if let Some(pattern) = &mut teacher_config.pattern {
-        for block in pattern {
-            block.dropout = 0.0;
-            block.attention.dropout = 0.0;
-            block.ffn.dropout = 0.0;
-        }
-    }
+    disable_quantization_teacher_dropout(&mut teacher_config);
     let mut teacher = Transformer::new(&teacher_config, device)?;
     load_safetensors(&mut teacher, teacher_checkpoint)?;
     Ok(Some(LoadedQuantizationTeacher {
@@ -1643,6 +1670,69 @@ mod tests {
     use hermes_llm::get_builtin_model;
 
     use super::*;
+
+    #[test]
+    fn quantization_teacher_disables_every_dropout_without_mutating_student() {
+        let student = hermes_llm::parse_mal(
+            r#"
+            ffn dense { hidden_dim: 16 activation: swiglu dropout: 0.11 }
+            ffn routed {
+                hidden_dim: 12 activation: swiglu dropout: 0.22
+                moe { experts: 3 top_k: 1 }
+            }
+            memory cms {
+                tier fast {
+                    ffn: routed
+                    reserve_experts { capacity: 1 rank: 2 top_k: 1 }
+                }
+                tier slow {
+                    ffn: dense residual_init: zero
+                    reserve_experts { capacity: 2 rank: 2 top_k: 1 }
+                }
+            }
+            block ordinary {
+                attention: { num_heads: 2 num_kv_heads: 1 head_dim: 4 dropout: 0.33 position_encoding: none }
+                ffn: dense dropout: 0.44
+            }
+            block sleeping {
+                attention: { num_heads: 2 num_kv_heads: 1 head_dim: 4 dropout: 0.55 position_encoding: none }
+                memory: cms dropout: 0.66
+            }
+            model teacher-dropout {
+                vocab_size: 32 max_seq_len: 8 hidden_size: 8 num_layers: 2
+                block: sleeping pattern: [ordinary, sleeping]
+                embeddings { dropout: 0.77 tie_weights: true }
+            }
+            "#,
+        )
+        .unwrap();
+        let mut teacher = student.clone();
+        disable_quantization_teacher_dropout(&mut teacher);
+
+        assert!(student.embeddings.dropout > 0.0);
+        assert!(student.block.dropout > 0.0);
+        assert!(
+            student
+                .block
+                .memory
+                .as_ref()
+                .unwrap()
+                .tiers
+                .iter()
+                .all(|tier| tier.ffn.dropout > 0.0)
+        );
+        assert_eq!(teacher.embeddings.dropout, 0.0);
+        for block in std::iter::once(&teacher.block)
+            .chain(teacher.pattern.as_deref().unwrap_or_default().iter())
+        {
+            assert_eq!(block.dropout, 0.0);
+            assert_eq!(block.attention.dropout, 0.0);
+            assert_eq!(block.ffn.dropout, 0.0);
+            if let Some(memory) = &block.memory {
+                assert!(memory.tiers.iter().all(|tier| tier.ffn.dropout == 0.0));
+            }
+        }
+    }
 
     fn small_hybrid() -> ModelDef {
         let mut config = get_builtin_model("hybrid-tiny").unwrap();
