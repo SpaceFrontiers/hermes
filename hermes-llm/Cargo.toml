@@ -86,5 +86,9 @@ harness = false
 name = "moe_primitives"
 harness = false
 
+[[bench]]
+name = "memory_reserve"
+harness = false
+
 [dev-dependencies]
 tempfile = { workspace = true }
