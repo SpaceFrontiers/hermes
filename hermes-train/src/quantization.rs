@@ -7,7 +7,7 @@
 //! accounting.  It does not claim to reproduce PrismML's undisclosed training
 //! algorithm.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{Cursor, Read, Write};
 use std::path::{Component, Path, PathBuf};
@@ -1602,11 +1602,8 @@ impl QuantizedArchive {
             "unsupported quantization manifest version {}",
             manifest.version
         );
-        ensure!(
-            manifest.base_checkpoint_hash.starts_with("sha256:")
-                && manifest.base_checkpoint_hash.len() == 71,
-            "quantization manifest has an invalid source checkpoint hash"
-        );
+        validate_sha256_label(&manifest.base_checkpoint_hash)
+            .context("quantization manifest has an invalid source checkpoint hash")?;
         ensure!(
             !manifest.matrices.is_empty(),
             "quantization archive contains no quantized matrices"
@@ -1681,14 +1678,111 @@ impl QuantizedArchive {
         Ok(sha256_label(&serde_json::to_vec(&self.manifest)?))
     }
 
+    /// Bind this archive to the complete source checkpoint, rather than only
+    /// trusting the source hash copied into the manifest. Every source tensor
+    /// must appear exactly once in the archive under the recipe-selected
+    /// representation. Quantized members are deterministically regenerated
+    /// and their diagnostics are recomputed; floating members must be exact
+    /// byte copies.
     pub fn verify_source_checkpoint(&self, checkpoint: &Path) -> Result<()> {
-        let bytes = fs::read(checkpoint).with_context(|| {
-            format!("failed to read source checkpoint {}", checkpoint.display())
-        })?;
+        let source = read_regular_file(checkpoint, "source checkpoint")?;
+        self.verify_source_safetensors(&source)
+    }
+
+    fn verify_source_safetensors(&self, source: &[u8]) -> Result<()> {
         ensure!(
-            sha256_label(&bytes) == self.manifest.base_checkpoint_hash,
+            sha256_label(source) == self.manifest.base_checkpoint_hash,
             "quantized archive source checkpoint hash mismatch"
         );
+
+        let tensors = SafeTensors::deserialize(source).context("invalid source safetensors")?;
+        ensure!(
+            !tensors.is_empty(),
+            "source safetensors checkpoint contains no tensors"
+        );
+        let matrices = self
+            .manifest
+            .matrices
+            .iter()
+            .map(|matrix| (matrix.name.as_str(), matrix))
+            .collect::<BTreeMap<_, _>>();
+        let floating = self
+            .manifest
+            .floating_tensors
+            .iter()
+            .map(|tensor| (tensor.name.as_str(), tensor))
+            .collect::<BTreeMap<_, _>>();
+        let archive_names = matrices
+            .keys()
+            .chain(floating.keys())
+            .map(|name| (*name).to_owned())
+            .collect::<BTreeSet<_>>();
+        let source_names = tensors
+            .names()
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<BTreeSet<_>>();
+        ensure!(
+            archive_names == source_names,
+            "quantized archive tensor inventory differs from source checkpoint: expected {source_names:?}, got {archive_names:?}"
+        );
+
+        for (name, tensor) in tensors.iter() {
+            let elements = checked_elements(tensor.shape())?;
+            let elements_u64 =
+                u64::try_from(elements).context("source tensor element count exceeds u64")?;
+            if should_quantize(name, tensor.shape(), tensor.dtype(), &self.manifest.recipe) {
+                let matrix = matrices.get(name).with_context(|| {
+                    format!("source tensor `{name}` must be a quantized matrix under this recipe")
+                })?;
+                ensure!(
+                    matrix.shape == tensor.shape() && matrix.elements == elements_u64,
+                    "quantized matrix `{name}` shape or element count differs from source checkpoint"
+                );
+                let values = tensor_as_f32(tensor.dtype(), tensor.data())?;
+                ensure!(
+                    values.len() == elements,
+                    "source tensor `{name}` data length does not match its shape"
+                );
+                let expected = quantize_tensor(
+                    &values,
+                    tensor.shape().to_vec(),
+                    self.manifest.recipe.format,
+                    self.manifest.recipe.group_size,
+                )?;
+                let actual = self.load_matrix_entry(matrix)?;
+                ensure!(
+                    actual == expected,
+                    "quantized matrix `{name}` does not match deterministic source encoding"
+                );
+                let decoded = actual.decode()?;
+                let (mean_squared_error, maximum_absolute_error) =
+                    quantization_error(&values, &decoded);
+                ensure!(
+                    matrix.mean_squared_error.to_bits() == mean_squared_error.to_bits(),
+                    "quantized matrix `{name}` mean-squared error was not derived from source"
+                );
+                ensure!(
+                    matrix.maximum_absolute_error.to_bits() == maximum_absolute_error.to_bits(),
+                    "quantized matrix `{name}` maximum error was not derived from source"
+                );
+            } else {
+                let archived = floating.get(name).with_context(|| {
+                    format!("source tensor `{name}` must remain floating under this recipe")
+                })?;
+                let dtype = format!("{:?}", tensor.dtype());
+                ensure!(
+                    archived.dtype == dtype
+                        && archived.shape == tensor.shape()
+                        && archived.elements == elements_u64,
+                    "floating tensor `{name}` metadata differs from source checkpoint"
+                );
+                ensure!(
+                    self.load_floating_entry(archived)?.bytes == tensor.data(),
+                    "floating tensor `{name}` bytes differ from source checkpoint"
+                );
+            }
+        }
         Ok(())
     }
 
@@ -1771,8 +1865,7 @@ pub fn export_safetensors_archive(
     recipe: &QuantizationRecipe,
 ) -> Result<QuantizationManifest> {
     recipe.validate()?;
-    let source =
-        fs::read(checkpoint).with_context(|| format!("failed to read {}", checkpoint.display()))?;
+    let source = read_regular_file(checkpoint, "source checkpoint")?;
     let source_hash = sha256_label(&source);
     if output.exists() {
         let archive = QuantizedArchive::open(output).with_context(|| {
@@ -1786,6 +1879,9 @@ pub fn export_safetensors_archive(
                 && archive.manifest.recipe == *recipe,
             "existing quantization output does not match this checkpoint and recipe"
         );
+        archive
+            .verify_source_safetensors(&source)
+            .context("existing quantization output does not reproduce its source checkpoint")?;
         return Ok(archive.manifest.clone());
     }
     let tensors = SafeTensors::deserialize(&source).context("invalid safetensors checkpoint")?;
@@ -1885,6 +1981,9 @@ pub fn export_safetensors_archive(
             published.manifest == manifest,
             "published quantization manifest changed during validation"
         );
+        QuantizedArchive::open(output)?
+            .verify_source_safetensors(&source)
+            .context("published quantization archive does not reproduce its source checkpoint")?;
         Ok(manifest)
     })();
     if export.is_err() && temporary.exists() {
@@ -2106,6 +2205,31 @@ fn tensor_storage_bytes(dtype: &str, elements: usize) -> Result<u64> {
 
 fn sha256_label(bytes: &[u8]) -> String {
     format!("sha256:{:x}", Sha256::digest(bytes))
+}
+
+fn read_regular_file(path: &Path, label: &str) -> Result<Vec<u8>> {
+    let metadata = fs::symlink_metadata(path)
+        .with_context(|| format!("failed to inspect {label} {}", path.display()))?;
+    ensure!(
+        metadata.is_file() && !metadata.file_type().is_symlink(),
+        "{label} must be a regular file: {}",
+        path.display()
+    );
+    fs::read(path).with_context(|| format!("failed to read {label} {}", path.display()))
+}
+
+fn validate_sha256_label(value: &str) -> Result<()> {
+    let digest = value
+        .strip_prefix("sha256:")
+        .context("SHA-256 identity must use sha256:<64 lowercase hex>")?;
+    ensure!(
+        digest.len() == 64
+            && digest
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+        "SHA-256 identity must use sha256:<64 lowercase hex>"
+    );
+    Ok(())
 }
 
 fn write_file_synced(path: &Path, bytes: &[u8]) -> Result<()> {
@@ -2505,6 +2629,165 @@ mod tests {
         };
         let expected = (18.0 * 8.0 + 32.0) / 129.0;
         assert!((manifest.true_average_bits_per_weight().unwrap() - expected).abs() < 1e-12);
+    }
+
+    fn export_source_verification_fixture(
+        directory: &Path,
+        name: &str,
+    ) -> (PathBuf, PathBuf, QuantizationRecipe) {
+        use safetensors::tensor::TensorView;
+
+        let first = (0..137)
+            .map(|index| (index as f32 * 0.1).sin())
+            .collect::<Vec<_>>();
+        let second = (0..256)
+            .map(|index| (index as f32 * 0.07).cos())
+            .collect::<Vec<_>>();
+        let first_bytes = first
+            .iter()
+            .flat_map(|value| value.to_le_bytes())
+            .collect::<Vec<_>>();
+        let second_bytes = second
+            .iter()
+            .flat_map(|value| value.to_le_bytes())
+            .collect::<Vec<_>>();
+        let norm_bytes = [1.0f32, 2.0]
+            .into_iter()
+            .flat_map(f32::to_le_bytes)
+            .collect::<Vec<_>>();
+        let views = vec![
+            (
+                "layers.0.weight",
+                TensorView::new(Dtype::F32, vec![1, 137], &first_bytes).unwrap(),
+            ),
+            (
+                "layers.1.weight",
+                TensorView::new(Dtype::F32, vec![2, 128], &second_bytes).unwrap(),
+            ),
+            (
+                "layers.0.norm",
+                TensorView::new(Dtype::F32, vec![2], &norm_bytes).unwrap(),
+            ),
+        ];
+        let checkpoint = safetensors::serialize(views, None).unwrap();
+        let checkpoint_path = directory.join(format!("{name}.safetensors"));
+        let output = directory.join(format!("{name}.hquant"));
+        fs::write(&checkpoint_path, checkpoint).unwrap();
+        let recipe = QuantizationRecipe {
+            format: UltraQuantFormat::BinaryG128,
+            group_size: BONSAI_GROUP_SIZE,
+            fake_quant_start_step: 0,
+            ternary_warmup_steps: 0,
+            distillation_weight: 1.0,
+            quantize_embeddings: true,
+            quantize_lm_head: true,
+        };
+        export_safetensors_archive(&checkpoint_path, &output, &recipe).unwrap();
+        (checkpoint_path, output, recipe)
+    }
+
+    fn read_archive_manifest(output: &Path) -> QuantizationManifest {
+        serde_json::from_slice(&fs::read(output.join("manifest.json")).unwrap()).unwrap()
+    }
+
+    fn write_archive_manifest(output: &Path, manifest: &QuantizationManifest) {
+        fs::write(
+            output.join("manifest.json"),
+            serde_json::to_vec_pretty(manifest).unwrap(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn existing_archive_retry_rejects_omitted_source_tensor() {
+        let directory = tempfile::tempdir().unwrap();
+        let (checkpoint, output, recipe) =
+            export_source_verification_fixture(directory.path(), "omitted");
+        let mut manifest = read_archive_manifest(&output);
+        let omitted = manifest.matrices.pop().unwrap();
+        fs::remove_file(output.join(omitted.file)).unwrap();
+        write_archive_manifest(&output, &manifest);
+
+        assert!(QuantizedArchive::open(&output).is_ok());
+        let error = export_safetensors_archive(&checkpoint, &output, &recipe).unwrap_err();
+        assert!(
+            format!("{error:#}").contains("tensor inventory differs"),
+            "{error:#}"
+        );
+    }
+
+    #[test]
+    fn existing_archive_retry_rejects_reencoded_matrix() {
+        let directory = tempfile::tempdir().unwrap();
+        let (checkpoint, output, recipe) =
+            export_source_verification_fixture(directory.path(), "forged");
+        let mut manifest = read_archive_manifest(&output);
+        let matrix = &mut manifest.matrices[0];
+        let path = output.join(&matrix.file);
+        let mut packed = PackedTensor::from_bytes(&fs::read(&path).unwrap()).unwrap();
+        packed.codes[0] ^= 1;
+        let bytes = packed.to_bytes().unwrap();
+        fs::write(&path, &bytes).unwrap();
+        matrix.packed_bytes = bytes.len() as u64;
+        matrix.sha256 = sha256_label(&bytes);
+        write_archive_manifest(&output, &manifest);
+
+        assert!(QuantizedArchive::open(&output).is_ok());
+        let error = export_safetensors_archive(&checkpoint, &output, &recipe).unwrap_err();
+        assert!(
+            format!("{error:#}").contains("deterministic source encoding"),
+            "{error:#}"
+        );
+    }
+
+    #[test]
+    fn existing_archive_retry_rejects_forged_error_metrics() {
+        let directory = tempfile::tempdir().unwrap();
+        let (checkpoint, output, recipe) =
+            export_source_verification_fixture(directory.path(), "forged-errors");
+        let mut manifest = read_archive_manifest(&output);
+        manifest.matrices[0].mean_squared_error = 0.0;
+        manifest.matrices[0].maximum_absolute_error = 0.0;
+        write_archive_manifest(&output, &manifest);
+
+        assert!(QuantizedArchive::open(&output).is_ok());
+        let error = export_safetensors_archive(&checkpoint, &output, &recipe).unwrap_err();
+        assert!(
+            format!("{error:#}").contains("error was not derived from source"),
+            "{error:#}"
+        );
+    }
+
+    #[test]
+    fn existing_archive_retry_rejects_wrong_source_name_and_shape() {
+        let directory = tempfile::tempdir().unwrap();
+        let (checkpoint, output, recipe) =
+            export_source_verification_fixture(directory.path(), "wrong-name");
+        let mut manifest = read_archive_manifest(&output);
+        manifest.matrices[0].name = "layers.renamed.weight".to_owned();
+        write_archive_manifest(&output, &manifest);
+        assert!(QuantizedArchive::open(&output).is_ok());
+        assert!(export_safetensors_archive(&checkpoint, &output, &recipe).is_err());
+
+        let (checkpoint, output, recipe) =
+            export_source_verification_fixture(directory.path(), "wrong-shape");
+        let mut manifest = read_archive_manifest(&output);
+        let matrix = &mut manifest.matrices[0];
+        let path = output.join(&matrix.file);
+        let mut packed = PackedTensor::from_bytes(&fs::read(&path).unwrap()).unwrap();
+        packed.shape = vec![packed.elements(), 1];
+        let bytes = packed.to_bytes().unwrap();
+        fs::write(&path, &bytes).unwrap();
+        matrix.shape = packed.shape;
+        matrix.packed_bytes = bytes.len() as u64;
+        matrix.sha256 = sha256_label(&bytes);
+        write_archive_manifest(&output, &manifest);
+        assert!(QuantizedArchive::open(&output).is_ok());
+        let error = export_safetensors_archive(&checkpoint, &output, &recipe).unwrap_err();
+        assert!(
+            format!("{error:#}").contains("shape or element count differs"),
+            "{error:#}"
+        );
     }
 
     #[test]
