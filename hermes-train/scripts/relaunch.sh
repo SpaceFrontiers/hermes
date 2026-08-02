@@ -2663,7 +2663,7 @@ sync_checkpoint_once() (
   exec 9>&-
   [[ -n "$REMOTE" ]] || return 0
 
-  # shellcheck disable=SC2329 # Invoked by the EXIT trap below.
+  # shellcheck disable=SC2317,SC2329 # Invoked by the EXIT trap below (code differs by ShellCheck version).
   sync_cleanup() {
     [[ -z "$pointer_snapshot" ]] || rm -f -- "$pointer_snapshot"
     [[ -z "$metrics_snapshot" ]] || rm -f -- "$metrics_snapshot"
