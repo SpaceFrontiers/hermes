@@ -6,8 +6,9 @@
 //! shared model and everything needed for inference:
 //!
 //! - **Model Architecture Language (MAL)**: Define any transformer architecture using a composable DSL
-//! - **Generation**: Text generation with temperature, top-k sampling
-//! - **Tokenization**: HuggingFace `tokenizer.json` loading
+//! - **Generation**: Cached text generation with temperature, top-k sampling,
+//!   and repetition penalties
+//! - **Tokenization**: Native `hermes-tokenizer` loading of `tokenizer.json`
 //! - **Export**: MAL → JSON model config
 //!
 //! Checkpoints are safetensors written directly from the same
@@ -69,7 +70,8 @@ pub mod trace;
 // Core types
 pub use model::{
     Device, InferenceState, MambaBackend, MemoryRouting, MemorySlotStatus, SelectedLogitProjector,
-    Transformer, default_device, load_safetensors, save_safetensors, upgrade_safetensors_to_memory,
+    Transformer, WakeParameterAccounting, default_device, load_safetensors, save_safetensors,
+    upgrade_safetensors_to_memory,
 };
 
 // Generation

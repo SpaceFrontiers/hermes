@@ -19,7 +19,7 @@ use super::matmul::matmul_input;
 use super::matmul::{
     batched_linear_low_precision, linear_low_precision, prepare_linear_for_inference,
 };
-use super::memory::MemoryRouting;
+use super::memory::{MemoryRouting, dream_extra_indices};
 #[cfg(feature = "cuda")]
 use super::moe_dispatch::{route_combine, route_gather};
 #[cfg(feature = "cuda")]
@@ -27,6 +27,10 @@ use super::moe_route::route_plan;
 use super::moe_topk::top2_indices;
 use super::row_permute::row_permute;
 
+/// MAL-resolved dense or sparse-MoE feed-forward sublayer.
+///
+/// Ordinary persistent MoE routing and its auxiliary losses live here;
+/// sleep-reserve experts are owned separately by [`super::MemoryChain`].
 #[derive(Module, Debug)]
 pub struct FeedForward {
     // Option doesn't add a module-record path, so dense checkpoints keep their
@@ -494,53 +498,55 @@ impl SparseMoe {
             logits.clone().topk_with_indices(self.top_k, 1)
         };
         let expert_count = self.experts.expert_count;
-        let random_expert = routing.random_index(expert_count);
-        let all_weights = match random_expert {
-            Some(expert) => softmax(
+        let extra_indices = dream_extra_indices(routing, top_indices.clone(), expert_count);
+        let has_dream_extra = extra_indices.is_some();
+        let (route_logits, route_indices, route_k) = match extra_indices {
+            Some(extra_indices) => (
                 Tensor::cat(
-                    vec![
-                        top_logits,
-                        logits.clone().slice([0..tokens, expert..expert + 1]),
-                    ],
+                    vec![top_logits, logits.clone().gather(1, extra_indices.clone())],
                     1,
                 ),
-                1,
+                Tensor::cat(vec![top_indices.clone(), extra_indices], 1),
+                self.top_k + 1,
             ),
-            None => softmax(top_logits, 1),
+            None => (top_logits, top_indices.clone(), self.top_k),
         };
-        let top_weights = all_weights.clone().slice([0..tokens, 0..self.top_k]);
+        let route_weights = softmax(route_logits, 1);
         let routes = tokens
-            .checked_mul(self.top_k)
+            .checked_mul(route_k)
             .expect("MoE route count overflow");
+        let ordinary_routes = tokens
+            .checked_mul(self.top_k)
+            .expect("ordinary MoE route count overflow");
         let device = flat.device();
 
         // Grouped GEMMs need host-visible row counts, but the full route plan
         // stays on CUDA. Only `expert_count` integers cross to the host.
         #[cfg(feature = "cuda")]
         let (route_order, inverse_order, mut counts, device_counts) = if is_cuda_device(&device) {
-            let (order, inverse, counts) = route_plan(top_indices.clone(), expert_count);
+            let (order, inverse, counts) = route_plan(route_indices.clone(), expert_count);
             (order, inverse, Vec::new(), Some(counts))
         } else {
             let (order, inverse, counts) =
-                host_route_plan(top_indices.clone(), expert_count, routes, &device);
+                host_route_plan(route_indices.clone(), expert_count, routes, &device);
             (order, inverse, counts, None)
         };
         #[cfg(not(feature = "cuda"))]
         let (route_order, inverse_order, counts) =
-            host_route_plan(top_indices.clone(), expert_count, routes, &device);
+            host_route_plan(route_indices, expert_count, routes, &device);
         #[cfg(feature = "cuda")]
         let routed_input = if is_cuda_device(&device) {
             route_gather(
                 flat.clone(),
                 route_order.clone(),
                 inverse_order.clone(),
-                self.top_k,
+                route_k,
             )
         } else {
             let original_route_input = flat
                 .clone()
                 .unsqueeze_dim::<3>(1)
-                .repeat_dim(1, self.top_k)
+                .repeat_dim(1, route_k)
                 .reshape([routes, hidden]);
             row_permute(
                 original_route_input,
@@ -553,7 +559,7 @@ impl SparseMoe {
             let original_route_input = flat
                 .clone()
                 .unsqueeze_dim::<3>(1)
-                .repeat_dim(1, self.top_k)
+                .repeat_dim(1, route_k)
                 .reshape([routes, hidden]);
             row_permute(
                 original_route_input,
@@ -618,30 +624,24 @@ impl SparseMoe {
         };
         #[cfg(feature = "cuda")]
         let mut output = if is_cuda_device(&device) {
-            route_combine(routed_output, top_weights, inverse_order, self.top_k)
+            route_combine(routed_output, route_weights, inverse_order, route_k)
         } else {
             (row_permute(routed_output, inverse_order, route_order)
-                .reshape([tokens, self.top_k, hidden])
-                * top_weights
+                .reshape([tokens, route_k, hidden])
+                * route_weights
                     .cast(flat.dtype())
-                    .reshape([tokens, self.top_k, 1]))
+                    .reshape([tokens, route_k, 1]))
             .sum_dim(1)
             .reshape([tokens, hidden])
         };
         #[cfg(not(feature = "cuda"))]
         let mut output = (row_permute(routed_output, inverse_order, route_order)
-            .reshape([tokens, self.top_k, hidden])
-            * top_weights
+            .reshape([tokens, route_k, hidden])
+            * route_weights
                 .cast(flat.dtype())
-                .reshape([tokens, self.top_k, 1]))
+                .reshape([tokens, route_k, 1]))
         .sum_dim(1)
         .reshape([tokens, hidden]);
-        if let Some(expert) = random_expert {
-            let weight = all_weights
-                .slice([0..tokens, self.top_k..self.top_k + 1])
-                .cast(flat.dtype());
-            output = output + self.experts.forward_expert(flat.clone(), expert) * weight;
-        }
         for expert in &self.shared_experts {
             output = output + expert.forward(flat.clone());
         }
@@ -658,7 +658,15 @@ impl SparseMoe {
                     .slice([0..tokens, expert_index..expert_index + 1])
                     .mean();
                 #[cfg(feature = "cuda")]
-                let term = if let Some(device_counts) = &device_counts {
+                let term = if has_dream_extra {
+                    probability_fraction
+                        * top_indices
+                            .clone()
+                            .equal_elem(expert_index as i64)
+                            .float()
+                            .sum()
+                            .div_scalar(ordinary_routes as f64)
+                } else if let Some(device_counts) = &device_counts {
                     probability_fraction
                         * device_counts
                             .clone()
@@ -669,8 +677,17 @@ impl SparseMoe {
                     probability_fraction.mul_scalar(counts[expert_index] as f64 / routes as f64)
                 };
                 #[cfg(not(feature = "cuda"))]
-                let term =
-                    probability_fraction.mul_scalar(counts[expert_index] as f64 / routes as f64);
+                let term = if has_dream_extra {
+                    probability_fraction
+                        * top_indices
+                            .clone()
+                            .equal_elem(expert_index as i64)
+                            .float()
+                            .sum()
+                            .div_scalar(ordinary_routes as f64)
+                } else {
+                    probability_fraction.mul_scalar(counts[expert_index] as f64 / routes as f64)
+                };
                 balance = Some(match balance {
                     Some(sum) => sum + term,
                     None => term,
@@ -705,6 +722,22 @@ impl SparseMoe {
         for expert in &mut self.shared_experts {
             expert.zero_output();
         }
+    }
+
+    fn wake_parameter_counts(&self) -> (usize, usize) {
+        let stored = self.num_params();
+        let expert_bank = self.experts.num_params();
+        debug_assert_eq!(expert_bank % self.experts.expert_count, 0);
+        let expert = expert_bank / self.experts.expert_count;
+        let routed = self.router.num_params()
+            + self
+                .shared_experts
+                .iter()
+                .map(Module::num_params)
+                .sum::<usize>()
+            + expert * self.top_k;
+        debug_assert!(routed <= stored);
+        (stored, routed)
     }
 }
 
@@ -787,6 +820,22 @@ impl FeedForward {
 
     pub(crate) fn router_parameter_id(&self) -> Option<ParamId> {
         self.moe.as_ref().map(|moe| moe.router.weight.id)
+    }
+
+    /// Stored and ordinary wake-routed parameter-equivalent for this FFN.
+    ///
+    /// Dense FFNs route every stored parameter. Sparse MoE keeps its complete
+    /// router and shared experts active, but counts only ordinary `top_k`
+    /// experts from the routed bank. Dream-only exploration is intentionally
+    /// excluded.
+    pub(crate) fn wake_parameter_counts(&self) -> (usize, usize) {
+        match &self.moe {
+            Some(moe) => moe.wake_parameter_counts(),
+            None => {
+                let stored = self.num_params();
+                (stored, stored)
+            }
+        }
     }
 
     pub(crate) fn prepare_inference(&mut self) {
@@ -1004,7 +1053,15 @@ mod tests {
     fn random_extra_expert_is_dream_only() {
         let config = crate::mal::parse_mal(
             r#"
-            ffn routed { hidden_dim: 12 moe { experts: 4 top_k: 2 } }
+            ffn routed {
+                hidden_dim: 12
+                moe {
+                    experts: 4
+                    top_k: 2
+                    load_balance_loss_weight: 0.01
+                    router_z_loss_weight: 0.001
+                }
+            }
             model sparse_test {
                 vocab_size: 16 hidden_size: 8 num_layers: 1
                 block: { attention: { num_heads: 1 } ffn: routed }
@@ -1021,11 +1078,25 @@ mod tests {
             .forward_internal_with_routing(input.clone(), false, MemoryRouting::Wake)
             .0;
         let dream = layer
-            .forward_internal_with_routing(input, false, MemoryRouting::Dream { seed: 11 })
+            .forward_internal_with_routing(input.clone(), false, MemoryRouting::Dream { seed: 11 })
             .0;
+        let wake_auxiliary = layer
+            .forward_internal_with_routing(input.clone(), true, MemoryRouting::Wake)
+            .1
+            .unwrap();
+        let dream_auxiliary = layer
+            .forward_internal_with_routing(input, true, MemoryRouting::Dream { seed: 11 })
+            .1
+            .unwrap();
         let wake_difference: f32 = (ordinary - wake.clone()).abs().max().into_scalar();
         let dream_difference: f32 = (dream - wake).abs().max().into_scalar();
+        let auxiliary_difference: f32 =
+            (dream_auxiliary - wake_auxiliary).abs().max().into_scalar();
         assert_eq!(wake_difference, 0.0);
         assert!(dream_difference > 0.0);
+        assert_eq!(
+            auxiliary_difference, 0.0,
+            "dream exploration must not enter ordinary router losses"
+        );
     }
 }

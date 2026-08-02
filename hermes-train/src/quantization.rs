@@ -13,7 +13,12 @@ use std::io::{Cursor, Read, Write};
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result, bail, ensure};
+use burn::module::{Module, ModuleMapper, Param, ParamId};
+#[cfg(test)]
+use burn::tensor::Device;
+use burn::tensor::{IndexingUpdateOp, Int, Tensor, TensorData};
 use half::{bf16, f16};
+use hermes_llm::Transformer;
 use safetensors::{Dtype, SafeTensors};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -105,6 +110,7 @@ pub enum WorkflowQuantizationTraining {
     },
     Distillation {
         teacher_checkpoint: PathBuf,
+        teacher_sha256: String,
         temperature: f64,
         loss_weight: f64,
     },
@@ -150,13 +156,15 @@ impl WorkflowQuantizationPlan {
             }
             QuantizationTraining::Distillation {
                 teacher_checkpoint,
+                teacher_sha256,
                 temperature,
                 loss_weight,
             } => {
-                let teacher_checkpoint = teacher_checkpoint
-                    .clone()
-                    .filter(|path| !path.as_os_str().is_empty())
-                    .context("quantization distillation requires teacher_checkpoint")?;
+                ensure!(
+                    !teacher_checkpoint.as_os_str().is_empty(),
+                    "quantization distillation requires teacher_checkpoint"
+                );
+                validate_sha256_label(teacher_sha256)?;
                 ensure!(
                     temperature.is_finite() && *temperature > 0.0,
                     "quantization distillation temperature must be finite and positive"
@@ -168,7 +176,8 @@ impl WorkflowQuantizationPlan {
                 (
                     0,
                     WorkflowQuantizationTraining::Distillation {
-                        teacher_checkpoint,
+                        teacher_checkpoint: teacher_checkpoint.clone(),
+                        teacher_sha256: teacher_sha256.clone(),
                         temperature: *temperature,
                         loss_weight: *loss_weight,
                     },
@@ -249,6 +258,7 @@ impl WorkflowQuantizationPlan {
             ),
             WorkflowQuantizationTraining::Distillation {
                 teacher_checkpoint,
+                teacher_sha256,
                 temperature,
                 loss_weight,
             } => {
@@ -256,6 +266,7 @@ impl WorkflowQuantizationPlan {
                     !teacher_checkpoint.as_os_str().is_empty(),
                     "quantization teacher checkpoint is empty"
                 );
+                validate_sha256_label(teacher_sha256)?;
                 ensure!(
                     temperature.is_finite() && *temperature > 0.0,
                     "quantization teacher temperature must be finite and positive"
@@ -581,10 +592,10 @@ impl PackedTensor {
         Self::from_bytes(&bytes)
     }
 
-    /// Reference packed matrix-vector kernel used for codec and accelerator
-    /// parity. It reads codes and group scales directly without materializing
-    /// a dequantized matrix; production CUDA/Metal kernels implement the same
-    /// indexing contract inside GEMM.
+    /// Reference packed matrix-vector implementation used for codec and future
+    /// accelerator-kernel parity. It reads codes and group scales directly
+    /// without materializing a dequantized matrix; this host implementation is
+    /// not presented as a production GEMM kernel.
     pub fn matrix_vector(&self, input: &[f32]) -> Result<Vec<f32>> {
         validate_packed(self)?;
         ensure!(
@@ -730,10 +741,165 @@ pub fn quantize_tensor(
     Ok(packed)
 }
 
-/// Quantize and immediately reconstruct values for a fake-quantized forward
-/// pass.  Tensor backends apply an STE around this same deterministic target.
+/// Quantize and immediately reconstruct values with the serialized FP16 group
+/// scales. Tensor backends use the same deterministic code/scale estimator but
+/// retain scales in the training dtype before applying the STE.
 pub fn fake_quantize(values: &[f32], format: UltraQuantFormat) -> Result<Vec<f32>> {
     quantize_tensor(values, vec![values.len()], format, BONSAI_GROUP_SIZE)?.decode()
+}
+
+/// Apply the g128 training target entirely on the active tensor device and
+/// pass gradients through with a straight-through estimator.  This avoids a
+/// device-to-host round trip for every matrix on every microbatch.  Compact
+/// base-3 ternary archives and two-bit ternary execution slots share the same
+/// reconstructed {-scale, 0, +scale} values, so their QAT forwards are
+/// intentionally identical.
+///
+/// The ternary path minimizes squared error independently for every group by
+/// sorting magnitudes, evaluating every non-zero prefix, and scattering the
+/// selected ranks back to their original positions.  It therefore implements
+/// the same pre-serialization L2 target as [`quantize_tensor`], including
+/// partial final groups. HQUANT rounds the resulting scale to FP16 at export.
+pub fn fake_quantize_tensor<const D: usize>(
+    weights: Tensor<D>,
+    format: UltraQuantFormat,
+) -> Tensor<D> {
+    let shape = weights.dims();
+    let elements = shape.iter().product::<usize>();
+    assert!(elements > 0, "cannot fake-quantize an empty tensor");
+    let groups = elements.div_ceil(BONSAI_GROUP_SIZE);
+    let padded_elements = groups * BONSAI_GROUP_SIZE;
+    let device = weights.device();
+    let detached = weights.clone().detach().reshape([elements]);
+    let padded = if padded_elements == elements {
+        detached
+    } else {
+        Tensor::cat(
+            vec![
+                detached,
+                Tensor::zeros([padded_elements - elements], &device),
+            ],
+            0,
+        )
+    };
+    let grouped = padded.reshape([groups, BONSAI_GROUP_SIZE]);
+    let final_group = elements % BONSAI_GROUP_SIZE;
+    let valid_counts = Tensor::from_data(
+        TensorData::new(
+            (0..groups)
+                .map(|group| {
+                    if group + 1 == groups && final_group != 0 {
+                        final_group as f32
+                    } else {
+                        BONSAI_GROUP_SIZE as f32
+                    }
+                })
+                .collect::<Vec<_>>(),
+            [groups, 1],
+        ),
+        &device,
+    );
+    let quantized = match format {
+        UltraQuantFormat::BinaryG128 => {
+            let scale = grouped.clone().abs().sum_dim(1) / valid_counts;
+            let signs = grouped.clone().greater_equal_elem(0.0).float() * 2.0 - 1.0;
+            signs * scale
+        }
+        UltraQuantFormat::TernaryG128 | UltraQuantFormat::TernaryEntropyG128 => {
+            let magnitudes = grouped.clone().abs();
+            let (ranked, original_indices) = magnitudes.sort_descending_with_indices(1);
+            let prefix = ranked.cumsum(1);
+            let total_square = grouped.clone().square().sum_dim(1);
+            let counts = Tensor::from_data(
+                TensorData::new(
+                    (1..=BONSAI_GROUP_SIZE)
+                        .map(|value| value as f32)
+                        .collect::<Vec<_>>(),
+                    [1, BONSAI_GROUP_SIZE],
+                ),
+                &device,
+            );
+            let errors = total_square - prefix.clone().square() / counts.clone();
+            let best_rank = errors.argmin(1);
+            let scale = prefix.gather(1, best_rank.clone()) / (best_rank.clone() + 1).float();
+            let ranks = Tensor::<1, Int>::arange(0..BONSAI_GROUP_SIZE as i64, &device)
+                .reshape([1, BONSAI_GROUP_SIZE]);
+            let ranked_mask = ranks.lower_equal(best_rank).float();
+            let selected = Tensor::zeros([groups, BONSAI_GROUP_SIZE], &device).scatter(
+                1,
+                original_indices,
+                ranked_mask,
+                IndexingUpdateOp::Add,
+            );
+            grouped.sign() * selected * scale
+        }
+    };
+    let reconstructed = quantized
+        .reshape([padded_elements])
+        .slice(0..elements)
+        .reshape(shape);
+    // q is detached by construction. Writing the expression in this form
+    // makes the forward exactly q and the derivative with respect to the
+    // full-precision master exactly one.
+    weights.clone() + (reconstructed - weights).detach()
+}
+
+struct FakeQuantTransformerMapper<'a> {
+    selected: &'a [ParamId],
+    format: UltraQuantFormat,
+    mapped: usize,
+}
+
+impl ModuleMapper for FakeQuantTransformerMapper<'_> {
+    fn map_float<const D: usize>(&mut self, parameter: Param<Tensor<D>>) -> Param<Tensor<D>> {
+        let (id, tensor, mapper) = parameter.consume();
+        let tensor = if D >= 2 && self.selected.contains(&id) {
+            self.mapped += 1;
+            // `fake_quantize_tensor` expresses the STE against its source
+            // leaf. Once that expression is installed as a Param, Burn's
+            // optimizer visitor asks the *mapped output* for its gradient;
+            // non-leaf outputs do not retain one. The temporary forward model
+            // is already an optimizer proxy for the full-precision master, so
+            // make the reconstructed value a fresh leaf with the same ParamId.
+            // Its direct gradient is exactly the STE gradient applied to the
+            // master by the trainer.
+            let requires_grad = tensor.is_require_grad();
+            fake_quantize_tensor(tensor, self.format)
+                .detach()
+                .set_require_grad(requires_grad)
+        } else {
+            tensor
+        };
+        Param::from_mapped_value(id, tensor, mapper)
+    }
+}
+
+/// Clone a Transformer with selected stored weights replaced by on-device STE
+/// fake-quantized values. Parameter IDs are retained, so gradients produced by
+/// this forward clone apply directly to the authoritative full-precision
+/// master model and its existing optimizer state.
+pub fn fake_quantized_transformer(
+    master: &Transformer,
+    format: UltraQuantFormat,
+    quantize_embeddings: bool,
+    quantize_lm_head: bool,
+) -> Result<(Transformer, usize)> {
+    let selected = master
+        .ultra_quant_parameter_ids(quantize_embeddings, quantize_lm_head)
+        .context("resolve Transformer QAT parameter policy")?;
+    let mut mapper = FakeQuantTransformerMapper {
+        selected: &selected,
+        format,
+        mapped: 0,
+    };
+    let staged = master.clone().map(&mut mapper);
+    ensure!(
+        mapper.mapped == selected.len(),
+        "QAT selected {} parameter tensors but mapped {}",
+        selected.len(),
+        mapper.mapped
+    );
+    Ok((staged, mapper.mapped))
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1022,10 +1188,8 @@ impl QuantizationTransactionState {
         plan.validate()?;
         let plan_fingerprint = plan.fingerprint()?;
         let pre_update_master_hash = backend.master_weights_hash()?;
-        ensure!(
-            !pre_update_master_hash.trim().is_empty(),
-            "quantization backend returned an empty master hash"
-        );
+        validate_sha256_label(&pre_update_master_hash)
+            .context("quantization backend returned an invalid master hash")?;
         let transaction_id =
             transaction_id(&plan_fingerprint, optimizer_step, &pre_update_master_hash);
         let state = Self {
@@ -1062,10 +1226,12 @@ impl QuantizationTransactionState {
             self.format == plan.format_at(self.optimizer_step),
             "quantization transaction forward format does not match its plan"
         );
-        ensure!(
-            !self.pre_update_master_hash.trim().is_empty(),
-            "quantization transaction pre-update hash is empty"
-        );
+        validate_sha256_label(&self.transaction_id)
+            .context("quantization transaction id is not content-addressed")?;
+        validate_sha256_label(&self.plan_fingerprint)
+            .context("quantization plan fingerprint is not content-addressed")?;
+        validate_sha256_label(&self.pre_update_master_hash)
+            .context("quantization pre-update master hash is not content-addressed")?;
         ensure!(
             self.transaction_id
                 == transaction_id(
@@ -1126,10 +1292,8 @@ impl QuantizationTransactionState {
             "quantization transaction post-update hash invariant failed"
         );
         if let Some(hash) = &self.post_update_master_hash {
-            ensure!(
-                !hash.trim().is_empty(),
-                "quantization post-update hash is empty"
-            );
+            validate_sha256_label(hash)
+                .context("quantization post-update master hash is not content-addressed")?;
         }
         ensure!(
             (self.substep == QuantizationSubstep::Aborted) == self.failure.is_some(),
@@ -1434,9 +1598,9 @@ fn validate_packed(packed: &PackedTensor) -> Result<()> {
     ensure!(
         packed.scales.iter().all(|bits| {
             let scale = f16::from_bits(*bits).to_f32();
-            scale.is_finite() && scale >= 0.0
+            scale.is_finite() && scale >= 0.0 && !scale.is_sign_negative()
         }),
-        "packed tensor contains an invalid scale"
+        "packed tensor contains an invalid or non-canonical scale"
     );
     match packed.format {
         UltraQuantFormat::TernaryG128 => ensure!(
@@ -1451,6 +1615,53 @@ fn validate_packed(packed: &PackedTensor) -> Result<()> {
             "packed tensor contains an invalid base-3 byte"
         ),
         UltraQuantFormat::BinaryG128 => {}
+    }
+    validate_zero_padding(packed, elements)?;
+    Ok(())
+}
+
+/// HQUANT permits a partial final g128 group, unlike GGML's fixed-size block
+/// contract. Keep every unused code bit/trit canonical so equivalent payloads
+/// cannot acquire different content identities and future block kernels never
+/// observe attacker-controlled padding lanes.
+fn validate_zero_padding(packed: &PackedTensor, elements: usize) -> Result<()> {
+    let groups = elements.div_ceil(packed.group_size);
+    let valid_in_last = elements - (groups - 1) * packed.group_size;
+    let slots_per_byte = match packed.format {
+        UltraQuantFormat::BinaryG128 => 8,
+        UltraQuantFormat::TernaryG128 => 4,
+        UltraQuantFormat::TernaryEntropyG128 => 5,
+    };
+    let bytes_per_group = packed.codes.len() / groups;
+    let encoded_slots = bytes_per_group * slots_per_byte;
+    let last_group_start = (groups - 1) * bytes_per_group;
+
+    for slot in valid_in_last..encoded_slots {
+        let byte = packed.codes[last_group_start + slot / slots_per_byte];
+        let code = match packed.format {
+            UltraQuantFormat::BinaryG128 => (byte >> (slot % 8)) & 1,
+            UltraQuantFormat::TernaryG128 => (byte >> ((slot % 4) * 2)) & 3,
+            UltraQuantFormat::TernaryEntropyG128 => {
+                let divisor = 3_u16.pow((slot % 5) as u32);
+                ((u16::from(byte) / divisor) % 3) as u8
+            }
+        };
+        ensure!(
+            code == 0,
+            "packed tensor contains non-canonical final-group padding"
+        );
+    }
+
+    // Base-3 packing has 130 physical slots for every full 128-value group.
+    // Its two high padding trits are canonical zero in each preceding group.
+    if packed.format == UltraQuantFormat::TernaryEntropyG128 {
+        for group in 0..groups.saturating_sub(1) {
+            let last_byte = packed.codes[group * bytes_per_group + bytes_per_group - 1];
+            ensure!(
+                last_byte < 27,
+                "packed tensor contains non-canonical base-3 group padding"
+            );
+        }
     }
     Ok(())
 }
@@ -1545,7 +1756,7 @@ impl QuantizationManifest {
     }
 }
 
-/// Validated standalone ultra-low-bit archive. `open` verifies every member,
+/// Validated ultra-low-bit weight archive. `open` verifies every member,
 /// not only the manifest, before exposing any tensor to a model backend.
 #[derive(Clone, Debug)]
 pub struct QuantizedArchive {
@@ -1614,6 +1825,11 @@ impl QuantizedArchive {
         for matrix in &manifest.matrices {
             validate_member_identity(&matrix.name, &matrix.file, &mut names, &mut files)?;
             ensure!(
+                matrix.shape.len() >= 2,
+                "quantized matrix `{}` must have rank at least two",
+                matrix.name
+            );
+            ensure!(
                 matrix.elements
                     == u64::try_from(checked_elements(&matrix.shape)?)
                         .context("matrix element count exceeds u64")?,
@@ -1661,6 +1877,7 @@ impl QuantizedArchive {
             let path = checked_archive_member(root, &tensor.file)?;
             read_verified_member(&path, tensor.bytes, &tensor.sha256)?;
         }
+        validate_archive_inventory(root, &files)?;
 
         Ok(Self {
             root: root.to_path_buf(),
@@ -1854,7 +2071,7 @@ impl QuantizedArchive {
     }
 }
 
-/// Export a complete, standalone archive from a safetensors checkpoint. Every
+/// Export a complete weight archive from a safetensors checkpoint. Every
 /// matrix selected by the recipe is encoded as HQUANT; norms, scalar state,
 /// unsupported dtypes, and explicit opt-outs are preserved byte-for-byte.
 /// Publication is one directory rename, so readers never observe a partial
@@ -1973,13 +2190,13 @@ pub fn export_safetensors_archive(
         fs::rename(&temporary, output)
             .with_context(|| format!("failed to publish {}", output.display()))?;
         fs::File::open(parent)?.sync_all()?;
-        // Validate bytes from their final paths before reporting publication.
-        // If storage or a concurrent writer changed a member, callers fail
-        // closed and never receive an unchecked artifact.
-        let published = QuantizedArchive::open(output)?;
+        // Verify the exact manifest bytes, then validate every referenced file
+        // from its final path before reporting publication. Comparing parsed
+        // structs is incorrect here because serde_json may round diagnostic
+        // floating-point values to a neighboring representation.
         ensure!(
-            published.manifest == manifest,
-            "published quantization manifest changed during validation"
+            fs::read(output.join("manifest.json"))? == manifest_bytes,
+            "published quantization manifest bytes changed during validation"
         );
         QuantizedArchive::open(output)?
             .verify_source_safetensors(&source)
@@ -2153,6 +2370,57 @@ fn checked_archive_member(root: &Path, relative: &str) -> Result<PathBuf> {
     Ok(current)
 }
 
+/// Reject files which are not authenticated by the manifest. Without this
+/// closed inventory, two directory trees with the same reported content hash
+/// could carry different unverified payloads, and an unnoticed temporary file
+/// could later be mistaken for part of the immutable archive.
+fn validate_archive_inventory(root: &Path, members: &BTreeSet<String>) -> Result<()> {
+    fn visit(root: &Path, directory: &Path, files: &mut BTreeSet<String>) -> Result<()> {
+        let mut entries = fs::read_dir(directory)
+            .with_context(|| format!("failed to read archive directory {}", directory.display()))?
+            .collect::<std::io::Result<Vec<_>>>()?;
+        entries.sort_by_key(std::fs::DirEntry::file_name);
+        for entry in entries {
+            let path = entry.path();
+            let metadata = fs::symlink_metadata(&path)?;
+            ensure!(
+                !metadata.file_type().is_symlink(),
+                "quantized archive contains a symlink: {}",
+                path.display()
+            );
+            if metadata.is_dir() {
+                visit(root, &path, files)?;
+                continue;
+            }
+            ensure!(
+                metadata.is_file(),
+                "quantized archive contains a non-file member: {}",
+                path.display()
+            );
+            let relative = path
+                .strip_prefix(root)?
+                .to_str()
+                .context("quantized archive member path is not UTF-8")?
+                .replace(std::path::MAIN_SEPARATOR, "/");
+            ensure!(
+                files.insert(relative.clone()),
+                "quantized archive repeats member path `{relative}`"
+            );
+        }
+        Ok(())
+    }
+
+    let mut expected = members.clone();
+    expected.insert("manifest.json".to_owned());
+    let mut actual = BTreeSet::new();
+    visit(root, root, &mut actual)?;
+    ensure!(
+        actual == expected,
+        "quantized archive file inventory differs from its manifest: expected {expected:?}, got {actual:?}"
+    );
+    Ok(())
+}
+
 fn read_verified_member(
     path: &Path,
     declared_bytes: u64,
@@ -2323,6 +2591,132 @@ mod tests {
     }
 
     #[test]
+    fn device_fake_quant_matches_archive_targets_and_uses_ste() {
+        let device = Device::default().autodiff();
+        let values = (0..259)
+            .map(|index| ((index as f32 * 0.173).sin() * 1.7) + (index % 11) as f32 * 0.003)
+            .collect::<Vec<_>>();
+        for format in [
+            UltraQuantFormat::BinaryG128,
+            UltraQuantFormat::TernaryG128,
+            UltraQuantFormat::TernaryEntropyG128,
+        ] {
+            let source =
+                Tensor::<1>::from_data(TensorData::new(values.clone(), [values.len()]), &device)
+                    .require_grad();
+            let output = fake_quantize_tensor(source.clone(), format);
+            let actual = output
+                .clone()
+                .into_data()
+                .convert::<f32>()
+                .to_vec::<f32>()
+                .unwrap();
+            let expected = fake_quantize(&values, format).unwrap();
+            let maximum_error = actual
+                .iter()
+                .zip(&expected)
+                .map(|(left, right)| (left - right).abs())
+                .fold(0.0f32, f32::max);
+            // Archive serialization rounds each group scale to FP16; the QAT
+            // path deliberately keeps that scale in the training dtype.
+            assert!(maximum_error < 2e-3, "{format:?}: {maximum_error}");
+
+            let mut gradients = output.sum().backward();
+            let gradient = source.grad_remove(&mut gradients).unwrap();
+            let gradient = gradient
+                .into_data()
+                .convert::<f32>()
+                .to_vec::<f32>()
+                .unwrap();
+            assert!(gradient.iter().all(|value| (*value - 1.0).abs() < 1e-6));
+        }
+    }
+
+    #[test]
+    fn transformer_qat_clone_keeps_parameter_ids_and_backpropagates() {
+        let device = Device::default().autodiff();
+        let mut config = hermes_llm::get_builtin_model("hybrid-tiny").unwrap();
+        config.vocab_size = 32;
+        config.hidden_size = 8;
+        config.num_layers = 2;
+        config.max_seq_len = 8;
+        config.embeddings.tie_weights = false;
+        if let Some(pattern) = &mut config.pattern {
+            for block in pattern {
+                block.attention.num_heads = Some(2);
+                block.attention.num_kv_heads = Some(1);
+                block.attention.head_dim = Some(4);
+                block.ffn.hidden_dim = Some(16);
+                block.dropout = 0.0;
+                block.attention.dropout = 0.0;
+                block.ffn.dropout = 0.0;
+            }
+        }
+        let master = Transformer::new(&config, &device).unwrap();
+        let before = burn::module::list_param_ids(&master);
+        let (staged, tensors) =
+            fake_quantized_transformer(&master, UltraQuantFormat::BinaryG128, true, true).unwrap();
+        assert!(tensors > 0);
+        assert_eq!(burn::module::list_param_ids(&staged), before);
+
+        let input = Tensor::<2, Int>::from_data([[1, 2, 3, 4]], &device);
+        let target = Tensor::<2, Int>::from_data([[2, 3, 4, 5]], &device);
+        let mut gradients = staged.forward_loss(input, target).backward();
+        let gradients = burn_optim::GradientsParams::from_module(&mut gradients, &staged);
+        assert!(!gradients.is_empty());
+        let missing_muon = master
+            .muon_parameter_ids()
+            .into_iter()
+            .filter(|id| gradients.get::<2>(*id).is_none())
+            .collect::<Vec<_>>();
+        assert!(
+            missing_muon.is_empty(),
+            "fake-quantized forward omitted Muon gradients: {missing_muon:?}"
+        );
+    }
+
+    #[test]
+    fn transformer_qat_and_archive_select_the_same_matrix_set() {
+        use burn::module::AutodiffModule;
+
+        let device = Device::default().autodiff();
+        let mut config = hermes_llm::get_builtin_model("hybrid-tiny").unwrap();
+        config.vocab_size = 32;
+        config.hidden_size = 8;
+        config.num_layers = 2;
+        config.max_seq_len = 8;
+        config.embeddings.tie_weights = false;
+        if let Some(pattern) = &mut config.pattern {
+            for block in pattern {
+                block.attention.num_heads = Some(2);
+                block.attention.num_kv_heads = Some(1);
+                block.attention.head_dim = Some(4);
+                block.ffn.hidden_dim = Some(16);
+                block.dropout = 0.0;
+                block.attention.dropout = 0.0;
+                block.ffn.dropout = 0.0;
+            }
+        }
+        let model = Transformer::new(&config, &device).unwrap();
+        let selected = model.ultra_quant_parameter_ids(true, true).unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let checkpoint = directory.path().join("weights.safetensors");
+        hermes_llm::save_safetensors(&model.valid(), &checkpoint).unwrap();
+        let output = directory.path().join("weights.hquant");
+        let recipe = QuantizationRecipe {
+            format: UltraQuantFormat::BinaryG128,
+            group_size: BONSAI_GROUP_SIZE,
+            fake_quant_start_step: 0,
+            ternary_warmup_steps: 0,
+            distillation_weight: 0.0,
+            quantize_embeddings: true,
+            quantize_lm_head: true,
+        };
+        let manifest = export_safetensors_archive(&checkpoint, &output, &recipe).unwrap();
+        assert_eq!(manifest.matrices.len(), selected.len());
+    }
+
+    #[test]
     fn binary_g128_has_prism_public_storage_rate_and_roundtrips() {
         let packed = quantize_tensor(
             &weights(),
@@ -2425,6 +2819,36 @@ mod tests {
         let mut corrupt = bytes;
         corrupt[20] ^= 1;
         assert!(PackedTensor::from_bytes(&corrupt).is_err());
+    }
+
+    #[test]
+    fn codec_rejects_non_canonical_scales_and_padding() {
+        let values = (0..137)
+            .map(|index| index as f32 - 70.0)
+            .collect::<Vec<_>>();
+        for format in [
+            UltraQuantFormat::BinaryG128,
+            UltraQuantFormat::TernaryG128,
+            UltraQuantFormat::TernaryEntropyG128,
+        ] {
+            let packed = quantize_tensor(&values, vec![137], format, BONSAI_GROUP_SIZE).unwrap();
+
+            let mut negative_zero = packed.clone();
+            negative_zero.scales[0] = f16::from_f32(-0.0).to_bits();
+            assert!(negative_zero.to_bytes().is_err(), "{format:?}");
+
+            let mut padded = packed;
+            let bytes_per_group = padded.codes.len() / padded.scales.len();
+            let final_group = bytes_per_group;
+            match format {
+                UltraQuantFormat::BinaryG128 => padded.codes[final_group + 1] |= 1 << 7,
+                UltraQuantFormat::TernaryG128 => padded.codes[final_group + 2] |= 1 << 2,
+                UltraQuantFormat::TernaryEntropyG128 => {
+                    padded.codes[final_group + 1] += 3u8.pow(4);
+                }
+            }
+            assert!(padded.to_bytes().is_err(), "{format:?}");
+        }
     }
 
     #[test]
@@ -2564,6 +2988,7 @@ mod tests {
             "training": {
                 "type": "distillation",
                 "teacher_checkpoint": "/checkpoints/teacher.safetensors",
+                "teacher_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
                 "temperature": 2.5,
                 "loss_weight": 0.75
             }
@@ -2578,6 +3003,7 @@ mod tests {
         );
         let WorkflowQuantizationTraining::Distillation {
             teacher_checkpoint,
+            teacher_sha256,
             temperature,
             loss_weight,
         } = plan.training
@@ -2587,6 +3013,10 @@ mod tests {
         assert_eq!(
             teacher_checkpoint,
             Path::new("/checkpoints/teacher.safetensors")
+        );
+        assert_eq!(
+            teacher_sha256,
+            "sha256:0000000000000000000000000000000000000000000000000000000000000000"
         );
         assert_eq!(temperature, 2.5);
         assert_eq!(loss_weight, 0.75);
@@ -2875,6 +3305,12 @@ mod tests {
 
         let archive = QuantizedArchive::open(&output).unwrap();
         archive.verify_source_checkpoint(&checkpoint_path).unwrap();
+        #[cfg(unix)]
+        {
+            let checkpoint_link = directory.path().join("weights-link.safetensors");
+            std::os::unix::fs::symlink(&checkpoint_path, &checkpoint_link).unwrap();
+            assert!(archive.verify_source_checkpoint(&checkpoint_link).is_err());
+        }
         let other_checkpoint = directory.path().join("other.safetensors");
         fs::write(&other_checkpoint, b"different checkpoint").unwrap();
         assert!(archive.verify_source_checkpoint(&other_checkpoint).is_err());
@@ -2916,6 +3352,11 @@ mod tests {
         .unwrap();
         assert!(QuantizedArchive::open(&output).is_err());
         fs::write(&manifest_path, manifest_bytes).unwrap();
+
+        let unexpected = output.join("unverified-payload.bin");
+        fs::write(&unexpected, b"not in manifest").unwrap();
+        assert!(QuantizedArchive::open(&output).is_err());
+        fs::remove_file(unexpected).unwrap();
 
         let norm_manifest = manifest
             .floating_tensors
@@ -2982,7 +3423,7 @@ mod tests {
 
     impl DurableQuantizationBackend for MockDurableQat {
         fn master_weights_hash(&mut self) -> Result<String> {
-            Ok(format!("master:{}", self.master))
+            Ok(sha256_label(&self.master.to_le_bytes()))
         }
 
         fn stage_fake_quantized_forward_once(
@@ -3167,6 +3608,11 @@ mod tests {
         let mut document: serde_json::Value =
             serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
         document["transaction_id"] = serde_json::json!("tampered");
+        fs::write(&path, serde_json::to_vec_pretty(&document).unwrap()).unwrap();
+        assert!(store.load(&plan).is_err());
+
+        document = serde_json::to_value(&state).unwrap();
+        document["pre_update_master_hash"] = serde_json::json!("master:0");
         fs::write(&path, serde_json::to_vec_pretty(&document).unwrap()).unwrap();
         assert!(store.load(&plan).is_err());
     }

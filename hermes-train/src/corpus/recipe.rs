@@ -32,8 +32,9 @@ impl SearchApiPostgresCorpusRecipe {
     }
 
     /// Execute with live HTTP and PostgreSQL adapters. `work_directory` holds
-    /// the restart/audit deduplication catalog and must be on local storage;
-    /// it is not copied into the immutable output or manifest.
+    /// the transactional discovery/deduplication catalog and authoritative
+    /// resume cursor; it must be durable local storage and is not copied into
+    /// the immutable output or manifest.
     pub fn run(
         self,
         tokenizer: &dyn CorpusTokenizer,

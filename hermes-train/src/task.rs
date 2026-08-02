@@ -94,12 +94,68 @@ pub struct TaskContract {
     pub metrics: &'static [TaskMetric],
 }
 
+/// Backend-neutral example produced from one validated task record. Executors
+/// tokenize these strings and apply the accompanying [`LossSpec`] instead of
+/// hard-coding storage-field names in trainer core.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum TaskExample {
+    Autoregressive {
+        text: String,
+    },
+    SupervisedGeneration {
+        prompt: String,
+        target: String,
+    },
+    RetrievalRepresentation {
+        query: String,
+        documents: Vec<String>,
+        positive_index: usize,
+    },
+    RetrievalRanking {
+        query: String,
+        documents: Vec<String>,
+        relevance: Vec<f64>,
+    },
+    PairwisePreference {
+        prompt: String,
+        chosen: String,
+        rejected: String,
+    },
+    VerifiableRollout {
+        prompt: String,
+        verifier_payload: serde_json::Value,
+        reference_answer: Option<String>,
+    },
+}
+
+/// Optimization signal requested by a task. Algorithm variants (DPO vs IPO,
+/// GRPO vs PPO, forward vs reverse distillation) remain phase parameters.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum LossSpec {
+    TokenCrossEntropy { mask: LossMaskPolicy },
+    ContrastiveRepresentation { temperature: f64 },
+    ListwiseRanking { temperature: f64 },
+    PairwisePreference,
+    PolicyGradient,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum RewardSpec {
+    Verifier { verifier: VerifierSpec },
+}
+
 /// Common interface implemented by all built-in and future task packages.
 pub trait TaskAdapter {
     fn name(&self) -> &'static str;
     fn contract(&self) -> TaskContract;
     fn validate(&self) -> Result<()>;
     fn validate_record(&self, record: &serde_json::Value) -> Result<()>;
+    fn construct_example(&self, record: &serde_json::Value) -> Result<TaskExample>;
+    fn loss_spec(&self) -> LossSpec;
+    fn reward_spec(&self) -> Option<RewardSpec>;
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -319,31 +375,182 @@ impl TaskAdapter for TaskConfig {
     }
 
     fn validate_record(&self, record: &serde_json::Value) -> Result<()> {
+        self.construct_example(record).map(|_| ())
+    }
+
+    fn construct_example(&self, record: &serde_json::Value) -> Result<TaskExample> {
         self.validate()?;
-        let result = match self {
-            Self::CausalLm {} => parse_record::<CausalLmRecord>(record)?.validate(),
-            Self::Summarization { .. } => parse_record::<SummarizationRecord>(record)?.validate(),
-            Self::RetrievalRepresentation { .. } => {
-                parse_record::<RetrievalRepresentationRecord>(record)?.validate()
+        let example = (|| match self {
+            Self::CausalLm {} => {
+                let record = parse_record::<CausalLmRecord>(record)?;
+                record.validate()?;
+                Ok(TaskExample::Autoregressive { text: record.text })
             }
-            Self::RetrievalRanking { .. } => {
-                parse_record::<RetrievalRankingRecord>(record)?.validate()
+            Self::Summarization { instruction } => {
+                let record = parse_record::<SummarizationRecord>(record)?;
+                record.validate()?;
+                Ok(TaskExample::SupervisedGeneration {
+                    prompt: format!(
+                        "{instruction}\n\nDocument:\n{}\n\nSummary:\n",
+                        record.document
+                    ),
+                    target: record.summary,
+                })
             }
-            Self::RetrievalPlanning { .. } => {
-                parse_record::<RetrievalPlanningRecord>(record)?.validate()
+            Self::RetrievalRepresentation {
+                query_prefix,
+                document_prefix,
+                ..
+            } => {
+                let record = parse_record::<RetrievalRepresentationRecord>(record)?;
+                record.validate()?;
+                let mut documents = Vec::with_capacity(record.negatives.len() + 1);
+                documents.push(format!("{document_prefix}{}", record.positive));
+                documents.extend(
+                    record
+                        .negatives
+                        .into_iter()
+                        .map(|document| format!("{document_prefix}{document}")),
+                );
+                Ok(TaskExample::RetrievalRepresentation {
+                    query: format!("{query_prefix}{}", record.query),
+                    documents,
+                    positive_index: 0,
+                })
             }
-            Self::InstructionTuning { .. } => {
-                parse_record::<InstructionTuningRecord>(record)?.validate()
+            Self::RetrievalRanking {
+                query_prefix,
+                document_prefix,
+                ..
+            } => {
+                let record = parse_record::<RetrievalRankingRecord>(record)?;
+                record.validate()?;
+                Ok(TaskExample::RetrievalRanking {
+                    query: format!("{query_prefix}{}", record.query),
+                    documents: record
+                        .documents
+                        .iter()
+                        .map(|document| format!("{document_prefix}{}", document.document))
+                        .collect(),
+                    relevance: record
+                        .documents
+                        .into_iter()
+                        .map(|document| document.relevance)
+                        .collect(),
+                })
+            }
+            Self::RetrievalPlanning { instruction } => {
+                let record = parse_record::<RetrievalPlanningRecord>(record)?;
+                record.validate()?;
+                let prompt = match record.context {
+                    Some(context) => format!(
+                        "{instruction}\n\nRequest:\n{}\n\nContext:\n{context}\nPlan:\n",
+                        record.request
+                    ),
+                    None => format!("{instruction}\n\nRequest:\n{}\nPlan:\n", record.request),
+                };
+                Ok(TaskExample::SupervisedGeneration {
+                    prompt,
+                    target: record.plan,
+                })
+            }
+            Self::InstructionTuning { instruction } => {
+                let record = parse_record::<InstructionTuningRecord>(record)?;
+                record.validate()?;
+                let mut prompt = String::new();
+                if let Some(system) = record.system {
+                    prompt.push_str("System:\n");
+                    prompt.push_str(&system);
+                    prompt.push_str("\n\n");
+                }
+                prompt.push_str(instruction);
+                prompt.push_str("\n\nInstruction:\n");
+                prompt.push_str(&record.instruction);
+                if let Some(input) = record.input {
+                    prompt.push_str("\n\nInput:\n");
+                    prompt.push_str(&input);
+                }
+                prompt.push_str("\n\nResponse:\n");
+                Ok(TaskExample::SupervisedGeneration {
+                    prompt,
+                    target: record.response,
+                })
             }
             Self::QaReasoning {
-                require_reasoning, ..
-            } => parse_record::<QaReasoningRecord>(record)?.validate(*require_reasoning),
-            Self::PairwisePreference {} => {
-                parse_record::<PairwisePreferenceRecord>(record)?.validate()
+                instruction,
+                require_reasoning,
+            } => {
+                let record = parse_record::<QaReasoningRecord>(record)?;
+                record.validate(*require_reasoning)?;
+                let target = match record.reasoning {
+                    Some(reasoning) => {
+                        format!("Reasoning:\n{reasoning}\n\nAnswer:\n{}", record.answer)
+                    }
+                    None => record.answer,
+                };
+                Ok(TaskExample::SupervisedGeneration {
+                    prompt: format!(
+                        "{instruction}\n\nQuestion:\n{}\n\nResponse:\n",
+                        record.question
+                    ),
+                    target,
+                })
             }
-            Self::VerifiableRl { .. } => parse_record::<VerifiableRlRecord>(record)?.validate(),
-        };
-        result.map_err(|error| anyhow::anyhow!("invalid {} task record: {error:#}", self.name()))
+            Self::PairwisePreference {} => {
+                let record = parse_record::<PairwisePreferenceRecord>(record)?;
+                record.validate()?;
+                Ok(TaskExample::PairwisePreference {
+                    prompt: record.prompt,
+                    chosen: record.chosen,
+                    rejected: record.rejected,
+                })
+            }
+            Self::VerifiableRl { .. } => {
+                let record = parse_record::<VerifiableRlRecord>(record)?;
+                record.validate()?;
+                Ok(TaskExample::VerifiableRollout {
+                    prompt: record.prompt,
+                    verifier_payload: record.verifier_payload,
+                    reference_answer: record.reference_answer,
+                })
+            }
+        })();
+        example.map_err(|error: anyhow::Error| {
+            anyhow::anyhow!("invalid {} task record: {error:#}", self.name())
+        })
+    }
+
+    fn loss_spec(&self) -> LossSpec {
+        match self {
+            Self::CausalLm {} => LossSpec::TokenCrossEntropy {
+                mask: LossMaskPolicy::AllNextTokens,
+            },
+            Self::Summarization { .. }
+            | Self::RetrievalPlanning { .. }
+            | Self::InstructionTuning { .. }
+            | Self::QaReasoning { .. } => LossSpec::TokenCrossEntropy {
+                mask: LossMaskPolicy::TargetTokensOnly,
+            },
+            Self::RetrievalRepresentation { temperature, .. } => {
+                LossSpec::ContrastiveRepresentation {
+                    temperature: *temperature,
+                }
+            }
+            Self::RetrievalRanking { temperature, .. } => LossSpec::ListwiseRanking {
+                temperature: *temperature,
+            },
+            Self::PairwisePreference {} => LossSpec::PairwisePreference,
+            Self::VerifiableRl { .. } => LossSpec::PolicyGradient,
+        }
+    }
+
+    fn reward_spec(&self) -> Option<RewardSpec> {
+        match self {
+            Self::VerifiableRl { verifier } => Some(RewardSpec::Verifier {
+                verifier: verifier.clone(),
+            }),
+            _ => None,
+        }
     }
 }
 
@@ -692,5 +899,42 @@ mod tests {
         }));
         let error = task.validate().unwrap_err().to_string();
         assert!(error.contains("finite and positive"), "{error}");
+    }
+
+    #[test]
+    fn adapters_construct_inputs_losses_masks_and_rewards() {
+        let reasoning = config(json!({
+            "type": "qa_reasoning",
+            "require_reasoning": true
+        }));
+        let example = reasoning
+            .construct_example(&json!({
+                "question": "Why?",
+                "reasoning": "Because.",
+                "answer": "Therefore."
+            }))
+            .unwrap();
+        let TaskExample::SupervisedGeneration { prompt, target } = example else {
+            panic!("expected supervised-generation example")
+        };
+        assert!(prompt.contains("Question:\nWhy?"));
+        assert_eq!(target, "Reasoning:\nBecause.\n\nAnswer:\nTherefore.");
+        assert_eq!(
+            reasoning.loss_spec(),
+            LossSpec::TokenCrossEntropy {
+                mask: LossMaskPolicy::TargetTokensOnly
+            }
+        );
+        assert!(reasoning.reward_spec().is_none());
+
+        let rl = config(json!({
+            "type": "verifiable_rl",
+            "verifier": {"adapter": "exact_answer", "parameters": {"case_fold": true}}
+        }));
+        assert!(matches!(rl.loss_spec(), LossSpec::PolicyGradient));
+        assert!(matches!(
+            rl.reward_spec(),
+            Some(RewardSpec::Verifier { verifier }) if verifier.adapter == "exact_answer"
+        ));
     }
 }

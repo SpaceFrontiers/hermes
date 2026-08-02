@@ -17,6 +17,10 @@ pub(crate) struct BlockDiagnostic {
     pub mamba_state: Option<Tensor<3>>,
 }
 
+/// One MAL-resolved residual block with an attention or Mamba sequence mixer.
+///
+/// The mixer is followed by either one ordinary [`FeedForward`] branch or an
+/// opt-in fast-to-slow [`MemoryChain`], never both.
 #[derive(Module, Debug)]
 pub struct TransformerBlock {
     attention: Option<MultiHeadAttention>,
@@ -309,6 +313,20 @@ impl TransformerBlock {
         }
     }
 
+    pub(crate) fn wake_parameter_counts(&self) -> anyhow::Result<(usize, usize)> {
+        let stored = self.num_params();
+        let (ffn_stored, ffn_routed) = match (&self.feed_forward, &self.memory) {
+            (Some(feed_forward), None) => feed_forward.wake_parameter_counts(),
+            (None, Some(memory)) => memory.wake_parameter_counts()?,
+            _ => unreachable!("a block has either an FFN or a memory chain"),
+        };
+        let routed = stored
+            .checked_sub(ffn_stored)
+            .and_then(|count| count.checked_add(ffn_routed))
+            .ok_or_else(|| anyhow::anyhow!("block parameter accounting overflow"))?;
+        Ok((stored, routed))
+    }
+
     pub fn forward_with_state(
         &self,
         x: Tensor<3>,
@@ -395,6 +413,16 @@ impl TransformerBlock {
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("layer has no memory chain"))?
             .tier_parameter_ids(tier)
+    }
+
+    pub(crate) fn memory_tier_base_parameter_ids(
+        &self,
+        tier: usize,
+    ) -> anyhow::Result<Vec<ParamId>> {
+        self.memory
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("layer has no memory chain"))?
+            .tier_base_parameter_ids(tier)
     }
 }
 

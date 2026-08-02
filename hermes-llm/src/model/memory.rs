@@ -3,7 +3,10 @@
 //! A memory chain is opt-in through MAL and replaces a block's ordinary FFN
 //! branch. Each tier remains a residual sublayer, so a zero-output slower tier
 //! is an exact no-op. Low-rank reserve experts are allocated up front and are
-//! routed only after their checkpointed activation bit is set.
+//! routed only after their checkpointed activation bit is set. Until then
+//! parameter-free zero columns occupy their fixed router lanes and an
+//! untrainable rank-matched zero route occupies the fixed top-1 expert lane;
+//! neither has checkpoint or optimizer state, and activation replaces them.
 
 use anyhow::Result;
 use burn::module::{ModuleVisitor, Param, ParamId};
@@ -22,7 +25,7 @@ use super::matmul::matmul_2;
 #[cfg(feature = "cuda")]
 use super::matmul::matmul_input;
 #[cfg(feature = "cuda")]
-use super::moe_dispatch::{route_combine, route_gather};
+use super::moe_dispatch::route_gather;
 #[cfg(feature = "cuda")]
 use super::moe_route::route_plan;
 use super::row_permute::row_permute;
@@ -47,15 +50,66 @@ impl MemoryRouting {
         }
     }
 
-    pub(crate) fn random_index(self, count: usize) -> Option<usize> {
+    fn dream_seed(self) -> Option<u64> {
         match self {
             Self::Wake => None,
-            Self::Dream { seed } if count > 0 => {
-                Some(mix_seed(seed, count as u64) as usize % count)
-            }
-            Self::Dream { .. } => None,
+            Self::Dream { seed } => Some(seed),
         }
     }
+}
+
+/// Select exactly one dream-only expert per token from outside that token's
+/// ordinary top-k set.  The host read is deliberate: this path is used only
+/// while generating dreams, and keeping the exclusion algorithm here avoids
+/// adding synchronization or selection kernels to wake execution.
+pub(crate) fn dream_extra_indices(
+    routing: MemoryRouting,
+    top_indices: Tensor<2, Int>,
+    candidate_count: usize,
+) -> Option<Tensor<2, Int>> {
+    let seed = routing.dream_seed()?;
+    let [tokens, selected_count] = top_indices.dims();
+    assert!(
+        candidate_count > selected_count,
+        "dream routing requires at least one expert outside ordinary top-k ({candidate_count} experts, top-k {selected_count})"
+    );
+    if tokens == 0 {
+        return None;
+    }
+
+    let device = top_indices.device();
+    let selected = top_indices
+        .into_data()
+        .convert::<i64>()
+        .to_vec::<i64>()
+        .expect("dream top-k indices must be readable");
+    let mut extras = Vec::with_capacity(tokens);
+    for token in 0..tokens {
+        let ordinary = &selected[token * selected_count..(token + 1) * selected_count];
+        debug_assert!(
+            ordinary
+                .iter()
+                .all(|&expert| expert >= 0 && (expert as usize) < candidate_count)
+        );
+        debug_assert!((0..ordinary.len()).all(|left| {
+            ordinary[left + 1..]
+                .iter()
+                .all(|right| ordinary[left] != *right)
+        }));
+
+        let available = candidate_count - ordinary.len();
+        let ordinal = mix_seed(seed, token as u64) as usize % available;
+        let expert = (0..candidate_count)
+            .filter(|candidate| !ordinary.contains(&(*candidate as i64)))
+            .nth(ordinal)
+            .expect("top-k complement must contain a dream expert");
+        extras.push(expert as i64);
+    }
+
+    Some(Tensor::from_data(
+        TensorData::new(extras, [tokens, 1]),
+        &device,
+    ))
 }
 
 fn mix_seed(mut value: u64, salt: u64) -> u64 {
@@ -144,6 +198,19 @@ impl LowRankExpertSlot {
         self.runtime_active = active;
     }
 
+    fn advance_generation(&mut self) {
+        let generation = self.generation().saturating_add(1) as i64;
+        self.generation = self.generation.clone().map(|value| {
+            let device = value.device();
+            Tensor::<1, Int>::from_data([generation], &device)
+        });
+    }
+
+    fn activate(&mut self) {
+        self.advance_generation();
+        self.set_active(true);
+    }
+
     fn sync_state(&mut self) {
         self.runtime_active = self.checkpoint_active();
     }
@@ -161,11 +228,7 @@ impl LowRankExpertSlot {
             .weight
             .clone()
             .map(|value| Tensor::zeros_like(&value));
-        let generation = self.generation().saturating_add(1) as i64;
-        self.generation = self.generation.clone().map(|value| {
-            let device = value.device();
-            Tensor::<1, Int>::from_data([generation], &device)
-        });
+        self.advance_generation();
         self.set_active(false);
     }
 
@@ -190,6 +253,18 @@ fn deterministic_values(len: usize, seed: u64) -> Vec<f32> {
 #[derive(Module, Debug)]
 struct LowRankExpertReserve {
     slots: Vec<LowRankExpertSlot>,
+    // An untrainable, deterministic zero-output route occupies the reserve
+    // route lane until the first real slot activates.  It is deliberately not
+    // a `Param`: it cannot acquire gradients, optimizer moments, checkpoint
+    // state, or a routing row, and it is not one of the MAL reserve slots.
+    // Executing the same rank-shaped pair of matmuls makes wake top-k compute
+    // constant from the upgraded checkpoint through every activation cycle.
+    fallback_a: Tensor<2>,
+    fallback_b: Tensor<2>,
+    // One parameter-free zero output column per stored slot keeps the full router
+    // projection width fixed. An active slot replaces its corresponding row;
+    // a dormant slot's actual router parameter stays entirely off the graph.
+    fallback_router: Tensor<2>,
     #[module(skip)]
     top_k: usize,
 }
@@ -200,69 +275,107 @@ impl LowRankExpertReserve {
             slots: (0..capacity)
                 .map(|slot| LowRankExpertSlot::new(hidden, rank, slot, device))
                 .collect(),
+            fallback_a: Tensor::from_data(
+                TensorData::new(
+                    deterministic_values(hidden * rank, mix_seed(0, 0x4641_4c4c_4241_434b)),
+                    [hidden, rank],
+                ),
+                device,
+            ),
+            fallback_b: Tensor::zeros([rank, hidden], device),
+            fallback_router: Tensor::zeros([hidden, capacity], device),
             top_k,
         }
     }
 
-    fn forward<const D: usize>(
-        &self,
-        input: Tensor<D>,
-        routing: MemoryRouting,
-    ) -> Option<Tensor<D>> {
+    fn fallback_forward<const D: usize>(&self, input: Tensor<D>, gate: Tensor<2>) -> Tensor<D> {
+        let shape = input.dims();
+        let hidden = shape[D - 1];
+        let tokens = shape[..D - 1].iter().product::<usize>();
+        let flat = input.reshape([tokens, hidden]);
+        let dtype = flat.dtype();
+        (matmul_2(
+            matmul_2(flat.cast(DType::F32), self.fallback_a.clone()),
+            self.fallback_b.clone(),
+        )
+        .cast(dtype)
+            * gate.cast(dtype))
+        .reshape(shape)
+    }
+
+    fn forward<const D: usize>(&self, input: Tensor<D>) -> Option<Tensor<D>> {
         let active = self
             .slots
             .iter()
             .enumerate()
             .filter(|(_, slot)| slot.runtime_active)
             .collect::<Vec<_>>();
-        if active.is_empty() {
-            // Do not put a zero allocation or residual add on the accelerator
-            // graph. Besides avoiding wake-time kernels, this is what makes a
-            // dormant reserve completely absent from forward and backward.
-            return None;
-        }
-
+        debug_assert_eq!(self.top_k, 1);
         let shape = input.dims();
         let hidden = shape[D - 1];
         let tokens = shape[..D - 1].iter().product::<usize>();
         let flat = input.reshape([tokens, hidden]);
-        if active.len() == 1 {
-            // A one-candidate top-1 router is identically one. Avoid a device
-            // synchronization and all dispatch/permutation kernels in the
-            // common first-active-slot case.
-            return Some(active[0].1.forward(flat).reshape(shape));
-        }
-
-        // Concatenate only active router rows, then evaluate them with one
-        // projection. Dormant rows stay off the graph and acquire no gradient
-        // or optimizer state.
+        // Build a fixed-width router from either the active row or the
+        // corresponding parameter-free fallback. The matmul and top-k shapes
+        // therefore never grow as stored slots activate, while dormant slot
+        // parameters remain absent from both the forward and backward graph.
         let router_weight = Tensor::cat(
-            active
+            self.slots
                 .iter()
-                .map(|(_, slot)| slot.router.weight.val())
+                .enumerate()
+                .map(|(slot, expert)| {
+                    if expert.runtime_active {
+                        expert.router.weight.val()
+                    } else {
+                        self.fallback_router
+                            .clone()
+                            .slice([0..hidden, slot..slot + 1])
+                    }
+                })
                 .collect(),
             1,
         );
-        let logits = matmul_2(flat.clone().cast(DType::F32), router_weight);
-        let routed_k = self.top_k.min(active.len());
-        let (top_logits, top_indices) = logits.clone().topk_with_indices(routed_k, 1);
-        let extra = routing.random_index(active.len());
-        let all_weights = match extra {
-            Some(index) => softmax(
-                Tensor::cat(
-                    vec![
-                        top_logits,
-                        logits.clone().slice([0..tokens, index..index + 1]),
-                    ],
-                    1,
-                ),
-                1,
-            ),
-            None => softmax(top_logits, 1),
-        };
-        let top_weights = all_weights.clone().slice([0..tokens, 0..routed_k]);
-        let routes = tokens * routed_k;
+        let router_logits = matmul_2(flat.clone().cast(DType::F32), router_weight);
+        let mut mask = vec![-1.0e30_f32; self.slots.len()];
+        for (global, _) in &active {
+            mask[*global] = 0.0;
+        }
+        let masked = router_logits.clone()
+            + Tensor::<2>::from_data(TensorData::new(mask, [1, self.slots.len()]), &flat.device());
+        let (_, global_indices) = masked.clone().topk_with_indices(1, 1);
+        // Normalize against every active fixed-width row plus a parameter-free
+        // zero fallback. Non-selected active rows therefore still receive the
+        // same competitive router gradient as a conventional MoE, without
+        // introducing any dormant parameter or activation-dependent shape.
+        let gate = softmax(
+            Tensor::cat(vec![masked, Tensor::zeros([tokens, 1], &flat.device())], 1),
+            1,
+        )
+        .slice([0..tokens, 0..self.slots.len()])
+        .gather(1, global_indices.clone());
+        if active.is_empty() {
+            // Actual reserve slots remain entirely off the graph.  The
+            // separate fixed fallback executes one rank-shaped no-op route,
+            // matching the top-1 expert cost paid after a slot activates.
+            return Some(self.fallback_forward(flat.reshape(shape), gate));
+        }
+
         let device = flat.device();
+        // Inactive content buckets are masked before top-1. Convert the
+        // resulting global slot number to the compact active-bank index used
+        // by grouped dispatch. This selection is content-dependent without
+        // scoring a growing bank of learned router rows.
+        let mut global_to_local = vec![0_i64; self.slots.len()];
+        for (local, (global, _)) in active.iter().enumerate() {
+            global_to_local[*global] = local as i64;
+        }
+        let top_indices = Tensor::<1, Int>::from_data(
+            TensorData::new(global_to_local, [self.slots.len()]),
+            &device,
+        )
+        .select(0, global_indices.reshape([tokens]))
+        .reshape([tokens, 1]);
+        let routes = tokens;
         #[cfg(feature = "cuda")]
         let (route_order, inverse_order, mut counts, device_counts) = if is_cuda_device(&device) {
             let (order, inverse, counts) = route_plan(top_indices.clone(), active.len());
@@ -278,17 +391,12 @@ impl LowRankExpertReserve {
 
         #[cfg(feature = "cuda")]
         let routed_input = if is_cuda_device(&device) {
-            route_gather(
-                flat.clone(),
-                route_order.clone(),
-                inverse_order.clone(),
-                routed_k,
-            )
+            route_gather(flat.clone(), route_order.clone(), inverse_order.clone(), 1)
         } else {
             let repeated = flat
                 .clone()
                 .unsqueeze_dim::<3>(1)
-                .repeat_dim(1, routed_k)
+                .repeat_dim(1, 1)
                 .reshape([routes, hidden]);
             row_permute(repeated, route_order.clone(), inverse_order.clone())
         };
@@ -297,7 +405,7 @@ impl LowRankExpertReserve {
             let repeated = flat
                 .clone()
                 .unsqueeze_dim::<3>(1)
-                .repeat_dim(1, routed_k)
+                .repeat_dim(1, 1)
                 .reshape([routes, hidden]);
             row_permute(repeated, route_order.clone(), inverse_order.clone())
         };
@@ -328,32 +436,8 @@ impl LowRankExpertReserve {
         #[cfg(not(feature = "cuda"))]
         let routed_output = Self::forward_compact(&active, routed_input, &counts, hidden);
 
-        #[cfg(feature = "cuda")]
-        let mut output = if is_cuda_device(&device) {
-            route_combine(routed_output, top_weights, inverse_order, routed_k)
-        } else {
-            (row_permute(routed_output, inverse_order, route_order)
-                .reshape([tokens, routed_k, hidden])
-                * top_weights
-                    .cast(flat.dtype())
-                    .reshape([tokens, routed_k, 1]))
-            .sum_dim(1)
-            .reshape([tokens, hidden])
-        };
-        #[cfg(not(feature = "cuda"))]
-        let mut output = (row_permute(routed_output, inverse_order, route_order)
-            .reshape([tokens, routed_k, hidden])
-            * top_weights
-                .cast(flat.dtype())
-                .reshape([tokens, routed_k, 1]))
-        .sum_dim(1)
-        .reshape([tokens, hidden]);
-        if let Some(index) = extra {
-            let weight = all_weights
-                .slice([0..tokens, routed_k..routed_k + 1])
-                .cast(flat.dtype());
-            output = output + active[index].1.forward(flat.clone()) * weight;
-        }
+        let output =
+            row_permute(routed_output, inverse_order, route_order) * gate.cast(flat.dtype());
         Some(output.reshape(shape))
     }
 
@@ -369,13 +453,10 @@ impl LowRankExpertReserve {
             if count == 0 {
                 continue;
             }
-            outputs.push(
-                active[local].1.forward(
-                    routed_input
-                        .clone()
-                        .slice([offset..offset + count, 0..hidden]),
-                ),
-            );
+            let input = routed_input
+                .clone()
+                .slice([offset..offset + count, 0..hidden]);
+            outputs.push(active[local].1.forward(input));
             offset += count;
         }
         debug_assert_eq!(offset, routed_input.dims()[0]);
@@ -386,6 +467,38 @@ impl LowRankExpertReserve {
         for slot in &mut self.slots {
             slot.sync_state();
         }
+    }
+
+    /// Stored reserve parameters and the fixed route paid by every ordinary
+    /// wake token. The routed equivalent includes the full fixed-capacity
+    /// router projection plus one low-rank expert. Before activation,
+    /// parameter-free fallback tensors occupy exactly those lanes; activating
+    /// slots replaces rather than adds learned work.
+    fn wake_parameter_counts(&self) -> Result<(usize, usize)> {
+        let stored = self.num_params();
+        let first = self
+            .slots
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("memory reserve has no slots"))?;
+        let router_lanes = first
+            .router
+            .num_params()
+            .checked_mul(self.slots.len())
+            .ok_or_else(|| anyhow::anyhow!("reserve router-lane count overflows usize"))?;
+        let routed_expert = first
+            .a
+            .num_params()
+            .checked_add(first.b.num_params())
+            .ok_or_else(|| anyhow::anyhow!("reserve routed parameter count overflows usize"))?;
+        let routed = routed_expert
+            .checked_mul(self.top_k)
+            .and_then(|value| value.checked_add(router_lanes))
+            .ok_or_else(|| anyhow::anyhow!("reserve top-k parameter count overflows usize"))?;
+        anyhow::ensure!(
+            routed <= stored,
+            "reserve routed parameter count exceeds stored capacity"
+        );
+        Ok((stored, routed))
     }
 }
 
@@ -404,7 +517,11 @@ impl MemoryTier {
         collect_auxiliary: bool,
         routing: MemoryRouting,
     ) -> (Tensor<D>, Option<Tensor<1>>) {
-        let reserve = self.reserve.forward(input.clone(), routing);
+        // Paper-style random exploration belongs to the persistent FFN MoE.
+        // Reserve memory remains ordinary top-1 during Dreaming: the first
+        // consolidation has only one active receiver, while dormant slots
+        // must stay entirely outside routing and computation.
+        let reserve = self.reserve.forward(input.clone());
         let (base, auxiliary) = self.feed_forward.forward_internal_with_routing(
             input.clone(),
             collect_auxiliary,
@@ -417,6 +534,19 @@ impl MemoryTier {
             },
             auxiliary,
         )
+    }
+
+    fn wake_parameter_counts(&self) -> Result<(usize, usize)> {
+        let (base_stored, base_routed) = self.feed_forward.wake_parameter_counts();
+        let (reserve_stored, reserve_routed) = self.reserve.wake_parameter_counts()?;
+        Ok((
+            base_stored
+                .checked_add(reserve_stored)
+                .ok_or_else(|| anyhow::anyhow!("memory tier stored parameter count overflows"))?,
+            base_routed
+                .checked_add(reserve_routed)
+                .ok_or_else(|| anyhow::anyhow!("memory tier routed parameter count overflows"))?,
+        ))
     }
 }
 
@@ -499,6 +629,22 @@ impl MemoryChain {
         }
     }
 
+    pub(crate) fn wake_parameter_counts(&self) -> Result<(usize, usize)> {
+        self.tiers
+            .iter()
+            .try_fold((0_usize, 0_usize), |(stored, routed), tier| {
+                let (tier_stored, tier_routed) = tier.wake_parameter_counts()?;
+                Ok((
+                    stored.checked_add(tier_stored).ok_or_else(|| {
+                        anyhow::anyhow!("memory chain stored parameter count overflows")
+                    })?,
+                    routed.checked_add(tier_routed).ok_or_else(|| {
+                        anyhow::anyhow!("memory chain routed parameter count overflows")
+                    })?,
+                ))
+            })
+    }
+
     pub(crate) fn prepare_upgrade_state(&mut self) {
         for (index, tier) in self.tiers.iter_mut().enumerate() {
             if index > 0 {
@@ -525,7 +671,7 @@ impl MemoryChain {
         if slot.runtime_active {
             anyhow::bail!("memory slot {slot_index} in tier {tier_index} is already active");
         }
-        slot.set_active(true);
+        slot.activate();
         Ok(())
     }
 
@@ -596,6 +742,26 @@ impl MemoryChain {
         Ok(ids.0)
     }
 
+    /// Float parameters of the tier's persistent base FFN/MoE, excluding all
+    /// preallocated reserve experts. Terminal consolidation targets exactly
+    /// this scope before it can reclaim the bounded slow reserve.
+    pub(crate) fn tier_base_parameter_ids(&self, tier: usize) -> Result<Vec<ParamId>> {
+        let tier = self
+            .tiers
+            .get(tier)
+            .ok_or_else(|| anyhow::anyhow!("memory tier {tier} does not exist"))?;
+        #[derive(Default)]
+        struct FloatIds(Vec<ParamId>);
+        impl ModuleVisitor for FloatIds {
+            fn visit_float<const D: usize>(&mut self, parameter: &Param<Tensor<D>>) {
+                self.0.push(parameter.id);
+            }
+        }
+        let mut ids = FloatIds::default();
+        tier.feed_forward.visit(&mut ids);
+        Ok(ids.0)
+    }
+
     pub(crate) fn non_muon_parameter_ids(&self) -> Vec<ParamId> {
         let mut ids = Vec::new();
         for tier in &self.tiers {
@@ -639,6 +805,49 @@ mod tests {
     }
 
     #[test]
+    fn dream_exploration_selects_one_distinct_expert_per_token() {
+        let device = Device::ndarray();
+        let ordinary = vec![0_i64, 2, 1, 3, 2, 4, 0, 4];
+        let top_indices =
+            Tensor::<2, Int>::from_data(TensorData::new(ordinary.clone(), [4, 2]), &device);
+
+        assert!(
+            dream_extra_indices(MemoryRouting::Wake, top_indices.clone(), 5).is_none(),
+            "wake routing must never add an exploration expert"
+        );
+        let first = dream_extra_indices(
+            MemoryRouting::Dream { seed: 0xfeed_beef },
+            top_indices.clone(),
+            5,
+        )
+        .expect("capacity outside top-k permits exploration");
+        let second =
+            dream_extra_indices(MemoryRouting::Dream { seed: 0xfeed_beef }, top_indices, 5)
+                .expect("same seed remains valid");
+        assert_eq!(first.dims(), [4, 1]);
+        let extras = first.into_data().convert::<i64>().to_vec::<i64>().unwrap();
+        assert_eq!(
+            extras,
+            second.into_data().convert::<i64>().to_vec::<i64>().unwrap(),
+            "checkpointed RNG seeds must reproduce dream routes"
+        );
+        for (token, extra) in extras.into_iter().enumerate() {
+            assert!(
+                !ordinary[token * 2..token * 2 + 2].contains(&extra),
+                "token {token} explored ordinary top-k expert {extra}"
+            );
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "dream routing requires at least one expert outside ordinary top-k")]
+    fn dream_exploration_fails_when_top_k_fills_expert_capacity() {
+        let device = Device::ndarray();
+        let top_indices = Tensor::<2, Int>::from_data([[0_i64, 1]], &device);
+        let _ = dream_extra_indices(MemoryRouting::Dream { seed: 7 }, top_indices, 2);
+    }
+
+    #[test]
     fn dormant_slots_have_no_forward_or_backward_path() {
         let config = memory_config();
         let device = Device::ndarray().autodiff();
@@ -668,14 +877,26 @@ mod tests {
         }
 
         memory.activate_slot(0, 0).unwrap();
+        memory.tiers[0].reserve.slots[0].b =
+            memory.tiers[0].reserve.slots[0].b.clone().map(|value| {
+                let require_grad = value.is_require_grad();
+                Tensor::full(value.shape(), 0.1, &value.device()).set_require_grad(require_grad)
+            });
         let active_gradients = run(&memory);
         let active = &memory.tiers[0].reserve.slots[0];
         let dormant = &memory.tiers[0].reserve.slots[1];
         assert!(active.a.grad(&active_gradients).is_some());
         assert!(active.b.grad(&active_gradients).is_some());
-        // With exactly one candidate the top-1 decision is constant, so the
-        // router row is intentionally absent until there is a real choice.
-        assert!(active.router.weight.grad(&active_gradients).is_none());
+        let first_router_gradient = active
+            .router
+            .weight
+            .grad(&active_gradients)
+            .expect("the fixed fallback logit must train the first active router")
+            .into_data()
+            .convert::<f32>()
+            .to_vec::<f32>()
+            .unwrap();
+        assert!(first_router_gradient.iter().any(|value| value.abs() > 1e-8));
         assert!(dormant.a.grad(&active_gradients).is_none());
         assert!(dormant.b.grad(&active_gradients).is_none());
         assert!(dormant.router.weight.grad(&active_gradients).is_none());
@@ -683,21 +904,79 @@ mod tests {
         let error = memory.activate_slot(0, 0).unwrap_err().to_string();
         assert!(error.contains("already active"), "{error}");
         memory.activate_slot(0, 1).unwrap();
+        memory.tiers[0].reserve.slots[1].b =
+            memory.tiers[0].reserve.slots[1].b.clone().map(|value| {
+                let require_grad = value.is_require_grad();
+                Tensor::full(value.shape(), -0.1, &value.device()).set_require_grad(require_grad)
+            });
         let routed_gradients = run(&memory);
-        assert!(
-            memory.tiers[0].reserve.slots[0]
+        for slot in &memory.tiers[0].reserve.slots {
+            let gradient = slot
                 .router
                 .weight
                 .grad(&routed_gradients)
-                .is_some()
+                .expect("every active router row participates in full-probability gating")
+                .into_data()
+                .convert::<f32>()
+                .to_vec::<f32>()
+                .unwrap();
+            assert!(gradient.iter().any(|value| value.abs() > 1e-8));
+        }
+    }
+
+    #[test]
+    fn dormant_reserve_executes_an_exact_untrainable_fallback_route() {
+        let config = memory_config();
+        let device = Device::ndarray().autodiff();
+        let block = config.block.clone();
+        let memory = MemoryChain::new(&config, &block, block.memory.as_ref().unwrap(), &device);
+        let reserve = &memory.tiers[0].reserve;
+        let input = Tensor::<2>::random([5, 8], Distribution::Default, &device);
+
+        let output = reserve
+            .forward(input)
+            .expect("the fixed fallback always occupies the top-1 route lane");
+        let magnitude: f32 = output.abs().sum().into_scalar();
+        assert_eq!(magnitude, 0.0, "fallback must be logit-exact no-op");
+
+        let visited = memory.tier_parameter_ids(0).unwrap();
+        let slot_ids = memory
+            .statuses(0)
+            .into_iter()
+            .flat_map(|status| status.parameter_ids)
+            .collect::<Vec<_>>();
+        assert!(slot_ids.iter().all(|id| visited.contains(id)));
+        // Plain Burn tensors move with the module but are not Params.  This
+        // count proves the fallback did not enter optimizer/checkpoint scope.
+        let base_ids = memory.tier_base_parameter_ids(0).unwrap();
+        assert_eq!(visited.len(), base_ids.len() + slot_ids.len());
+    }
+
+    #[test]
+    fn fixed_width_router_accounting_is_constant_through_full_activation() {
+        let config = memory_config();
+        let device = Device::ndarray();
+        let block = config.block.clone();
+        let mut memory = MemoryChain::new(&config, &block, block.memory.as_ref().unwrap(), &device);
+        let reserve = &memory.tiers[0].reserve;
+        let first = &reserve.slots[0];
+        let expected = first.router.num_params() * reserve.slots.len()
+            + first.a.num_params()
+            + first.b.num_params();
+        let initial = reserve.wake_parameter_counts().unwrap();
+        assert_eq!(
+            initial.1, expected,
+            "all fixed router lanes must be counted"
         );
-        assert!(
-            memory.tiers[0].reserve.slots[1]
-                .router
-                .weight
-                .grad(&routed_gradients)
-                .is_some()
-        );
+
+        for slot in 0..reserve.slots.len() {
+            memory.activate_slot(0, slot).unwrap();
+            assert_eq!(
+                memory.tiers[0].reserve.wake_parameter_counts().unwrap(),
+                initial,
+                "activation generation {slot} changed routed compute accounting"
+            );
+        }
     }
 
     #[test]
@@ -711,7 +990,7 @@ mod tests {
         memory.reset_slot(0, 0, 17).unwrap();
         let status = &memory.statuses(0)[0];
         assert!(!status.active);
-        assert_eq!(status.generation, 1);
+        assert_eq!(status.generation, 2);
         let b: f32 = memory.tiers[0].reserve.slots[0]
             .b
             .val()

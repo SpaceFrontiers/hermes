@@ -16,14 +16,21 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, ensure};
 use burn::module::{AutodiffModule, Module, ModuleMapper, Param, ParamId};
-use burn::tensor::{Device, Tensor};
+use burn::tensor::{Bool, Device, Int, Tensor};
 use burn_optim::ModuleOptimizer;
 use hermes_llm::{Transformer, load_safetensors, save_safetensors};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::muon::BatchedMuon;
-use hermes_train::sleep::SleepState;
+use hermes_train::benchmark::{
+    TRAINING_ACCOUNTING_FILE, TRAINING_ACCOUNTING_VERSION, TrainingAccounting, TrainingEvidence,
+};
+use hermes_train::builtin_sleep_adapters::WakeContextRecord;
+use hermes_train::metrics::MetricWriter;
+use hermes_train::native_sleep::NativeSleepCheckpoint;
+use hermes_train::optimizer_artifact::save_canonical_module_optimizer;
+use hermes_train::quantization::QuantizationTransactionState;
 
 pub(crate) type AdamWOptimizer = ModuleOptimizer;
 
@@ -32,6 +39,7 @@ pub(crate) const TRAINING_STATE_VERSION: u32 = 2;
 const CHECKPOINT_POINTER_VERSION: u32 = 1;
 const CHECKPOINT_MANIFEST_VERSION: u32 = 1;
 const GENERATIONS_DIRECTORY: &str = "generations";
+const TRAINING_EVIDENCE_DIRECTORY: &str = "training-evidence";
 const CURRENT_POINTER: &str = "current.json";
 const GENERATION_MANIFEST: &str = "generation-manifest.json";
 const TRAINING_STATE_FILE: &str = "training-state.json";
@@ -73,6 +81,14 @@ struct SealedGeneration {
     name: String,
     manifest_sha256: String,
     path: PathBuf,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct CheckpointPublication {
+    pub(crate) checkpoint_manifest: PathBuf,
+    pub(crate) checkpoint_manifest_sha256: String,
+    pub(crate) training_evidence: PathBuf,
+    pub(crate) training_evidence_sha256: String,
 }
 
 struct StagingGuard {
@@ -128,13 +144,17 @@ pub(crate) struct RngStreamState {
     pub(crate) counter: u64,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct QuantizationTrainingState {
     pub(crate) format: String,
     pub(crate) fake_quant_active: bool,
     pub(crate) calibration_step: u64,
     pub(crate) manifest: Option<String>,
+    pub(crate) teacher_hash: Option<String>,
+    /// Exact interruption point for an in-flight fake-quant/distillation
+    /// optimizer update. The backend validates its plan fingerprint on resume.
+    pub(crate) transaction: Option<QuantizationTransactionState>,
 }
 
 /// Complete version-2 trainer state.  The schema intentionally has no serde
@@ -157,10 +177,14 @@ pub(crate) struct TrainingState {
     pub(crate) data_manifest_hash: Option<String>,
     pub(crate) parameter_ids: Vec<u64>,
     pub(crate) optimizer_states: Vec<OptimizerStateRef>,
-    pub(crate) sleep: Option<SleepState>,
+    pub(crate) sleep: Option<NativeSleepCheckpoint>,
     pub(crate) artifacts: Vec<ArtifactRef>,
     pub(crate) evaluator_hashes: Vec<String>,
     pub(crate) rng_streams: Vec<RngStreamState>,
+    /// Bounded, already-tokenized contexts observed since the previous sleep
+    /// boundary. Persisting them is required for an exact crash/relaunch just
+    /// before the next journal is sealed.
+    pub(crate) wake_context_buffer: Vec<WakeContextRecord>,
     pub(crate) quantization: Option<QuantizationTrainingState>,
 }
 
@@ -183,6 +207,10 @@ impl TrainingState {
             !self.workflow_signature.trim().is_empty(),
             "checkpoint workflow signature is empty"
         );
+        validate_content_hash(&self.workflow_signature, "checkpoint workflow signature")?;
+        if let Some(hash) = &self.data_manifest_hash {
+            validate_content_hash(hash, "checkpoint data manifest hash")?;
+        }
         ensure!(
             self.global_step == 0 || self.tokens_seen > 0 || self.phase_kind == "evaluation",
             "non-evaluation checkpoint has optimizer progress but no token count"
@@ -195,6 +223,10 @@ impl TrainingState {
         ensure!(
             optimizer_scopes.len() == self.optimizer_states.len(),
             "checkpoint repeats an optimizer scope"
+        );
+        ensure!(
+            optimizer_scopes.contains("wake"),
+            "checkpoint has no `wake` optimizer scope"
         );
         for state in &self.optimizer_states {
             ensure!(!state.scope.trim().is_empty(), "optimizer scope is empty");
@@ -216,6 +248,18 @@ impl TrainingState {
                         state.scope
                     )
                 })?;
+            }
+            if state.scope == "wake" {
+                ensure!(
+                    state.adamw == ADAMW_FILE && state.muon == MUON_FILE,
+                    "wake optimizer paths do not match the fixed checkpoint schema"
+                );
+                ensure!(
+                    state.update_clock == self.global_step as u64,
+                    "wake optimizer clock {} differs from global step {}",
+                    state.update_clock,
+                    self.global_step
+                );
             }
         }
         let optimizer_paths = self
@@ -248,6 +292,34 @@ impl TrainingState {
         for stream in &self.rng_streams {
             ensure!(!stream.name.trim().is_empty(), "RNG stream name is empty");
         }
+        ensure!(
+            self.wake_context_buffer
+                .windows(2)
+                .all(|pair| pair[0].optimizer_step <= pair[1].optimizer_step),
+            "checkpoint wake-context buffer moves backwards"
+        );
+        let context_ids = self
+            .wake_context_buffer
+            .iter()
+            .map(|record| record.id.as_str())
+            .collect::<BTreeSet<_>>();
+        ensure!(
+            context_ids.len() == self.wake_context_buffer.len(),
+            "checkpoint wake-context buffer repeats an identity"
+        );
+        for record in &self.wake_context_buffer {
+            ensure!(
+                !record.id.trim().is_empty()
+                    && !record.token_ids.is_empty()
+                    && record.token_ids.iter().all(|token| *token >= 0),
+                "checkpoint contains an invalid wake context"
+            );
+        }
+        let unique_parameter_ids = self.parameter_ids.iter().collect::<BTreeSet<_>>();
+        ensure!(
+            unique_parameter_ids.len() == self.parameter_ids.len(),
+            "checkpoint repeats a parameter ID"
+        );
         for artifact in &self.artifacts {
             ensure!(
                 !artifact.kind.trim().is_empty()
@@ -255,15 +327,56 @@ impl TrainingState {
                     && !artifact.hash.trim().is_empty(),
                 "checkpoint has an incomplete artifact reference"
             );
+            validate_content_hash(&artifact.hash, "checkpoint artifact hash")?;
+        }
+        for hash in &self.evaluator_hashes {
+            validate_content_hash(hash, "checkpoint evaluator hash")?;
         }
         if let Some(quantization) = &self.quantization {
             ensure!(
                 !quantization.format.trim().is_empty(),
                 "checkpoint quantization format is empty"
             );
+            if let Some(hash) = &quantization.teacher_hash {
+                validate_content_hash(hash, "checkpoint quantization teacher hash")?;
+            }
+            if let Some(transaction) = &quantization.transaction {
+                for (hash, label) in [
+                    (
+                        &transaction.transaction_id,
+                        "checkpoint quantization transaction id",
+                    ),
+                    (
+                        &transaction.plan_fingerprint,
+                        "checkpoint quantization plan fingerprint",
+                    ),
+                    (
+                        &transaction.pre_update_master_hash,
+                        "checkpoint quantization pre-update hash",
+                    ),
+                ] {
+                    validate_content_hash(hash, label)?;
+                }
+                if let Some(hash) = &transaction.post_update_master_hash {
+                    validate_content_hash(hash, "checkpoint quantization post-update hash")?;
+                }
+            }
         }
         if let Some(sleep) = &self.sleep {
-            sleep.validate_resume()?;
+            ensure!(
+                sleep.workflow_signature == self.workflow_signature,
+                "native sleep checkpoint belongs to another workflow"
+            );
+            ensure!(
+                sleep.phase_name == self.phase_id,
+                "native sleep checkpoint belongs to phase `{}`, trainer is in `{}`",
+                sleep.phase_name,
+                self.phase_id
+            );
+            sleep.input_checkpoint.validate()?;
+            sleep.live_checkpoint.validate()?;
+            sleep.retention_suite.verify()?;
+            sleep.sleep.validate_resume()?;
         }
         Ok(())
     }
@@ -280,15 +393,34 @@ struct ParameterIdMapper<'a> {
     ids: std::slice::Iter<'a, u64>,
 }
 
+impl ParameterIdMapper<'_> {
+    fn next(&mut self) -> ParamId {
+        ParamId::from(
+            self.ids
+                .next()
+                .copied()
+                .expect("checkpoint contains too few parameter IDs"),
+        )
+    }
+}
+
 impl ModuleMapper for ParameterIdMapper<'_> {
     fn map_float<const D: usize>(&mut self, param: Param<Tensor<D>>) -> Param<Tensor<D>> {
         let (_, tensor, mapper) = param.consume();
-        let id = self
-            .ids
-            .next()
-            .copied()
-            .expect("checkpoint contains too few parameter IDs");
-        Param::from_mapped_value(ParamId::from(id), tensor, mapper)
+        Param::from_mapped_value(self.next(), tensor, mapper)
+    }
+
+    fn map_int<const D: usize>(&mut self, param: Param<Tensor<D, Int>>) -> Param<Tensor<D, Int>> {
+        let (_, tensor, mapper) = param.consume();
+        Param::from_mapped_value(self.next(), tensor, mapper)
+    }
+
+    fn map_bool<const D: usize>(
+        &mut self,
+        param: Param<Tensor<D, Bool>>,
+    ) -> Param<Tensor<D, Bool>> {
+        let (_, tensor, mapper) = param.consume();
+        Param::from_mapped_value(self.next(), tensor, mapper)
     }
 }
 
@@ -308,13 +440,61 @@ fn restore_parameter_ids(model: &mut Transformer, ids: &[u64]) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn save_training_checkpoint(
+/// Seal a checkpoint, derive immutable resource evidence from the exact model
+/// and committed metric prefix, and only then advance `current.json`.
+pub(crate) fn save_training_checkpoint_with_evidence(
     model: &Transformer,
     adamw: &AdamWOptimizer,
     muon: &BatchedMuon,
     state: &TrainingState,
+    metrics: &mut MetricWriter,
     output: &Path,
-) -> Result<()> {
+) -> Result<CheckpointPublication> {
+    let measured_time =
+        metrics.committed_training_time(state.metric_records, state.global_step as u64)?;
+    let accounting = model.wake_parameter_accounting()?;
+    let accounting_input = TrainingAccountingInput {
+        training_gpu_hours: measured_time.single_accelerator_hours(),
+        parameters: accounting.stored_parameters,
+        routed_active_parameters: accounting.routed_active_parameters,
+    };
+    let (sealed, sealed_accounting) =
+        seal_training_checkpoint(model, adamw, muon, state, accounting_input, output)?;
+    let (manifest, _) = verify_generation(&sealed.path, &sealed.name, &sealed.manifest_sha256)?;
+    let accounting_file = manifest
+        .files
+        .iter()
+        .find(|file| file.path == TRAINING_ACCOUNTING_FILE)
+        .context("sealed checkpoint manifest has no training accounting")?;
+    let evidence = TrainingEvidence {
+        version: 1,
+        checkpoint_manifest_sha256: sealed.manifest_sha256.clone(),
+        accounting_sha256: accounting_file.sha256.clone(),
+        training_gpu_hours: sealed_accounting.training_gpu_hours,
+        parameters: sealed_accounting.parameters,
+        routed_active_parameters: sealed_accounting.routed_active_parameters,
+        stored_bytes: sealed_accounting.weights_bytes,
+        weights_sha256: sealed_accounting.weights_sha256.clone(),
+    };
+    evidence.validate()?;
+    let published_evidence = publish_training_evidence(output, &sealed, &evidence)?;
+    publish_current(output, &sealed)?;
+    Ok(CheckpointPublication {
+        checkpoint_manifest: sealed.path.join(GENERATION_MANIFEST),
+        checkpoint_manifest_sha256: sealed.manifest_sha256,
+        training_evidence: published_evidence.path,
+        training_evidence_sha256: published_evidence.sha256,
+    })
+}
+
+fn seal_training_checkpoint(
+    model: &Transformer,
+    adamw: &AdamWOptimizer,
+    muon: &BatchedMuon,
+    state: &TrainingState,
+    accounting_input: TrainingAccountingInput,
+    output: &Path,
+) -> Result<(SealedGeneration, TrainingAccounting)> {
     state.validate()?;
     ensure!(
         state.parameter_ids == parameter_ids(model),
@@ -329,9 +509,21 @@ pub(crate) fn save_training_checkpoint(
 
     save_safetensors(&model.clone().valid(), &weights)?;
     sync_regular_file(&weights)?;
-    adamw
-        .save(&adamw_state)
-        .context("failed to save AdamW state")?;
+    let (weights_bytes, weights_sha256) = hash_file(&weights)?;
+    let accounting = TrainingAccounting {
+        version: TRAINING_ACCOUNTING_VERSION,
+        training_gpu_hours: accounting_input.training_gpu_hours,
+        parameters: accounting_input.parameters,
+        routed_active_parameters: accounting_input.routed_active_parameters,
+        weights_bytes,
+        weights_sha256,
+    };
+    accounting.validate()?;
+    write_synced_new(
+        &staging.join(TRAINING_ACCOUNTING_FILE),
+        &serde_json::to_vec(&accounting)?,
+    )?;
+    save_canonical_module_optimizer(adamw, &adamw_state).context("failed to save AdamW state")?;
     sync_regular_file(&adamw_state)?;
     muon.save(&muon_state)?;
     sync_regular_file(&muon_state)?;
@@ -342,8 +534,106 @@ pub(crate) fn save_training_checkpoint(
 
     let sealed = seal_generation(output, &staging)?;
     staging_guard.disarm();
-    publish_current(output, &sealed)?;
-    Ok(())
+    Ok((sealed, accounting))
+}
+
+#[derive(Debug)]
+struct PublishedEvidence {
+    path: PathBuf,
+    sha256: String,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct TrainingAccountingInput {
+    training_gpu_hours: f64,
+    parameters: u64,
+    routed_active_parameters: u64,
+}
+
+fn publish_training_evidence(
+    output: &Path,
+    generation: &SealedGeneration,
+    evidence: &TrainingEvidence,
+) -> Result<PublishedEvidence> {
+    evidence.validate()?;
+    ensure!(
+        evidence.checkpoint_manifest_sha256 == generation.manifest_sha256,
+        "training evidence does not bind the sealed checkpoint generation"
+    );
+    ensure!(
+        generation.path == output.join(GENERATIONS_DIRECTORY).join(&generation.name),
+        "training evidence checkpoint generation is outside its output root"
+    );
+    let bytes = serde_json::to_vec(evidence)?;
+    let sha256 = sha256_bytes(&bytes);
+    let directory = output.join(TRAINING_EVIDENCE_DIRECTORY);
+    fs::create_dir_all(&directory).with_context(|| {
+        format!(
+            "failed to create training-evidence directory {}",
+            directory.display()
+        )
+    })?;
+    validate_generation_root(&directory)
+        .context("training-evidence root is not a real directory")?;
+    sync_directory(output)?;
+    let path = directory.join(format!("sha256-{sha256}.json"));
+    match fs::symlink_metadata(&path) {
+        Ok(metadata) => {
+            ensure!(
+                metadata.file_type().is_file() && !metadata.file_type().is_symlink(),
+                "training evidence {} is not a regular file",
+                path.display()
+            );
+            let existing = fs::read(&path)?;
+            ensure!(
+                sha256_bytes(&existing) == sha256 && existing == bytes,
+                "content-addressed training-evidence collision or tampering at {}",
+                path.display()
+            );
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let temporary = directory.join(format!(".evidence-{}.tmp", unique_suffix()));
+            let publication = (|| -> Result<()> {
+                write_synced_new(&temporary, &bytes)?;
+                match fs::hard_link(&temporary, &path) {
+                    Ok(()) => {
+                        fs::remove_file(&temporary)?;
+                        Ok(())
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                        let metadata = fs::symlink_metadata(&path)?;
+                        ensure!(
+                            metadata.file_type().is_file() && !metadata.file_type().is_symlink(),
+                            "training evidence {} is not a regular file",
+                            path.display()
+                        );
+                        let existing = fs::read(&path)?;
+                        ensure!(
+                            sha256_bytes(&existing) == sha256 && existing == bytes,
+                            "content-addressed training-evidence collision at {}",
+                            path.display()
+                        );
+                        fs::remove_file(&temporary)?;
+                        Ok(())
+                    }
+                    Err(error) => Err(error).with_context(|| {
+                        format!("failed to publish training evidence {}", path.display())
+                    }),
+                }
+            })();
+            if publication.is_err() {
+                let _ = fs::remove_file(&temporary);
+            }
+            publication?;
+        }
+        Err(error) => {
+            return Err(error).with_context(|| {
+                format!("failed to inspect training evidence {}", path.display())
+            });
+        }
+    }
+    sync_directory(&directory)?;
+    Ok(PublishedEvidence { path, sha256 })
 }
 
 fn validate_checkpoint_relative_path(path: &str) -> Result<()> {
@@ -587,7 +877,13 @@ fn ensure_required_files(files: &[GenerationFile]) -> Result<()> {
         .iter()
         .map(|file| file.path.as_str())
         .collect::<BTreeSet<_>>();
-    for required in [WEIGHTS_FILE, ADAMW_FILE, MUON_FILE, TRAINING_STATE_FILE] {
+    for required in [
+        WEIGHTS_FILE,
+        ADAMW_FILE,
+        MUON_FILE,
+        TRAINING_STATE_FILE,
+        TRAINING_ACCOUNTING_FILE,
+    ] {
         ensure!(
             paths.contains(required),
             "checkpoint generation is missing required file `{required}`"
@@ -605,6 +901,13 @@ fn validate_sha256(value: &str, label: &str) -> Result<()> {
         "{label} is not a lowercase SHA-256 digest"
     );
     Ok(())
+}
+
+fn validate_content_hash(value: &str, label: &str) -> Result<()> {
+    let digest = value
+        .strip_prefix("sha256:")
+        .with_context(|| format!("{label} must use sha256:<64 lowercase hex>"))?;
+    validate_sha256(digest, label)
 }
 
 fn validate_generation_name(name: &str) -> Result<&str> {
@@ -845,8 +1148,8 @@ mod tests {
             steps_in_phase: global_step,
             tokens_seen: 1024,
             metric_records: global_step as u64 * 2,
-            workflow_signature: "sha256:workflow".into(),
-            data_manifest_hash: Some("sha256:data".into()),
+            workflow_signature: format!("sha256:{}", "0".repeat(64)),
+            data_manifest_hash: Some(format!("sha256:{}", "1".repeat(64))),
             parameter_ids: vec![1, 2],
             optimizer_states: vec![OptimizerStateRef {
                 scope: "wake".into(),
@@ -857,12 +1160,13 @@ mod tests {
             }],
             sleep: None,
             artifacts: vec![],
-            evaluator_hashes: vec!["sha256:evaluator".into()],
+            evaluator_hashes: vec![format!("sha256:{}", "2".repeat(64))],
             rng_streams: vec![RngStreamState {
                 name: "data".into(),
                 seed: 42,
                 counter: 12,
             }],
+            wake_context_buffer: Vec::new(),
             quantization: None,
         }
     }
@@ -873,6 +1177,20 @@ mod tests {
         write_synced_new(
             &staging.join(WEIGHTS_FILE),
             format!("weights-{tag}").as_bytes(),
+        )
+        .unwrap();
+        let (weights_bytes, weights_sha256) = hash_file(&staging.join(WEIGHTS_FILE)).unwrap();
+        let accounting = TrainingAccounting {
+            version: TRAINING_ACCOUNTING_VERSION,
+            training_gpu_hours: 1.0,
+            parameters: 100,
+            routed_active_parameters: 80,
+            weights_bytes,
+            weights_sha256,
+        };
+        write_synced_new(
+            &staging.join(TRAINING_ACCOUNTING_FILE),
+            &serde_json::to_vec(&accounting).unwrap(),
         )
         .unwrap();
         write_synced_new(&staging.join(ADAMW_FILE), format!("adamw-{tag}").as_bytes()).unwrap();
@@ -886,8 +1204,8 @@ mod tests {
     }
 
     #[test]
-    fn version_one_training_state_is_rejected() {
-        let legacy = r#"{
+    fn version_one_training_state_is_rejected_without_a_fallback() {
+        let version_one = r#"{
             "version": 1,
             "step": 13500,
             "stage": 0,
@@ -896,7 +1214,7 @@ mod tests {
             "parameter_ids": []
         }"#;
 
-        assert!(serde_json::from_str::<TrainingState>(legacy).is_err());
+        assert!(serde_json::from_str::<TrainingState>(version_one).is_err());
     }
 
     #[test]
@@ -925,6 +1243,40 @@ mod tests {
         let mut shared = state_at(7);
         shared.optimizer_states[0].muon = ADAMW_FILE.into();
         assert!(shared.validate().is_err());
+    }
+
+    #[test]
+    fn exact_resume_identities_require_canonical_hashes_and_unique_parameters() {
+        let mut state = state_at(7);
+        state.workflow_signature = "sha256:workflow".into();
+        assert!(state.validate().is_err());
+
+        let mut state = state_at(7);
+        state.data_manifest_hash = Some(format!("sha256:{}", "A".repeat(64)));
+        assert!(state.validate().is_err());
+
+        let mut state = state_at(7);
+        state.evaluator_hashes = vec!["evaluator".into()];
+        assert!(state.validate().is_err());
+
+        let mut state = state_at(7);
+        state.parameter_ids.push(state.parameter_ids[0]);
+        assert!(state.validate().is_err());
+    }
+
+    #[test]
+    fn wake_optimizer_identity_and_clock_are_exact() {
+        let mut absent = state_at(7);
+        absent.optimizer_states[0].scope = "fast".into();
+        assert!(absent.validate().is_err());
+
+        let mut wrong_clock = state_at(7);
+        wrong_clock.optimizer_states[0].update_clock = 6;
+        assert!(wrong_clock.validate().is_err());
+
+        let mut wrong_path = state_at(7);
+        wrong_path.optimizer_states[0].adamw = "other-adamw.bpk".into();
+        assert!(wrong_path.validate().is_err());
     }
 
     #[test]
@@ -984,6 +1336,94 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("contents do not match"), "{error}");
+    }
+
+    #[test]
+    fn training_evidence_is_bound_idempotent_and_outside_the_generation() {
+        let directory = tempfile::tempdir().unwrap();
+        let state = state_at(7);
+        let staging = stage_test_generation(directory.path(), &state, "evidence");
+        let generation = seal_generation(directory.path(), &staging).unwrap();
+        let manifest_before = fs::read(generation.path.join(GENERATION_MANIFEST)).unwrap();
+        let manifest: GenerationManifest = serde_json::from_slice(&manifest_before).unwrap();
+        let accounting_sha256 = manifest
+            .files
+            .iter()
+            .find(|file| file.path == TRAINING_ACCOUNTING_FILE)
+            .unwrap()
+            .sha256
+            .clone();
+        let (_, weights_sha256) = hash_file(&generation.path.join(WEIGHTS_FILE)).unwrap();
+        let evidence = TrainingEvidence {
+            version: 1,
+            checkpoint_manifest_sha256: generation.manifest_sha256.clone(),
+            accounting_sha256,
+            training_gpu_hours: 1.25,
+            parameters: 100,
+            routed_active_parameters: 80,
+            stored_bytes: 16,
+            weights_sha256,
+        };
+
+        let first = publish_training_evidence(directory.path(), &generation, &evidence).unwrap();
+        let second = publish_training_evidence(directory.path(), &generation, &evidence).unwrap();
+        assert_eq!(first.path, second.path);
+        assert_eq!(first.sha256, second.sha256);
+        assert!(
+            first
+                .path
+                .starts_with(directory.path().join(TRAINING_EVIDENCE_DIRECTORY))
+        );
+        assert!(!first.path.starts_with(&generation.path));
+        assert_eq!(
+            fs::read(generation.path.join(GENERATION_MANIFEST)).unwrap(),
+            manifest_before
+        );
+        verify_generation(
+            &generation.path,
+            &generation.name,
+            &generation.manifest_sha256,
+        )
+        .unwrap();
+
+        fs::write(&first.path, b"tampered").unwrap();
+        let error = publish_training_evidence(directory.path(), &generation, &evidence)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("tampering"), "{error}");
+    }
+
+    #[test]
+    fn training_evidence_cannot_bind_a_different_generation() {
+        let directory = tempfile::tempdir().unwrap();
+        let state = state_at(7);
+        let staging = stage_test_generation(directory.path(), &state, "evidence-binding");
+        let generation = seal_generation(directory.path(), &staging).unwrap();
+        let manifest: GenerationManifest =
+            serde_json::from_slice(&fs::read(generation.path.join(GENERATION_MANIFEST)).unwrap())
+                .unwrap();
+        let accounting_sha256 = manifest
+            .files
+            .iter()
+            .find(|file| file.path == TRAINING_ACCOUNTING_FILE)
+            .unwrap()
+            .sha256
+            .clone();
+        let (_, weights_sha256) = hash_file(&generation.path.join(WEIGHTS_FILE)).unwrap();
+        let evidence = TrainingEvidence {
+            version: 1,
+            checkpoint_manifest_sha256: "0".repeat(64),
+            accounting_sha256,
+            training_gpu_hours: 1.0,
+            parameters: 100,
+            routed_active_parameters: 80,
+            stored_bytes: 16,
+            weights_sha256,
+        };
+        let error = publish_training_evidence(directory.path(), &generation, &evidence)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("does not bind"), "{error}");
     }
 
     #[test]

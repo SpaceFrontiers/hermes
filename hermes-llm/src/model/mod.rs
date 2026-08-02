@@ -5,7 +5,7 @@
 //! second model or checkpoint adapter. The module tree is layered:
 //!
 //! - **Model** — `transformer`, `block`, `attention`, `mamba`,
-//!   `ffn`, `norm`: architecture built from Burn modules.
+//!   `ffn`, `memory`, `norm`: architecture built from Burn modules.
 //! - **Kernel families** — `scan`, `linear_cross_entropy`, `conv`,
 //!   plus `fused_attention`/`cube_attention`: each exposes a backend
 //!   extension trait, a differentiable tensor-op reference (the
@@ -58,7 +58,7 @@ pub use mamba::{MambaMixer, MambaState};
 pub use memory::{MemoryChain, MemoryRouting, MemorySlotStatus};
 pub use norm::Norm;
 pub use scan::MambaBackend;
-pub use transformer::{SelectedLogitProjector, Transformer};
+pub use transformer::{SelectedLogitProjector, Transformer, WakeParameterAccounting};
 pub use weights::{load_safetensors, save_safetensors, upgrade_safetensors_to_memory};
 
 #[cfg(all(test, any(feature = "metal", feature = "cuda")))]

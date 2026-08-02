@@ -184,17 +184,30 @@ trainer injects task-aligned model, frozen-reference, teacher-distribution,
 rollout, idempotent publisher, and any non-built-in verifier adapters; there is
 no repository-specific model loader. Adapter, input, workflow, provider, RNG,
 and publisher identities are verified on resume. A phase with `periodic_sleep`
-is accepted only when the trainer supplies the explicit idempotent boundary
-hook.
+is accepted only when the trainer supplies an authenticated
+`PostTrainingClockReceipt` for the exact input checkpoint and the explicit
+idempotent boundary hook. Trainable policy adapters report a monotonic exact
+model-token counter; the executor samples it around each deterministic update
+instead of estimating token usage from padded sequence geometry.
 
 The complete education recipe combines periodic sleep with phase kinds outside
 the wake trainer and therefore uses the public embedded host in `native_host`.
 An embedding application constructs `NativeWorkflowAdapters` and registers a
 pinned external worker for ordinary phases, a
 `NativePostTrainingContextFactory` for native DPO/KL/GRPO, a
-`NativePeriodicWakeExecutor` for every optimizer-bearing phase carrying
-`periodic_sleep`, and a `NativeSleepPhaseContextFactory` when the workflow has
-a standalone `sleep` phase.
+`NativePeriodicWakeExecutor` for periodic optimizer-bearing phases not handled
+by typed post-training, and a `NativeSleepPhaseContextFactory` when the
+workflow has a standalone `sleep` phase. Periodic DPO/KL/GRPO boundaries use
+the `PostTrainingBoundaryHook` lent with their native execution context; the
+optimizer receipt, sleep receipt, and cursor therefore commit as one chain.
+Use `NativePostTrainingBoundaryController` with an injected
+`NativePostTrainingSleepRuntime` for the first-party implementation. Its tagged
+resume envelope persists the optimizer receipt before sleep starts and wraps
+every inner `NativeSleepCheckpoint`, so an interrupted sleep subphase cannot
+replace the outer post-training cursor. The registered controller identity must
+match the lent controller and the clock authority. Each resulting immutable
+checkpoint must carry enough authenticated metadata for the next phase factory
+to reconstruct both cumulative optimizer-step and exact model-token clocks.
 
 `NativeWorkflowHost::start` or `resume` computes a content identity from the
 resolved workflow and registered worker/factory identities, owns the atomic
@@ -414,11 +427,12 @@ matrix-vector implementation is a correctness oracle, not a claim that a fused
 CUDA/Metal production kernel or runnable quantized Transformer backend already
 exists. Model topology and tokenizer assets remain separate. The binary weight alphabet,
 group size, and FP16 scaling follow PrismML's published
-[Bonsai representation](https://github.com/PrismML-Eng/Bonsai-demo); HQUANT is
+[Bonsai representation](https://github.com/PrismML-Eng/Bonsai-demo/blob/main/bonsai-27b-whitepaper.pdf); HQUANT is
 a native Hermes archive, not a GGUF file. Hermes does not claim to reproduce
 PrismML's undisclosed conversion or training algorithm. The binary scale
-estimator follows the public reference; Hermes's ternary L2 estimator and
-base-3 storage are explicitly Hermes-native experiments.
+estimator is the deterministic least-squares optimum for Hermes's fixed sign
+codes; both that conversion and Hermes's ternary L2/base-3 paths are explicitly
+Hermes-native and are not attributed to PrismML.
 
 Quantization is also a task-data WorkflowV2 training phase. The education
 workflow demonstrates ternary warm-up followed by binary QAT and treats QAT as

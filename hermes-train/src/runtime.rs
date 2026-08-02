@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use crate::metrics::{MetricContext, MetricEvent};
 use crate::workflow::{PhaseClass, PhaseKind, PhaseV2, ResolvedWorkflow};
 
 /// Version of the serialized workflow-runtime state.
@@ -502,6 +503,11 @@ pub enum PhaseExecutionResult {
 /// the external checkpoint callback succeeds.
 pub trait PhaseProgressSink {
     fn checkpoint(&mut self, resume_state: Value) -> Result<()>;
+
+    /// Emit one typed metric associated with the phase currently being
+    /// executed. Persistence implementations decide whether metrics are
+    /// enabled and couple their committed prefix to runtime checkpoints.
+    fn metric(&mut self, context: MetricContext, event: MetricEvent) -> Result<()>;
 }
 
 /// Algorithm/backend adapter for one or more phase kinds.
@@ -613,6 +619,13 @@ pub enum RuntimeBoundary {
 /// accepted.  Implementations should use atomic replace/publication semantics.
 pub trait RuntimeCheckpoint {
     fn persist(&mut self, boundary: &RuntimeBoundary, state: &WorkflowRunState) -> Result<()>;
+
+    /// Append an uncommitted metric. The next successful [`Self::persist`]
+    /// call makes the current metric prefix part of the same durable runtime
+    /// boundary.
+    fn append_metric(&mut self, _context: MetricContext, _event: MetricEvent) -> Result<()> {
+        bail!("this runtime checkpoint has no metric journal configured")
+    }
 }
 
 impl<F> RuntimeCheckpoint for F
@@ -675,6 +688,10 @@ impl<S: RuntimeCheckpoint + ?Sized> PhaseProgressSink for ProgressCheckpoint<'_,
             phase_name: active.phase_name.clone(),
         };
         persist_transition(self.workflow, self.state, next, boundary, self.checkpoint)
+    }
+
+    fn metric(&mut self, context: MetricContext, event: MetricEvent) -> Result<()> {
+        self.checkpoint.append_metric(context, event)
     }
 }
 
@@ -908,33 +925,57 @@ mod tests {
                 "sft",
                 serde_json::json!({"type": "instruction_tuning"}),
             ),
-            training_phase(
-                "preference",
-                "preference",
-                serde_json::json!({"type": "pairwise_preference"}),
-            ),
-            training_phase(
-                "rl",
-                "rl",
-                serde_json::json!({
-                    "type": "verifiable_rl",
-                    "verifier": {"adapter": "exact_answer"}
-                }),
-            ),
-            training_phase(
-                "distill",
-                "distillation",
-                serde_json::json!({"type": "causal_lm"}),
-            ),
+            {
+                let mut phase = training_phase(
+                    "preference",
+                    "preference",
+                    serde_json::json!({"type": "pairwise_preference"}),
+                );
+                phase["post_training"] = serde_json::json!({
+                    "algorithm": "dpo",
+                    "reference": {"adapter": "test", "revision": "reference-v1"}
+                });
+                phase
+            },
+            {
+                let mut phase = training_phase(
+                    "rl",
+                    "rl",
+                    serde_json::json!({
+                        "type": "verifiable_rl",
+                        "verifier": {"adapter": "exact_answer"}
+                    }),
+                );
+                phase["post_training"] = serde_json::json!({
+                    "algorithm": "grpo",
+                    "reference": {"adapter": "test", "revision": "reference-v1"},
+                    "sampling": {"max_new_tokens": 32}
+                });
+                phase
+            },
+            {
+                let mut phase = training_phase(
+                    "distill",
+                    "distillation",
+                    serde_json::json!({"type": "causal_lm"}),
+                );
+                phase["post_training"] = serde_json::json!({
+                    "algorithm": "forward_kl",
+                    "teacher": {"adapter": "test", "revision": "teacher-v1"}
+                });
+                phase
+            },
             serde_json::json!({
                 "name": "sleep",
                 "type": "sleep",
                 "sleep": {
+                    "standalone_trigger_clock": 100,
                     "schedule": {
                         "clock": "optimizer_steps",
+                        "terminal_consolidation": "distill_into_base_v1",
                         "tiers": [
                             {"id": "fast", "update_period": 10, "reserve_slots": 1},
-                            {"id": "slow", "update_period": 100, "reserve_slots": 1}
+                            {"id": "slow", "update_period": 20, "reserve_slots": 2}
                         ]
                     },
                     "knowledge_seeding": {
@@ -945,12 +986,25 @@ mod tests {
                         "forward_kl_weight": 1.0
                     },
                     "imitation": {
-                        "semantic_judge_hash": "sha256:judge",
+                        "semantic_judge_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
                         "semantic_weight": 0.5,
                         "maximum_edit_distance": 8,
                         "grpo_group_size": 2
                     },
                     "retention_suite": "retention.json",
+                    "retention_suite_sha256": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                    "retention": {
+                        "evaluator_hash": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                        "suite_hash": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                        "max_anchor_forward_kl": 0.05,
+                        "max_anchor_regression": 0.01,
+                        "min_incorporation_gain": 0.0
+                    },
+                    "receiver_learning_rate": 0.0001,
+                    "receiver_weight_decay": 0.01,
+                    "grpo_clip_epsilon": 0.2,
+                    "grpo_advantage_epsilon": 0.000001,
+                    "grpo_kl_coefficient": 0.04,
                     "candidate_directory": "candidates"
                 }
             }),
@@ -976,7 +1030,8 @@ mod tests {
             }),
             serde_json::json!({
                 "name": "promote",
-                "type": "promotion"
+                "type": "promotion",
+                "promotion": crate::workflow::test_promotion_config()
             }),
         ];
         let workflow: WorkflowV2 = serde_json::from_value(serde_json::json!({

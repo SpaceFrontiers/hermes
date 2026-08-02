@@ -16,7 +16,8 @@ pub struct SourceSnapshot {
     pub revision: String,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct DiscoveryHit {
     pub record_key: String,
     pub score: f64,
@@ -30,6 +31,9 @@ pub struct DiscoveryHit {
 pub struct DiscoveryPage {
     pub hits: Vec<DiscoveryHit>,
     pub total_hits: Option<u64>,
+    /// Identity returned by the remote backend for this exact page. Pipelines
+    /// reject a missing or changed identity before accepting any page content.
+    pub snapshot: SourceSnapshot,
 }
 
 /// Backend-neutral record discovery. Implementations return stable record
@@ -39,6 +43,8 @@ pub trait SearchBackend: Send + Sync {
     /// Serializable, secret-free provider configuration for the immutable
     /// build manifest.
     fn configuration(&self) -> Result<Value>;
+    /// Expected immutable source identity. Each returned page must carry the
+    /// independently obtained remote proof in [`DiscoveryPage::snapshot`].
     fn snapshot(&self) -> Result<SourceSnapshot>;
     fn page_size(&self) -> usize;
     fn discover(
@@ -60,7 +66,7 @@ pub struct SearchApiConfig {
     pub request_mapping: SearchApiRequestMapping,
     pub response_mapping: SearchApiResponseMapping,
     pub fusion: SearchApiFusionContract,
-    pub snapshot: SourceSnapshot,
+    pub snapshot: SearchApiSnapshotContract,
     pub page_size: usize,
     #[serde(default = "default_timeout_seconds")]
     pub timeout_seconds: u64,
@@ -107,16 +113,54 @@ impl SearchApiConfig {
         self.request_mapping.validate(&self.request_template)?;
         self.response_mapping.validate()?;
         self.fusion.validate(&self.request_template)?;
-        ensure!(
-            !self.snapshot.provider.trim().is_empty() && !self.snapshot.revision.trim().is_empty(),
-            "search_api snapshot provider and revision must not be empty"
-        );
+        self.snapshot.validate(&self.request_template)?;
         if let Some(auth) = &self.auth {
             ensure!(
                 !auth.header.trim().is_empty() && !auth.environment.trim().is_empty(),
                 "search_api auth header and environment must not be empty"
             );
         }
+        Ok(())
+    }
+}
+
+/// Provider-neutral wire contract for an immutable remote index generation.
+/// The expected revision is written into every request and both provider and
+/// revision must be echoed by every response. Merely naming a revision in the
+/// local recipe is deliberately insufficient proof.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SearchApiSnapshotContract {
+    pub provider: String,
+    pub revision: String,
+    pub request_revision_pointer: String,
+    pub response_provider_pointer: String,
+    pub response_revision_pointer: String,
+}
+
+impl SearchApiSnapshotContract {
+    fn identity(&self) -> SourceSnapshot {
+        SourceSnapshot {
+            provider: self.provider.clone(),
+            revision: self.revision.clone(),
+        }
+    }
+
+    fn validate(&self, template: &Value) -> Result<()> {
+        ensure!(
+            !self.provider.trim().is_empty() && !self.revision.trim().is_empty(),
+            "search_api snapshot provider and revision must not be empty"
+        );
+        ensure_pointer(template, &self.request_revision_pointer)
+            .context("invalid search_api snapshot request revision pointer")?;
+        validate_json_pointer(&self.response_provider_pointer)
+            .context("invalid search_api snapshot response provider pointer")?;
+        validate_json_pointer(&self.response_revision_pointer)
+            .context("invalid search_api snapshot response revision pointer")?;
+        ensure!(
+            self.response_provider_pointer != self.response_revision_pointer,
+            "search_api snapshot provider and revision response pointers must be distinct"
+        );
         Ok(())
     }
 }
@@ -227,8 +271,21 @@ impl SearchApiResponseMapping {
 pub struct SearchApiFusionContract {
     pub marker_pointer: String,
     pub marker_value: Value,
-    pub sparse_vector_field: String,
-    pub dense_vector_field: String,
+    pub sparse: SearchApiFusionBranch,
+    pub dense: SearchApiFusionBranch,
+}
+
+/// One provider-defined branch of a sparse+dense fusion request.  Both JSON
+/// pointers are configuration because Search APIs do not share a request
+/// schema.  The clause itself stays in `request_template`; the field value is
+/// written on every request so the manifest cannot claim one field while the
+/// remote request silently uses another.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SearchApiFusionBranch {
+    pub clause_pointer: String,
+    pub vector_field_pointer: String,
+    pub vector_field: String,
 }
 
 impl SearchApiFusionContract {
@@ -238,10 +295,44 @@ impl SearchApiFusionContract {
             template.pointer(&self.marker_pointer) == Some(&self.marker_value),
             "search_api fusion marker does not match request_template"
         );
+        self.sparse.validate("sparse", template)?;
+        self.dense.validate("dense", template)?;
         ensure!(
-            !self.sparse_vector_field.trim().is_empty()
-                && !self.dense_vector_field.trim().is_empty(),
-            "search_api fusion requires configured sparse and dense vector fields"
+            self.sparse.clause_pointer != self.dense.clause_pointer,
+            "search_api sparse and dense fusion clauses must be distinct"
+        );
+        ensure!(
+            self.sparse.vector_field_pointer != self.dense.vector_field_pointer,
+            "search_api sparse and dense vector-field pointers must be distinct"
+        );
+        Ok(())
+    }
+}
+
+impl SearchApiFusionBranch {
+    fn validate(&self, name: &str, template: &Value) -> Result<()> {
+        ensure_pointer(template, &self.clause_pointer)
+            .with_context(|| format!("invalid search_api {name} fusion clause pointer"))?;
+        ensure!(
+            !template
+                .pointer(&self.clause_pointer)
+                .is_none_or(Value::is_null),
+            "search_api {name} fusion clause must not be null"
+        );
+        ensure_pointer(template, &self.vector_field_pointer)
+            .with_context(|| format!("invalid search_api {name} vector-field pointer"))?;
+        let field_prefix = if self.clause_pointer.is_empty() {
+            "/".to_owned()
+        } else {
+            format!("{}/", self.clause_pointer.trim_end_matches('/'))
+        };
+        ensure!(
+            self.vector_field_pointer.starts_with(&field_prefix),
+            "search_api {name} vector-field pointer must be inside its fusion clause"
+        );
+        ensure!(
+            !self.vector_field.trim().is_empty(),
+            "search_api {name} vector field must not be empty"
         );
         Ok(())
     }
@@ -394,6 +485,11 @@ where
             &self.config.request_mapping.limit_pointer,
             Value::Number(Number::from(u64::try_from(limit)?)),
         )?;
+        set_pointer(
+            &mut request,
+            &self.config.snapshot.request_revision_pointer,
+            Value::String(self.config.snapshot.revision.clone()),
+        )?;
         for (name, value) in &query.parameters {
             let pointer = self
                 .config
@@ -419,11 +515,51 @@ where
             &self.config.fusion.marker_pointer,
             self.config.fusion.marker_value.clone(),
         )?;
+        set_pointer(
+            &mut request,
+            &self.config.fusion.sparse.vector_field_pointer,
+            Value::String(self.config.fusion.sparse.vector_field.clone()),
+        )?;
+        set_pointer(
+            &mut request,
+            &self.config.fusion.dense.vector_field_pointer,
+            Value::String(self.config.fusion.dense.vector_field.clone()),
+        )?;
+        // These checks run after all query-specific substitutions. They make
+        // accidental replacement/removal of either provider-defined clause a
+        // request-time error rather than an implicit single-vector search.
+        for (name, pointer) in [
+            ("sparse", &self.config.fusion.sparse.clause_pointer),
+            ("dense", &self.config.fusion.dense.clause_pointer),
+        ] {
+            ensure!(
+                !request.pointer(pointer).is_none_or(Value::is_null),
+                "search_api {name} fusion clause `{pointer}` is absent from request"
+            );
+        }
         Ok(request)
     }
 
     fn parse_response(&self, response: &Value) -> Result<DiscoveryPage> {
         let mapping = &self.config.response_mapping;
+        let snapshot = SourceSnapshot {
+            provider: scalar_string(
+                response.pointer(&self.config.snapshot.response_provider_pointer),
+            )
+            .context("search_api response has no scalar snapshot provider proof")?,
+            revision: scalar_string(
+                response.pointer(&self.config.snapshot.response_revision_pointer),
+            )
+            .context("search_api response has no scalar snapshot revision proof")?,
+        };
+        ensure!(
+            snapshot == self.config.snapshot.identity(),
+            "search_api response snapshot mismatch: expected {}@{}, got {}@{}",
+            self.config.snapshot.provider,
+            self.config.snapshot.revision,
+            snapshot.provider,
+            snapshot.revision
+        );
         let raw_hits = response
             .pointer(&mapping.hits_pointer)
             .and_then(Value::as_array)
@@ -483,7 +619,11 @@ where
             .as_ref()
             .and_then(|pointer| response.pointer(pointer))
             .and_then(Value::as_u64);
-        Ok(DiscoveryPage { hits, total_hits })
+        Ok(DiscoveryPage {
+            hits,
+            total_hits,
+            snapshot,
+        })
     }
 }
 
@@ -500,7 +640,7 @@ where
     }
 
     fn snapshot(&self) -> Result<SourceSnapshot> {
-        Ok(self.config.snapshot.clone())
+        Ok(self.config.snapshot.identity())
     }
 
     fn page_size(&self) -> usize {

@@ -6,12 +6,14 @@
 //! remaining stages are backend-neutral and produce immutable, tokenized
 //! shards plus a complete build manifest.
 
+mod compose;
 mod config;
 mod materialize;
 mod pipeline;
 mod recipe;
 mod search;
 
+pub use compose::*;
 pub use config::*;
 pub use materialize::*;
 pub use pipeline::*;

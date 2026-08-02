@@ -216,8 +216,19 @@ fn validate_rules(kind: &str, rules: &[ClassificationRule]) -> Result<()> {
             rule.label
         );
         ensure!(
-            !rule.any_terms.is_empty() || !rule.metadata_equals.is_empty(),
+            !rule.any_terms.is_empty()
+                || !rule.all_terms.is_empty()
+                || !rule.metadata_equals.is_empty(),
             "{kind} rule `{}` has no predicates",
+            rule.label
+        );
+        ensure!(
+            rule.any_terms
+                .iter()
+                .chain(&rule.all_terms)
+                .chain(&rule.none_terms)
+                .all(|term| !term.trim().is_empty()),
+            "{kind} rule `{}` contains an empty term",
             rule.label
         );
     }
@@ -228,8 +239,16 @@ fn validate_rules(kind: &str, rules: &[ClassificationRule]) -> Result<()> {
 #[serde(deny_unknown_fields)]
 pub struct ClassificationRule {
     pub label: String,
+    /// Explicit precedence for overlapping rules. Equal-priority matches are
+    /// resolved by specificity and then label, never declaration order.
+    #[serde(default)]
+    pub priority: i32,
     #[serde(default)]
     pub any_terms: Vec<String>,
+    #[serde(default)]
+    pub all_terms: Vec<String>,
+    #[serde(default)]
+    pub none_terms: Vec<String>,
     #[serde(default)]
     pub metadata_equals: BTreeMap<String, Value>,
 }

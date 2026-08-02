@@ -240,7 +240,9 @@ pub struct MoeDef {
 ///
 /// Slots are allocated with the model but start dormant. Their activation mask
 /// and generation counters are checkpoint state rather than architecture
-/// fields, so activating a slot never changes tensor shapes.
+/// fields, so activating a slot never changes tensor shapes. Hermes executes a
+/// separate untrainable rank-matched zero fallback while all slots are dormant;
+/// it is not reserve capacity and keeps the configured top-1 route cost fixed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReserveExpertsDef {
     pub capacity: usize,

@@ -52,6 +52,23 @@ class WandbPayloadTests(unittest.TestCase):
         self.assertEqual(payload["global_step"], 7)
         self.assertEqual(payload["metric_sequence"], 11)
 
+    def test_post_training_update_is_flattened_without_schema_guessing(self):
+        record = self.record(
+            {
+                "transaction_id": "sha256:" + "a" * 64,
+                "algorithm": "grpo",
+                "optimizer_step": 9,
+                "loss": -0.25,
+                "mean_reward": 0.75,
+            }
+        )
+        record["event"]["type"] = "post_training_update"
+        payload = wandb_payload(record)
+        self.assertEqual(payload["event_type"], "post_training_update")
+        self.assertEqual(payload["algorithm"], "grpo")
+        self.assertEqual(payload["optimizer_step"], 9)
+        self.assertEqual(payload["mean_reward"], 0.75)
+
     def test_new_remote_run_keeps_sequence_zero(self):
         self.assertEqual(remote_sequence_floor(None), -1)
         self.assertEqual(remote_sequence_floor(-1), -1)

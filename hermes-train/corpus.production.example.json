@@ -69,19 +69,46 @@
       "difficulty_rules": [
         {
           "label": "foundation",
-          "metadata_equals": { "education_level": "foundation" }
+          "priority": 40,
+          "any_terms": [
+            "alphabet",
+            "phonics",
+            "early reader",
+            "basic grammar",
+            "primary reader"
+          ]
         },
         {
           "label": "school",
-          "metadata_equals": { "education_level": "school" }
+          "priority": 30,
+          "any_terms": [
+            "school textbook",
+            "secondary school",
+            "high school",
+            "grade lesson"
+          ]
         },
         {
           "label": "university",
-          "metadata_equals": { "education_level": "university" }
+          "priority": 20,
+          "any_terms": [
+            "university textbook",
+            "undergraduate",
+            "graduate course",
+            "university handbook"
+          ]
         },
         {
           "label": "scholarly",
-          "metadata_equals": { "education_level": "scholarly" }
+          "priority": 10,
+          "any_terms": [
+            "abstract",
+            "methodology",
+            "references",
+            "doi:",
+            "theorem",
+            "proof"
+          ]
         }
       ],
       "default_topic": "general",
@@ -124,7 +151,18 @@
       "cross_rerank": false,
       "deduplicate": true,
       "return_documents": false,
-      "filter_types": []
+      "snapshot_revision": "",
+      "filter_types": [],
+      "fusion": {
+        "sparse": {
+          "operator": "sparse",
+          "field": "content_sparse_vectors"
+        },
+        "dense": {
+          "operator": "dense",
+          "field": "dense_vectors"
+        }
+      }
     },
     "request_mapping": {
       "query_pointer": "/query",
@@ -148,12 +186,23 @@
     "fusion": {
       "marker_pointer": "/mode",
       "marker_value": "hybrid",
-      "sparse_vector_field": "content_sparse_vectors",
-      "dense_vector_field": "dense_vectors"
+      "sparse": {
+        "clause_pointer": "/fusion/sparse",
+        "vector_field_pointer": "/fusion/sparse/field",
+        "vector_field": "content_sparse_vectors"
+      },
+      "dense": {
+        "clause_pointer": "/fusion/dense",
+        "vector_field_pointer": "/fusion/dense/field",
+        "vector_field": "dense_vectors"
+      }
     },
     "snapshot": {
       "provider": "search_api:documents",
-      "revision": "REPLACE_WITH_PINNED_INDEX_GENERATION"
+      "revision": "REPLACE_WITH_PINNED_INDEX_GENERATION",
+      "request_revision_pointer": "/snapshot_revision",
+      "response_provider_pointer": "/snapshot/provider",
+      "response_revision_pointer": "/snapshot/revision"
     },
     "page_size": 500,
     "timeout_seconds": 180,
@@ -171,7 +220,16 @@
       "uris": "corpus_uris",
       "metadata": "corpus_metadata"
     },
-    "snapshot_statement": "SELECT txid_current_snapshot()::text",
+    "snapshot_statement": "SELECT revision::text FROM public.corpus_generations WHERE corpus_name = 'documents' AND active = TRUE",
+    "transport_security": {
+      "mode": "verified_tls",
+      "server_names": ["postgres.example.invalid"],
+      "trust": {
+        "source": "pinned_pem",
+        "certificate_pem_environment": "CORPUS_POSTGRES_ROOT_CERT_PEM",
+        "certificate_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
     "require_every_record": true
   }
 }
