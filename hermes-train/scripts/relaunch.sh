@@ -2606,8 +2606,14 @@ prepare_checkpoint() {
     die "equal-step local/remote checkpoint fork: $local_generation versus $REMOTE_GENERATION"
   fi
 
+  # Rehydrate an equal remote generation as well. The checkpoint generation
+  # authenticates trainer files, but its generated sleep/QAT closure and exact
+  # committed metric prefix live in the remote release envelope. A VM can keep
+  # current.json while losing either of those external artifacts; treating the
+  # equal generation as already complete would make the subsequent resume
+  # depend on damaged local state.
   if [[ $remote_available == true \
-    && ( -z "$local_step" || $REMOTE_STEP -gt $local_step ) ]]; then
+    && ( -z "$local_step" || $REMOTE_STEP -ge $local_step ) ]]; then
     restore_remote_checkpoint "$REMOTE_STEP" \
       || die "cannot restore the newest remote checkpoint"
     local_step=$REMOTE_STEP

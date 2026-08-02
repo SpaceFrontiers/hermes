@@ -1189,6 +1189,43 @@ PY
     || fail "generation-bound training evidence was not restored exactly"
 }
 
+run_equal_generation_release_rehydration_test() {
+  local case_root=$TEST_ROOT/equal-generation-rehydration
+  local config=$case_root/relaunch.conf
+  local missing_artifact metrics_path
+  prepare_artifact_checkpoint "$case_root" 32 equal
+  publish_remote_checkpoint "$case_root" 32 "$PREPARED_COMMAND"
+  missing_artifact=$(python3 -c \
+    'import json,sys; print(json.load(open(sys.argv[1]))["model"])' \
+    "$PREPARED_EXPECTED")
+  metrics_path=$(python3 -c \
+    'import json,sys; print(json.load(open(sys.argv[1]))["metrics_path"])' \
+    "$case_root/remote/current.json")
+
+  rm -f -- "$missing_artifact"
+  printf '{"locally_corrupt_but_complete_record":true}\n' \
+    >"$case_root/seed-output/metrics.jsonl"
+  cat >"$config" <<EOF
+HERMES_TRAIN_OUTPUT=$case_root/seed-output
+HERMES_TRAIN_STATE_DIR=$case_root/rehydration-state
+HERMES_TRAIN_REMOTE_URL=file://$case_root/remote
+HERMES_TRAIN_COMMAND=($fake_trainer train $PREPARED_COMMAND)
+HERMES_TRAIN_SYNC_INTERVAL=60
+HERMES_TRAIN_MAX_RESTARTS=0
+EOF
+  export TEST_CALLS=$case_root/rehydration-calls
+  export TEST_EXPECT_STEP=32
+  export TEST_FAIL_ONCE=false
+  unset TEST_BLOCK TEST_READY TEST_RELEASE TEST_WANDB_CALLS TEST_FAILURE_MARKER
+  "$TEST_SCRIPT_DIR/relaunch.sh" "$config"
+
+  [[ -f $missing_artifact && ! -L $missing_artifact ]] \
+    || fail "equal checkpoint generation did not restore its missing artifact closure"
+  cmp -- "$case_root/seed-output/metrics.jsonl" \
+    "$case_root/remote/$metrics_path" >/dev/null \
+    || fail "equal checkpoint generation did not restore its committed metric prefix"
+}
+
 run_rewritten_closure_rejected_test() {
   local case_root=$TEST_ROOT/rewritten-closure
   local config=$case_root/relaunch.conf
@@ -1634,6 +1671,7 @@ run_corrupt_remote_rejected_test
 run_training_evidence_rejected_test missing
 run_training_evidence_rejected_test conflicting
 run_sleep_and_qat_vm_loss_restore_test
+run_equal_generation_release_rehydration_test
 run_rewritten_closure_rejected_test
 run_full_dream_manifest_history_test
 run_external_initial_policy_test
