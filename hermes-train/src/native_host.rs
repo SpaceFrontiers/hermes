@@ -27,7 +27,7 @@ use crate::runtime::{
 use crate::worker::{AtomicRuntimeCheckpoint, ExternalPhaseExecutor};
 use crate::workflow::{InModelSleepConfig, PhaseKind, ResolvedWorkflow};
 
-const NATIVE_HOST_DISPATCH_VERSION: u32 = 1;
+const NATIVE_HOST_DISPATCH_VERSION: u32 = 2;
 
 /// Optional append-only metric journal owned atomically with runtime state.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -46,6 +46,11 @@ pub struct NativeHostMetricJournal {
 pub trait NativePostTrainingContextFactory {
     fn identity(&self) -> &str;
 
+    /// Registered identity of the first-party periodic-sleep controller lent
+    /// through [`PostTrainingExecutionContext`]. A typed post-training phase
+    /// with `periodic_sleep` is rejected during host preflight when absent.
+    fn periodic_sleep_identity(&self) -> Option<&str>;
+
     fn with_context(
         &mut self,
         request: &PhaseExecutionRequest,
@@ -53,13 +58,15 @@ pub trait NativePostTrainingContextFactory {
     ) -> Result<()>;
 }
 
-/// Deployment-owned in-process executor for any wake optimization phase that
-/// carries `periodic_sleep`, including one with typed post-training settings.
-/// It owns the complete phase, must drive the configured sleep boundary before
-/// advancing past a due optimizer step, and publishes only immutable,
-/// transaction-idempotent checkpoints. Generic external workers and the plain
-/// native post-training executor never receive phases with periodic sleep
-/// through [`NativeWorkflowHost`].
+/// Deployment-owned in-process executor for wake optimization phases that
+/// carry `periodic_sleep` and are not handled by the built-in typed
+/// post-training executor. It owns the complete phase, must drive the
+/// configured sleep boundary before advancing past a due optimizer step, and
+/// publishes only immutable, transaction-idempotent checkpoints. Typed DPO,
+/// forward-KL, and GRPO phases instead use
+/// [`PostTrainingBoundaryHook`](crate::posttrain::PostTrainingBoundaryHook) through
+/// [`PostTrainingExecutionContext`], so their prepared update and sleep receipt
+/// share one durable cursor.
 pub trait NativePeriodicWakeExecutor {
     fn identity(&self) -> &str;
 
@@ -126,6 +133,9 @@ impl NativeWorkflowAdapters {
         F: NativePostTrainingContextFactory + 'static,
     {
         validate_identity(factory.identity(), "native post-training factory")?;
+        if let Some(identity) = factory.periodic_sleep_identity() {
+            validate_identity(identity, "native post-training periodic-sleep controller")?;
+        }
         ensure!(
             self.post_training.is_none(),
             "a native post-training context factory is already registered"
@@ -169,6 +179,21 @@ impl NativeWorkflowAdapters {
                         NativeHostDispatch::NativeSleep
                     }
                     PhaseKind::Promotion => NativeHostDispatch::NativePromotion,
+                    _ if phase.post_training.is_some() => {
+                        let factory = self.post_training.as_deref().with_context(|| {
+                            format!(
+                                "phase `{}` has typed post_training and requires a registered native post-training context factory",
+                                phase.name
+                            )
+                        })?;
+                        ensure!(
+                            phase.periodic_sleep.is_none()
+                                || factory.periodic_sleep_identity().is_some(),
+                            "phase `{}` has periodic post_training and requires a registered native post-training periodic-sleep controller",
+                            phase.name,
+                        );
+                        NativeHostDispatch::NativePostTraining
+                    }
                     _ if phase.periodic_sleep.is_some() => {
                         ensure!(
                             self.periodic_wake.is_some(),
@@ -176,9 +201,6 @@ impl NativeWorkflowAdapters {
                             phase.name
                         );
                         NativeHostDispatch::NativePeriodicWake
-                    }
-                    _ if phase.post_training.is_some() && self.post_training.is_some() => {
-                        NativeHostDispatch::NativePostTraining
                     }
                     _ => {
                         ensure!(
@@ -218,6 +240,9 @@ impl NativeWorkflowAdapters {
             self.post_training
                 .as_deref()
                 .map(NativePostTrainingContextFactory::identity),
+            self.post_training
+                .as_deref()
+                .and_then(NativePostTrainingContextFactory::periodic_sleep_identity),
             self.periodic_wake
                 .as_deref()
                 .map(NativePeriodicWakeExecutor::identity),
@@ -415,6 +440,37 @@ impl PhaseExecutor<NativeWorkflowContext> for RoutedNativePhaseExecutor {
             "ordinary native host router received reserved phase `{}`",
             request.phase.name
         );
+        if let (Some(_), Some(factory)) = (
+            request.phase.post_training.as_ref(),
+            context.post_training.as_mut(),
+        ) {
+            let registered_periodic_identity = factory.periodic_sleep_identity().map(str::to_owned);
+            let mut result = None;
+            let mut operation = |phase_context: &mut PostTrainingExecutionContext<'_>| {
+                ensure!(
+                    result.is_none(),
+                    "post-training factory invoked its callback twice"
+                );
+                if request.phase.periodic_sleep.is_some() {
+                    let actual = phase_context
+                        .boundary_hook
+                        .as_deref()
+                        .context("periodic post-training context omitted its registered boundary controller")?
+                        .identity();
+                    ensure!(
+                        registered_periodic_identity.as_deref() == Some(actual),
+                        "periodic post-training context supplied a controller outside its registered identity"
+                    );
+                }
+                result = Some(
+                    self.post_training
+                        .execute(request, phase_context, progress)?,
+                );
+                Ok(())
+            };
+            factory.with_context(request, &mut operation)?;
+            return result.context("post-training factory did not provide an adapter context");
+        }
         if request.phase.periodic_sleep.is_some() {
             return context
                 .periodic_wake
@@ -426,25 +482,6 @@ impl PhaseExecutor<NativeWorkflowContext> for RoutedNativePhaseExecutor {
                     )
                 })?
                 .execute_periodic_wake(request, progress);
-        }
-        if let (Some(_), Some(factory)) = (
-            request.phase.post_training.as_ref(),
-            context.post_training.as_mut(),
-        ) {
-            let mut result = None;
-            let mut operation = |phase_context: &mut PostTrainingExecutionContext<'_>| {
-                ensure!(
-                    result.is_none(),
-                    "post-training factory invoked its callback twice"
-                );
-                result = Some(
-                    self.post_training
-                        .execute(request, phase_context, progress)?,
-                );
-                Ok(())
-            };
-            factory.with_context(request, &mut operation)?;
-            return result.context("post-training factory did not provide an adapter context");
         }
         self.external
             .as_mut()
@@ -498,6 +535,10 @@ mod tests {
     impl NativePostTrainingContextFactory for UnusedPostTrainingFactory {
         fn identity(&self) -> &str {
             &self.identity
+        }
+
+        fn periodic_sleep_identity(&self) -> Option<&str> {
+            Some(&self.identity)
         }
 
         fn with_context(
@@ -578,6 +619,9 @@ mod tests {
         let plan = adapters.dispatch_plan(&workflow).unwrap();
         for route in &plan {
             let expected = match route.phase_kind {
+                PhaseKind::Preference | PhaseKind::Distillation | PhaseKind::Rl => {
+                    NativeHostDispatch::NativePostTraining
+                }
                 kind if kind.uses_optimizer() => NativeHostDispatch::NativePeriodicWake,
                 PhaseKind::Promotion => NativeHostDispatch::NativePromotion,
                 PhaseKind::Evaluation => NativeHostDispatch::ExternalWorker,
@@ -588,7 +632,7 @@ mod tests {
     }
 
     #[test]
-    fn periodic_sleep_takes_precedence_over_plain_post_training() {
+    fn typed_post_training_owns_its_periodic_sleep_boundaries() {
         let temporary = tempfile::tempdir().unwrap();
         let worker = temporary.path().join("worker");
         let workflow = education_workflow();
@@ -600,7 +644,22 @@ mod tests {
             .iter()
             .find(|route| route.phase_name == "preference-dpo")
             .unwrap();
-        assert_eq!(preference.dispatch, NativeHostDispatch::NativePeriodicWake);
+        assert_eq!(preference.dispatch, NativeHostDispatch::NativePostTraining);
+    }
+
+    #[test]
+    fn periodic_post_training_does_not_require_a_whole_phase_wake_executor() {
+        let temporary = tempfile::tempdir().unwrap();
+        let worker = temporary.path().join("worker");
+        let mut workflow = education_workflow();
+        workflow
+            .phases
+            .retain(|phase| phase.name == "preference-dpo");
+        let adapters = education_adapters(&worker, false);
+
+        let plan = adapters.dispatch_plan(&workflow).unwrap();
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].dispatch, NativeHostDispatch::NativePostTraining);
     }
 
     #[test]
