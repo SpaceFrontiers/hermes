@@ -710,12 +710,18 @@ Dreaming trials, wake journals, QAT candidates/archives, and checkpoint-bound
 training evidence are stored once in a global SHA-256 object store; each
 generation receives a small immutable closure manifest. The supervisor uploads
 and re-verifies the checkpoint generation, closure manifest, and every referenced
-object before publishing `current.json` last. Restore verifies that same closure
-before atomically installing immutable artifacts and refuses to overwrite a
-different local file. Mutable pointers, staging files, and artifacts from a later
-generation are never captured. The append-only `metrics.jsonl` journal remains
-at the checkpoint root and is synchronized separately. It supports `gs://` and
-`file://`. The supervisor wraps the built-in `train` command; a service
+object before publishing `current.json` last. The remote pointer binds the
+generation, closure digest, and an exact committed metrics prefix stored under
+`checkpoint-metrics/<generation>/metrics.jsonl`. Pointer publication is
+monotonic and compare-and-swap protected; an equal-step generation fork fails
+closed. Restore verifies those bindings before atomically installing immutable
+artifacts and refuses to overwrite a different local file. Mutable pointers,
+staging files, and artifacts from a later generation are never captured. An
+external Dreaming `initial_policy` is a deployment-owned input: its path and
+digest are pinned by the sleep runtime and must be provisioned unchanged on a
+replacement host; generated descendants and adapters remain in the artifact
+closure. The transport supports `gs://` and `file://`. The supervisor wraps the
+built-in `train` command; a service
 supervising `run-workflow` must preserve its runtime state/metric files and add
 `--resume` after a yielded or interrupted run. Copy
 [`scripts/relaunch.conf.example`](scripts/relaunch.conf.example), keep W&B

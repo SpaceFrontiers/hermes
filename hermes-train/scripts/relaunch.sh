@@ -15,6 +15,7 @@ readonly GENERATION_MANIFEST=generation-manifest.json
 readonly ARTIFACTS_DIRECTORY=checkpoint-artifacts
 readonly ARTIFACT_MANIFEST=artifact-manifest.json
 readonly ARTIFACT_OBJECTS_DIRECTORY=checkpoint-objects/sha256
+readonly CHECKPOINT_METRICS_DIRECTORY=checkpoint-metrics
 readonly -a OBSOLETE_FLAT_CHECKPOINT_FILES=(
   weights.safetensors
   adamw-state.bpk
@@ -149,7 +150,19 @@ import secrets
 import stat
 import sys
 
-POINTER_KEYS = {"version", "generation", "manifest_sha256"}
+LOCAL_POINTER_KEYS = {"version", "generation", "manifest_sha256"}
+REMOTE_POINTER_KEYS = {
+    "version",
+    "generation",
+    "manifest_sha256",
+    "global_step",
+    "metric_records",
+    "metrics_path",
+    "metrics_bytes",
+    "metrics_sha256",
+    "artifact_manifest_bytes",
+    "artifact_manifest_sha256",
+}
 MANIFEST_KEYS = {
     "version",
     "training_state_version",
@@ -165,13 +178,20 @@ REQUIRED_FILES = {
     "muon-state.bpk",
     "training-state.json",
 }
-ARTIFACT_ROOT_SPEC_KEYS = {"version", "sleep_runtime_sha256", "roots"}
+ARTIFACT_ROOT_SPEC_KEYS = {
+    "version",
+    "sleep_runtime_sha256",
+    "dream_initial_policy",
+    "roots",
+}
 ARTIFACT_ROOT_KEYS = {"id", "path"}
+PINNED_ARTIFACT_KEYS = {"path", "sha256"}
 ARTIFACT_MANIFEST_KEYS = {
     "version",
     "checkpoint_generation",
     "checkpoint_manifest_sha256",
     "sleep_runtime_sha256",
+    "dream_initial_policy_sha256",
     "roots",
 }
 ARTIFACT_MANIFEST_ROOT_KEYS = {"id", "files"}
@@ -275,11 +295,12 @@ def load_json_file(path, label):
         fail(f"{label} is invalid JSON: {error}")
 
 
-def read_pointer(path):
+def read_pointer(path, remote=False):
     pointer, _ = load_json_file(path, "checkpoint current pointer")
-    if not isinstance(pointer, dict) or set(pointer) != POINTER_KEYS:
+    expected_keys = REMOTE_POINTER_KEYS if remote else LOCAL_POINTER_KEYS
+    if not isinstance(pointer, dict) or set(pointer) != expected_keys:
         fail("checkpoint current pointer has an invalid schema")
-    version(pointer["version"], 1, "checkpoint current pointer")
+    version(pointer["version"], 2 if remote else 1, "checkpoint current pointer")
     generation = pointer["generation"]
     if not isinstance(generation, str) or not generation.startswith("sha256-"):
         fail("checkpoint generation is not content-addressed")
@@ -291,7 +312,35 @@ def read_pointer(path):
     )
     if generation_digest != manifest_digest:
         fail("checkpoint generation name and manifest digest differ")
-    return generation, manifest_digest
+    if not remote:
+        return generation, manifest_digest
+
+    global_step = integer(pointer["global_step"], "remote pointer global_step")
+    metric_records = integer(pointer["metric_records"], "remote pointer metric_records")
+    metrics_path = safe_path(pointer["metrics_path"])
+    expected_metrics_path = f"checkpoint-metrics/{generation}/metrics.jsonl"
+    if metrics_path != expected_metrics_path:
+        fail("remote pointer metrics path does not match its checkpoint generation")
+    metrics_bytes = integer(pointer["metrics_bytes"], "remote pointer metrics size")
+    metrics_sha256 = digest(pointer["metrics_sha256"], "remote pointer metrics digest")
+    artifact_bytes = integer(
+        pointer["artifact_manifest_bytes"], "remote pointer artifact manifest size"
+    )
+    artifact_sha256 = digest(
+        pointer["artifact_manifest_sha256"],
+        "remote pointer artifact manifest digest",
+    )
+    return (
+        generation,
+        manifest_digest,
+        global_step,
+        metric_records,
+        metrics_path,
+        metrics_bytes,
+        metrics_sha256,
+        artifact_bytes,
+        artifact_sha256,
+    )
 
 
 def read_manifest(path, generation, expected_digest):
@@ -474,6 +523,7 @@ def make_artifact_root_spec(output, trainer_arguments):
             "in HERMES_TRAIN_COMMAND"
         )
     runtime_digest = None
+    dream_initial_policy = None
     if runtime_path is not None:
         runtime_path = clean_absolute_path(runtime_path, "sleep runtime configuration")
         runtime_bytes, observed = stable_file_descriptor(
@@ -524,6 +574,37 @@ def make_artifact_root_spec(output, trainer_arguments):
                     ),
                 }
             )
+            initial_policy = dreaming.get("initial_policy")
+            if initial_policy is not None:
+                if (
+                    not isinstance(initial_policy, dict)
+                    or set(initial_policy) != PINNED_ARTIFACT_KEYS
+                ):
+                    fail("sleep runtime dreaming initial_policy has an invalid schema")
+                initial_path = initial_policy["path"]
+                if not isinstance(initial_path, str) or not initial_path:
+                    fail("sleep runtime dreaming initial_policy path is empty")
+                initial_path = (
+                    initial_path
+                    if os.path.isabs(initial_path)
+                    else os.path.join(runtime_base, initial_path)
+                )
+                initial_path = clean_absolute_path(
+                    initial_path, "sleep runtime dreaming initial_policy"
+                )
+                expected_initial = sha256_reference(
+                    initial_policy["sha256"],
+                    "sleep runtime dreaming initial_policy digest",
+                )
+                _, observed_initial = stable_file_descriptor(
+                    initial_path, "sleep runtime dreaming initial_policy"
+                )
+                if observed_initial != expected_initial:
+                    fail("sleep runtime dreaming initial_policy digest mismatch")
+                dream_initial_policy = {
+                    "path": initial_path,
+                    "sha256": expected_initial,
+                }
 
     roots.sort(key=lambda item: item["id"])
     ids = [safe_root_id(item["id"]) for item in roots]
@@ -546,6 +627,7 @@ def make_artifact_root_spec(output, trainer_arguments):
     return {
         "version": 1,
         "sleep_runtime_sha256": runtime_digest,
+        "dream_initial_policy": dream_initial_policy,
         "roots": roots,
     }
 
@@ -558,6 +640,22 @@ def read_artifact_root_spec(path):
     runtime_digest = spec["sleep_runtime_sha256"]
     if runtime_digest is not None:
         digest(runtime_digest, "generated-artifact sleep runtime digest")
+    initial_policy = spec["dream_initial_policy"]
+    if initial_policy is not None:
+        if (
+            not isinstance(initial_policy, dict)
+            or set(initial_policy) != PINNED_ARTIFACT_KEYS
+        ):
+            fail("generated-artifact initial policy has an invalid schema")
+        initial_path = initial_policy["path"]
+        if (
+            not isinstance(initial_path, str)
+            or not os.path.isabs(initial_path)
+            or os.path.normpath(initial_path) != initial_path
+            or any(ord(character) < 32 or ord(character) == 127 for character in initial_path)
+        ):
+            fail("generated-artifact initial policy has an invalid path")
+        digest(initial_policy["sha256"], "generated-artifact initial policy digest")
     roots = spec["roots"]
     if not isinstance(roots, list):
         fail("generated-artifact roots is not an array")
@@ -722,6 +820,12 @@ def read_artifact_manifest(path, spec, generation, manifest_digest):
         fail("generated-artifact closure belongs to another checkpoint generation")
     if manifest["sleep_runtime_sha256"] != spec["sleep_runtime_sha256"]:
         fail("generated-artifact closure belongs to another sleep runtime")
+    expected_initial = spec["dream_initial_policy"]
+    expected_initial_sha256 = (
+        None if expected_initial is None else expected_initial["sha256"]
+    )
+    if manifest["dream_initial_policy_sha256"] != expected_initial_sha256:
+        fail("generated-artifact closure belongs to another initial Dreaming policy")
     roots = manifest["roots"]
     if not isinstance(roots, list):
         fail("generated-artifact closure roots is not an array")
@@ -781,6 +885,7 @@ class ArtifactClosureCollector:
         self.spec = spec
         self.roots = root_map(spec)
         self.selected = {root_id: {} for root_id in self.roots}
+        self.dream_initial_policy = spec["dream_initial_policy"]
 
     def _location(self, path):
         if not isinstance(path, str) or not path:
@@ -950,14 +1055,33 @@ class ArtifactClosureCollector:
             if policy in seen:
                 fail("Dreaming policy parent chain contains a cycle")
             seen.add(policy)
-            loaded = self.add_regular_manifest(
-                os.path.join(self.roots[root_id], "policies", f"{policy}.json"),
-                policy,
-                "Dreaming policy",
-            )
-            if loaded is None:
-                fail("Dreaming policy is outside its configured store")
-            _, value = loaded
+            initial = self.dream_initial_policy
+            if initial is not None and initial["sha256"] == policy:
+                initial_path = initial["path"]
+                payload = read_stable_bytes(initial_path, "deployment-bound Dreaming policy")
+                if hashlib.sha256(payload).hexdigest() != policy:
+                    fail("deployment-bound Dreaming policy digest mismatch")
+                value = load_unique_json_bytes(payload, "deployment-bound Dreaming policy")
+                if not isinstance(value, dict):
+                    fail("deployment-bound Dreaming policy is not an object")
+                # If deployment chose the canonical generated store path, keep
+                # the policy itself in the closure as well. Otherwise the pinned
+                # runtime digest/path/hash is the explicit deployment contract.
+                location = self._location(initial_path)
+                if location is not None:
+                    loaded = self.add_regular_manifest(
+                        initial_path, policy, "Dreaming policy"
+                    )
+                    _, value = loaded
+            else:
+                loaded = self.add_regular_manifest(
+                    os.path.join(self.roots[root_id], "policies", f"{policy}.json"),
+                    policy,
+                    "Dreaming policy",
+                )
+                if loaded is None:
+                    fail("Dreaming policy is outside its configured store")
+                _, value = loaded
             adapter = raw_content_digest(
                 value.get("adapter_sha256"), "Dreaming policy adapter digest"
             )
@@ -1079,12 +1203,16 @@ class ArtifactClosureCollector:
     def add_training_evidence(self, checkpoint_digest):
         root = self.roots["output.training-evidence"]
         if not os.path.lexists(root):
-            return
+            fail(
+                "checkpoint must have exactly one checkpoint-bound training-evidence "
+                "artifact, found 0"
+            )
         real_directory(root, "training-evidence root")
         try:
             names = sorted(os.listdir(root))
         except OSError as error:
             fail(f"cannot enumerate training-evidence root: {error}")
+        matching = 0
         for name in names:
             if not name.startswith("sha256-") or not name.endswith(".json"):
                 continue
@@ -1102,6 +1230,7 @@ class ArtifactClosureCollector:
                 isinstance(value, dict)
                 and value.get("checkpoint_manifest_sha256") == checkpoint_digest
             ):
+                matching += 1
                 if addressed != observed:
                     fail("checkpoint-bound training evidence has the wrong content address")
                 added = self.add(path, observed, "training evidence")
@@ -1110,6 +1239,11 @@ class ArtifactClosureCollector:
                 root_id, relative, _ = self._location(path)
                 if self.selected[root_id][relative]["bytes"] != length:
                     fail("checkpoint-bound training evidence changed during closure")
+        if matching != 1:
+            fail(
+                "checkpoint must have exactly one checkpoint-bound training-evidence "
+                f"artifact, found {matching}"
+            )
 
     def manifest_roots(self):
         return [
@@ -1185,6 +1319,13 @@ def build_artifact_closure(generation_path, spec, generation, checkpoint_digest)
             collector.add_model_references(transaction)
             collector.add_tensor_transaction(transaction)
             collector.add_dream_transaction(transaction)
+        artifact_manifests = sleep_state.get("artifact_manifests", [])
+        if not isinstance(artifact_manifests, list):
+            fail("training-state sleep artifact_manifests is not an array")
+        if artifact_manifests and "sleep.dreams" not in collector.roots:
+            fail("training-state names Dreaming manifests but runtime has no Dreaming store")
+        for manifest_hash in artifact_manifests:
+            collector.add_dream_manifest("sleep.dreams", manifest_hash)
         scopes = sleep.get("optimizer_scopes")
         if not isinstance(scopes, dict):
             fail("training-state optimizer scopes is not an object")
@@ -1457,6 +1598,39 @@ def validate_metrics(path, committed_records):
         fail("metric journal has fewer records than the training checkpoint")
 
 
+def snapshot_metrics(source, committed_records, destination):
+    committed_records = integer(committed_records, "committed metric records")
+    regular_file(source, "checkpoint metric journal")
+    parent = os.path.dirname(destination)
+    real_directory(parent, "metric snapshot destination directory")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(destination, flags, 0o600)
+    copied = 0
+    try:
+        with open(source, "rb") as input_file, os.fdopen(descriptor, "wb") as output:
+            descriptor = None
+            while copied < committed_records:
+                record = input_file.readline()
+                if not record or not record.endswith(b"\n"):
+                    fail("metric journal has a missing or torn committed record")
+                output.write(record)
+                copied += 1
+            output.flush()
+            os.fsync(output.fileno())
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
+def pointer_is_remote(path):
+    pointer, _ = load_json_file(path, "checkpoint current pointer")
+    if not isinstance(pointer, dict):
+        fail("checkpoint current pointer is not an object")
+    return pointer.get("version") == 2
+
+
 command = sys.argv[1]
 if command == "artifact-root-spec":
     specification = make_artifact_root_spec(sys.argv[2], sys.argv[3:])
@@ -1472,6 +1646,11 @@ elif command == "build-artifact-manifest":
         "checkpoint_generation": generation,
         "checkpoint_manifest_sha256": manifest_digest,
         "sleep_runtime_sha256": specification["sleep_runtime_sha256"],
+        "dream_initial_policy_sha256": (
+            None
+            if specification["dream_initial_policy"] is None
+            else specification["dream_initial_policy"]["sha256"]
+        ),
         "roots": build_artifact_closure(
             sys.argv[5], specification, generation, manifest_digest
         ),
@@ -1531,9 +1710,68 @@ elif command == "install-immutable":
     install_immutable(sys.argv[2], sys.argv[3], int(sys.argv[4]), sys.argv[5])
 elif command == "canonical-storage-root":
     print(clean_absolute_path(sys.argv[2], "file remote root"))
-elif command == "pointer":
-    generation, manifest_digest = read_pointer(sys.argv[2])
+elif command == "pointer-local":
+    generation, manifest_digest = read_pointer(sys.argv[2], remote=False)
     print(generation, manifest_digest, sep="\t")
+elif command == "pointer-remote":
+    print(*read_pointer(sys.argv[2], remote=True), sep="\t")
+elif command == "make-remote-pointer":
+    generation, manifest_digest = read_pointer(sys.argv[2], remote=False)
+    global_step = integer(int(sys.argv[3]), "remote pointer global_step")
+    metric_records = integer(int(sys.argv[4]), "remote pointer metric_records")
+    metrics_path = safe_path(sys.argv[5])
+    if metrics_path != f"checkpoint-metrics/{generation}/metrics.jsonl":
+        fail("remote pointer metrics path does not match its checkpoint generation")
+    metrics_bytes = integer(int(sys.argv[6]), "remote pointer metrics size")
+    metrics_sha256 = digest(sys.argv[7], "remote pointer metrics digest")
+    artifact_bytes = integer(int(sys.argv[8]), "remote pointer artifact manifest size")
+    artifact_sha256 = digest(sys.argv[9], "remote pointer artifact manifest digest")
+    pointer = {
+        "version": 2,
+        "generation": generation,
+        "manifest_sha256": manifest_digest,
+        "global_step": global_step,
+        "metric_records": metric_records,
+        "metrics_path": metrics_path,
+        "metrics_bytes": metrics_bytes,
+        "metrics_sha256": metrics_sha256,
+        "artifact_manifest_bytes": artifact_bytes,
+        "artifact_manifest_sha256": artifact_sha256,
+    }
+    print(json.dumps(pointer, sort_keys=True, separators=(",", ":")))
+elif command == "make-local-pointer":
+    pointer = read_pointer(sys.argv[2], remote=True)
+    print(
+        json.dumps(
+            {
+                "version": 1,
+                "generation": pointer[0],
+                "manifest_sha256": pointer[1],
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
+elif command == "compare-remote-pointers":
+    candidate, _ = load_json_file(sys.argv[2], "candidate remote pointer")
+    existing, _ = load_json_file(sys.argv[3], "existing remote pointer")
+    read_pointer(sys.argv[2], remote=True)
+    read_pointer(sys.argv[3], remote=True)
+    candidate_step = integer(candidate["global_step"], "candidate remote step")
+    existing_step = integer(existing["global_step"], "existing remote step")
+    if existing_step > candidate_step:
+        print("newer")
+    elif existing_step == candidate_step:
+        if existing["generation"] != candidate["generation"]:
+            fail(
+                "equal-step remote checkpoint fork: "
+                f"{existing['generation']} versus {candidate['generation']}"
+            )
+        if existing != candidate:
+            fail("same-generation remote release envelope differs from candidate")
+        print("same")
+    else:
+        print("advance")
 elif command == "manifest-files":
     manifest = read_manifest(sys.argv[2], sys.argv[3], sys.argv[4])
     for entry in manifest["files"]:
@@ -1544,16 +1782,49 @@ elif command == "verify-generation":
 elif command == "verify-root":
     root = sys.argv[2]
     real_directory(root, "checkpoint root")
-    generation, manifest_digest = read_pointer(os.path.join(root, "current.json"))
+    pointer_path = os.path.join(root, "current.json")
+    remote = pointer_is_remote(pointer_path)
+    pointer = read_pointer(pointer_path, remote=remote)
+    generation, manifest_digest = pointer[:2]
     generations = os.path.join(root, "generations")
     real_directory(generations, "checkpoint generations root")
     step, records = verify_generation(
         os.path.join(generations, generation), generation, manifest_digest
     )
-    validate_metrics(os.path.join(root, "metrics.jsonl"), records)
+    if remote:
+        (
+            _,
+            _,
+            pointer_step,
+            pointer_records,
+            metrics_path,
+            metrics_bytes,
+            metrics_sha256,
+            _,
+            _,
+        ) = pointer
+        if pointer_step != step or pointer_records != records:
+            fail("remote pointer step/metric count differs from its checkpoint generation")
+        metrics_file = os.path.join(root, *metrics_path.split("/"))
+        observed_bytes, observed_sha256 = stable_file_descriptor(
+            metrics_file, "remote checkpoint metric snapshot"
+        )
+        if observed_bytes != metrics_bytes or observed_sha256 != metrics_sha256:
+            fail("remote checkpoint metric snapshot differs from its pointer")
+        validate_metrics(metrics_file, records)
+        with open(metrics_file, "rb") as handle:
+            if sum(
+                block.count(b"\n")
+                for block in iter(lambda: handle.read(1024 * 1024), b"")
+            ) != records:
+                fail("remote checkpoint metric snapshot contains an uncommitted tail")
+    else:
+        validate_metrics(os.path.join(root, "metrics.jsonl"), records)
     print(step, generation, manifest_digest, records, sep="\t")
 elif command == "metrics":
     validate_metrics(sys.argv[2], integer(int(sys.argv[3]), "committed metric records"))
+elif command == "snapshot-metrics":
+    snapshot_metrics(sys.argv[2], int(sys.argv[3]), sys.argv[4])
 elif command == "atomic-copy":
     import shutil
     import tempfile
@@ -1693,19 +1964,6 @@ remote_upload_file() {
   fi
 }
 
-remote_publish_file() {
-  local source=$1
-  local relative=$2
-  if [[ $REMOTE == file://* ]]; then
-    local destination
-    destination="$(local_remote_root)/$relative"
-    mkdir -p -- "$(dirname -- "$destination")" || return 1
-    checkpoint_tool atomic-copy "$source" "$destination"
-  else
-    "$GCLOUD_BIN" storage cp "$source" "$(remote_path "$relative")"
-  fi
-}
-
 remote_upload_immutable_file() {
   local source=$1
   local relative=$2
@@ -1747,11 +2005,129 @@ remote_upload_immutable_file() {
   rm -f -- "$existing"
 }
 
+compare_remote_pointer_files() {
+  checkpoint_tool compare-remote-pointers "$1" "$2"
+}
+
+publish_file_remote_pointer() (
+  local candidate=$1
+  local destination
+  local existing state owner lock_owned=false
+  destination="$(local_remote_root)/$CURRENT_POINTER"
+  existing=$(mktemp "$STATE_DIR/existing-current.XXXXXX") || return 1
+  trap 'rm -f -- "$existing"; [[ $LOCK_TOOL != shlock || $lock_owned != true ]] || rm -f -- "$(local_remote_root)/.hermes-current.lock"' EXIT
+
+  if [[ $LOCK_TOOL == flock ]]; then
+    exec 7>"$(local_remote_root)/.hermes-current.lock"
+    flock 7 || return 1
+  else
+    owner=$(sh -c 'printf "%s" "$PPID"')
+    for _attempt in {1..100}; do
+      if shlock -f "$(local_remote_root)/.hermes-current.lock" -p "$owner"; then
+        lock_owned=true
+        break
+      fi
+      sleep 0.1
+    done
+    [[ $lock_owned == true ]] || return 1
+  fi
+
+  if [[ -e "$destination" || -L "$destination" ]]; then
+    [[ -f "$destination" && ! -L "$destination" ]] || return 1
+    cp -- "$destination" "$existing" || return 1
+    state=$(compare_remote_pointer_files "$candidate" "$existing") || return 1
+    case "$state" in
+      newer | same)
+        printf '%s\n' "$state"
+        return 0
+        ;;
+      advance) ;;
+      *) return 1 ;;
+    esac
+  fi
+  checkpoint_tool atomic-copy "$candidate" "$destination" || return 1
+  cp -- "$destination" "$existing" || return 1
+  [[ $(compare_remote_pointer_files "$candidate" "$existing") == same ]] || return 1
+  printf 'published\n'
+)
+
+gcs_pointer_generation() {
+  "$GCLOUD_BIN" storage objects describe "$(remote_path "$CURRENT_POINTER")" \
+    --format='value(generation)'
+}
+
+publish_gcs_remote_pointer() {
+  local candidate=$1
+  local before after existing state
+  existing=$(mktemp "$STATE_DIR/existing-current.XXXXXX") || return 1
+  for _attempt in {1..12}; do
+    if before=$(gcs_pointer_generation 2>/dev/null); then
+      [[ $before =~ ^[1-9][0-9]*$ ]] || {
+        rm -f -- "$existing"
+        return 1
+      }
+      if ! remote_download "$CURRENT_POINTER" "$existing" >/dev/null \
+        || ! after=$(gcs_pointer_generation 2>/dev/null); then
+        continue
+      fi
+      [[ $before == "$after" ]] || continue
+      state=$(compare_remote_pointer_files "$candidate" "$existing") || {
+        rm -f -- "$existing"
+        return 1
+      }
+      case "$state" in
+        newer | same)
+          rm -f -- "$existing"
+          printf '%s\n' "$state"
+          return 0
+          ;;
+        advance) ;;
+        *)
+          rm -f -- "$existing"
+          return 1
+          ;;
+      esac
+    else
+      before=0
+      if remote_download "$CURRENT_POINTER" "$existing" >/dev/null 2>&1; then
+        continue
+      fi
+    fi
+
+    if "$GCLOUD_BIN" storage cp --if-generation-match="$before" \
+      "$candidate" "$(remote_path "$CURRENT_POINTER")" >/dev/null; then
+      if remote_download "$CURRENT_POINTER" "$existing" >/dev/null \
+        && [[ $(compare_remote_pointer_files "$candidate" "$existing") == same ]]; then
+        rm -f -- "$existing"
+        printf 'published\n'
+        return 0
+      fi
+      rm -f -- "$existing"
+      return 1
+    fi
+  done
+  rm -f -- "$existing"
+  return 1
+}
+
+publish_remote_pointer() {
+  if [[ $REMOTE == file://* ]]; then
+    publish_file_remote_pointer "$1"
+  else
+    publish_gcs_remote_pointer "$1"
+  fi
+}
+
+UPLOADED_ARTIFACT_MANIFEST_BYTES=
+UPLOADED_ARTIFACT_MANIFEST_SHA256=
 remote_upload_artifacts() {
   local generation=$1
   local manifest_sha256=$2
   local closure plan descriptor root_id source_root relative bytes sha256
   local upload_failed=false
+
+  UPLOADED_ARTIFACT_MANIFEST_BYTES=
+  UPLOADED_ARTIFACT_MANIFEST_SHA256=
 
   closure=$(mktemp "$STATE_DIR/artifact-closure.XXXXXX") || return 1
   plan=$(mktemp "$STATE_DIR/artifact-plan.XXXXXX") || {
@@ -1800,6 +2176,8 @@ remote_upload_artifacts() {
     rm -f -- "$closure"
     return 1
   fi
+  UPLOADED_ARTIFACT_MANIFEST_BYTES=$bytes
+  UPLOADED_ARTIFACT_MANIFEST_SHA256=$sha256
   rm -f -- "$closure"
 }
 
@@ -1807,6 +2185,8 @@ download_remote_artifacts() {
   local destination=$1
   local generation=$2
   local manifest_sha256=$3
+  local expected_closure_bytes=$4
+  local expected_closure_sha256=$5
   local closure="$destination/$ARTIFACT_MANIFEST"
   local roots="$destination/roots"
   local plan root_plan root_id _source_root relative bytes sha256
@@ -1818,6 +2198,11 @@ download_remote_artifacts() {
       log "remote checkpoint $generation has no generated-artifact closure"
       return 1
     }
+  checkpoint_tool verify-file "$closure" \
+    "$expected_closure_bytes" "$expected_closure_sha256" || {
+    log "remote checkpoint $generation has a rewritten generated-artifact closure"
+    return 1
+  }
   root_plan=$(mktemp "$STATE_DIR/artifact-roots.XXXXXX") || return 1
   plan=$(mktemp "$STATE_DIR/artifact-plan.XXXXXX") || {
     rm -f -- "$root_plan"
@@ -1871,10 +2256,12 @@ download_remote_artifacts() {
 verify_remote_artifacts() {
   local generation=$1
   local manifest_sha256=$2
+  local closure_bytes=$3
+  local closure_sha256=$4
   local verification
   verification=$(mktemp -d "$STATE_DIR/verify-artifacts.XXXXXX") || return 1
   if download_remote_artifacts "$verification" \
-    "$generation" "$manifest_sha256"; then
+    "$generation" "$manifest_sha256" "$closure_bytes" "$closure_sha256"; then
     rm -rf -- "$verification"
     return 0
   fi
@@ -1999,6 +2386,9 @@ download_remote_generation() {
 REMOTE_STEP=
 REMOTE_GENERATION=
 REMOTE_MANIFEST_SHA256=
+REMOTE_METRICS_PATH=
+REMOTE_ARTIFACT_MANIFEST_BYTES=
+REMOTE_ARTIFACT_MANIFEST_SHA256=
 REMOTE_SNAPSHOT=
 REMOTE_ARTIFACTS=false
 
@@ -2012,14 +2402,17 @@ clear_remote_snapshot() {
 download_remote_checkpoint() {
   local destination=$1
   local pointer descriptor generation manifest_sha256 step metric_records
+  local pointer_step pointer_records metrics_path metrics_bytes metrics_sha256
+  local closure_bytes closure_sha256
   local direct_generation direct_manifest_sha256
 
   mkdir -p -- "$destination/$GENERATIONS_DIRECTORY" || return 1
   pointer="$destination/$CURRENT_POINTER"
   remote_download "$CURRENT_POINTER" "$pointer" >/dev/null || return 1
   REMOTE_ARTIFACTS=true
-  descriptor=$(checkpoint_tool pointer "$pointer") || return 1
-  IFS=$'\t' read -r generation manifest_sha256 <<<"$descriptor"
+  descriptor=$(checkpoint_tool pointer-remote "$pointer") || return 1
+  IFS=$'\t' read -r generation manifest_sha256 pointer_step pointer_records \
+    metrics_path metrics_bytes metrics_sha256 closure_bytes closure_sha256 <<<"$descriptor"
   [[ -n "$generation" && -n "$manifest_sha256" ]] || return 1
   if [[ $REMOTE == file://* ]]; then
     descriptor=$(checkpoint_descriptor "$(local_remote_root)") || return 1
@@ -2032,19 +2425,21 @@ download_remote_checkpoint() {
     "$generation" "$manifest_sha256" || return 1
   download_remote_artifacts \
     "$destination/$ARTIFACTS_DIRECTORY/$generation" \
-    "$generation" "$manifest_sha256" || return 1
+    "$generation" "$manifest_sha256" \
+    "$closure_bytes" "$closure_sha256" || return 1
   descriptor=$(checkpoint_tool verify-generation \
     "$destination/$GENERATIONS_DIRECTORY/$generation" \
     "$generation" "$manifest_sha256") || return 1
   IFS=$'\t' read -r step metric_records <<<"$descriptor"
-  [[ -n "$step" && -n "$metric_records" ]] || return 1
-  if ! remote_download metrics.jsonl "$destination/metrics.jsonl" >/dev/null; then
-    if (( metric_records > 0 )); then
-      log "remote checkpoint at step $step has no committed metric journal"
-      return 1
-    fi
-    : >"$destination/metrics.jsonl"
-  fi
+  [[ -n "$step" && -n "$metric_records" \
+    && $step == "$pointer_step" && $metric_records == "$pointer_records" ]] || return 1
+  mkdir -p -- "$(dirname -- "$destination/$metrics_path")" || return 1
+  remote_download "$metrics_path" "$destination/$metrics_path" >/dev/null || {
+    log "remote checkpoint at step $step has no immutable metric snapshot"
+    return 1
+  }
+  checkpoint_tool verify-file "$destination/$metrics_path" \
+    "$metrics_bytes" "$metrics_sha256" || return 1
   checkpoint_descriptor "$destination" || return 1
 }
 
@@ -2054,6 +2449,9 @@ refresh_remote_checkpoint() {
   REMOTE_STEP=
   REMOTE_GENERATION=
   REMOTE_MANIFEST_SHA256=
+  REMOTE_METRICS_PATH=
+  REMOTE_ARTIFACT_MANIFEST_BYTES=
+  REMOTE_ARTIFACT_MANIFEST_SHA256=
   REMOTE_ARTIFACTS=false
   [[ -n "$REMOTE" ]] || return 1
   snapshot=$(mktemp -d "$STATE_DIR/remote-checkpoint.XXXXXX") || return 1
@@ -2071,6 +2469,12 @@ refresh_remote_checkpoint() {
     rm -f -- "$descriptor_file"
     IFS=$'\t' read -r REMOTE_STEP REMOTE_GENERATION \
       REMOTE_MANIFEST_SHA256 _ <<<"$descriptor"
+    descriptor=$(checkpoint_tool pointer-remote "$snapshot/$CURRENT_POINTER") || {
+      rm -rf -- "$snapshot"
+      return 1
+    }
+    IFS=$'\t' read -r _ _ _ _ REMOTE_METRICS_PATH _ _ \
+      REMOTE_ARTIFACT_MANIFEST_BYTES REMOTE_ARTIFACT_MANIFEST_SHA256 <<<"$descriptor"
     REMOTE_SNAPSHOT=$snapshot
     return 0
   fi
@@ -2082,7 +2486,7 @@ refresh_remote_checkpoint() {
 restore_remote_checkpoint() {
   local expected_step=$1
   local descriptor generation manifest_sha256 step
-  local generation_root source destination staging quarantine
+  local generation_root source destination staging quarantine local_pointer
   [[ -n "$REMOTE_SNAPSHOT" ]] || return 1
   descriptor=$(checkpoint_descriptor "$REMOTE_SNAPSHOT") || return 1
   IFS=$'\t' read -r step generation manifest_sha256 _ <<<"$descriptor"
@@ -2147,18 +2551,29 @@ restore_remote_checkpoint() {
   # Restore every immutable external artifact authenticated by this generation
   # before making its local current.json visible. Existing identical files are
   # reused; conflicting files are preserved and make the restore fail closed.
+  checkpoint_tool verify-file \
+    "$REMOTE_SNAPSHOT/$ARTIFACTS_DIRECTORY/$generation/$ARTIFACT_MANIFEST" \
+    "$REMOTE_ARTIFACT_MANIFEST_BYTES" \
+    "$REMOTE_ARTIFACT_MANIFEST_SHA256" || return 1
   checkpoint_tool restore-artifact-snapshot "$ARTIFACT_ROOT_SPEC" \
     "$REMOTE_SNAPSHOT/$ARTIFACTS_DIRECTORY/$generation/$ARTIFACT_MANIFEST" \
     "$generation" "$manifest_sha256" \
     "$REMOTE_SNAPSHOT/$ARTIFACTS_DIRECTORY/$generation/roots" || return 1
 
-  # The root metric journal may be ahead of the checkpoint; the trainer trims
-  # it to metric_records. Publish it before the pointer so every visible
-  # generation has enough committed reporting history.
-  checkpoint_tool atomic-copy "$REMOTE_SNAPSHOT/metrics.jsonl" \
+  # Remote releases carry the exact committed prefix under an immutable,
+  # generation-specific path. Install it before deriving the trainer's strict
+  # local v1 pointer so no visible generation can lack its reporting history.
+  checkpoint_tool atomic-copy "$REMOTE_SNAPSHOT/$REMOTE_METRICS_PATH" \
     "$OUTPUT/metrics.jsonl" || return 1
-  checkpoint_tool atomic-copy "$REMOTE_SNAPSHOT/$CURRENT_POINTER" \
-    "$OUTPUT/$CURRENT_POINTER" || return 1
+  local_pointer=$(mktemp "$STATE_DIR/local-current.XXXXXX") || return 1
+  if ! checkpoint_tool make-local-pointer \
+    "$REMOTE_SNAPSHOT/$CURRENT_POINTER" >"$local_pointer" \
+    || ! checkpoint_tool atomic-copy "$local_pointer" \
+      "$OUTPUT/$CURRENT_POINTER"; then
+    rm -f -- "$local_pointer"
+    return 1
+  fi
+  rm -f -- "$local_pointer"
   descriptor=$(checkpoint_descriptor "$OUTPUT") || return 1
   IFS=$'\t' read -r step generation manifest_sha256 _ <<<"$descriptor"
   [[ $step == "$expected_step" ]] || return 1
@@ -2167,13 +2582,13 @@ restore_remote_checkpoint() {
 
 RESUME_STEP=
 prepare_checkpoint() {
-  local descriptor local_step=''
+  local descriptor local_step='' local_generation=''
   local remote_available=false remote_invalid=false
   RESUME_STEP=
   clear_remote_snapshot
 
   if descriptor=$(checkpoint_descriptor "$OUTPUT" 2>>"$SYNC_LOG"); then
-    local_step=${descriptor%%$'\t'*}
+    IFS=$'\t' read -r local_step local_generation _ _ <<<"$descriptor"
     log "found complete local checkpoint at step $local_step"
   fi
   if [[ -n "$REMOTE" ]] \
@@ -2183,6 +2598,12 @@ prepare_checkpoint() {
   elif [[ $REMOTE_ARTIFACTS == true ]]; then
     remote_invalid=true
     log "remote current.json does not reference a complete verified checkpoint"
+  fi
+
+  if [[ $remote_available == true && -n "$local_step" \
+    && $REMOTE_STEP -eq local_step && $REMOTE_GENERATION != "$local_generation" ]]; then
+    clear_remote_snapshot
+    die "equal-step local/remote checkpoint fork: $local_generation versus $REMOTE_GENERATION"
   fi
 
   if [[ $remote_available == true \
@@ -2228,15 +2649,19 @@ verify_remote_generation() {
 }
 
 sync_checkpoint_once() (
-  local descriptor step generation manifest_sha256
+  local descriptor step generation manifest_sha256 metric_records
   local after_step after_generation after_manifest_sha256
-  local remote_step=-1 remote_generation='' sync_owner sync_lock_owned=false pointer_snapshot=''
+  local remote_step=-1 remote_generation='' sync_owner sync_lock_owned=false
+  local pointer_snapshot='' metrics_snapshot='' remote_pointer=''
+  local metrics_relative metrics_bytes metrics_sha256 pointer_result
   exec 9>&-
   [[ -n "$REMOTE" ]] || return 0
 
   # shellcheck disable=SC2329 # Invoked by the EXIT trap below.
   sync_cleanup() {
     [[ -z "$pointer_snapshot" ]] || rm -f -- "$pointer_snapshot"
+    [[ -z "$metrics_snapshot" ]] || rm -f -- "$metrics_snapshot"
+    [[ -z "$remote_pointer" ]] || rm -f -- "$remote_pointer"
     clear_remote_snapshot
     [[ $LOCK_TOOL != shlock || $sync_lock_owned != true ]] \
       || rm -f -- "$STATE_DIR/sync.lock"
@@ -2254,21 +2679,14 @@ sync_checkpoint_once() (
   fi
 
   descriptor=$(checkpoint_descriptor "$OUTPUT" 2>/dev/null) || {
-    if [[ -f "$OUTPUT/metrics.jsonl" && ! -L "$OUTPUT/metrics.jsonl" ]]; then
-      if refresh_remote_checkpoint; then
-        clear_remote_snapshot
-      elif [[ $REMOTE_ARTIFACTS == false ]]; then
-        remote_publish_file "$OUTPUT/metrics.jsonl" metrics.jsonl || return 1
-      fi
-    fi
     log "checkpoint sync skipped: no complete local checkpoint"
     return 0
   }
-  IFS=$'\t' read -r step generation manifest_sha256 _ <<<"$descriptor"
+  IFS=$'\t' read -r step generation manifest_sha256 metric_records <<<"$descriptor"
 
   pointer_snapshot=$(mktemp "$STATE_DIR/current.XXXXXX") || return 1
   cp -- "$OUTPUT/$CURRENT_POINTER" "$pointer_snapshot" || return 1
-  descriptor=$(checkpoint_tool pointer "$pointer_snapshot") || return 1
+  descriptor=$(checkpoint_tool pointer-local "$pointer_snapshot") || return 1
   IFS=$'\t' read -r after_generation after_manifest_sha256 <<<"$descriptor"
   [[ $after_generation == "$generation" \
     && $after_manifest_sha256 == "$manifest_sha256" ]] || return 1
@@ -2282,19 +2700,40 @@ sync_checkpoint_once() (
     return 0
   fi
   if (( remote_step == step )); then
-    if [[ $remote_generation == "$generation" ]]; then
-      remote_publish_file "$OUTPUT/metrics.jsonl" metrics.jsonl || return 1
-      # refresh_remote_checkpoint already proved that this exact generation has
-      # a complete generated-artifact closure under the current configuration.
-      return 0
-    fi
+    [[ $remote_generation == "$generation" ]] || {
+      log "equal-step remote checkpoint fork: $remote_generation versus $generation"
+      return 1
+    }
+    # refresh_remote_checkpoint already proved this exact immutable release,
+    # including its bound closure and committed metric prefix.
+    return 0
   fi
 
-  remote_publish_file "$OUTPUT/metrics.jsonl" metrics.jsonl || return 1
   remote_upload_generation "$generation" "$manifest_sha256" || return 1
   verify_remote_generation "$generation" "$manifest_sha256" || return 1
   remote_upload_artifacts "$generation" "$manifest_sha256" || return 1
-  verify_remote_artifacts "$generation" "$manifest_sha256" || return 1
+  [[ -n "$UPLOADED_ARTIFACT_MANIFEST_BYTES" \
+    && -n "$UPLOADED_ARTIFACT_MANIFEST_SHA256" ]] || return 1
+  verify_remote_artifacts "$generation" "$manifest_sha256" \
+    "$UPLOADED_ARTIFACT_MANIFEST_BYTES" \
+    "$UPLOADED_ARTIFACT_MANIFEST_SHA256" || return 1
+
+  metrics_snapshot=$(mktemp "$STATE_DIR/metrics-prefix.XXXXXX") || return 1
+  rm -f -- "$metrics_snapshot"
+  checkpoint_tool snapshot-metrics "$OUTPUT/metrics.jsonl" \
+    "$metric_records" "$metrics_snapshot" || return 1
+  descriptor=$(checkpoint_tool file-descriptor "$metrics_snapshot") || return 1
+  IFS=$'\t' read -r metrics_bytes metrics_sha256 <<<"$descriptor"
+  [[ -n "$metrics_bytes" && -n "$metrics_sha256" ]] || return 1
+  metrics_relative="$CHECKPOINT_METRICS_DIRECTORY/$generation/metrics.jsonl"
+  remote_upload_immutable_file "$metrics_snapshot" "$metrics_relative" \
+    "$metrics_bytes" "$metrics_sha256" || return 1
+
+  remote_pointer=$(mktemp "$STATE_DIR/remote-current.XXXXXX") || return 1
+  checkpoint_tool make-remote-pointer "$pointer_snapshot" "$step" \
+    "$metric_records" "$metrics_relative" "$metrics_bytes" "$metrics_sha256" \
+    "$UPLOADED_ARTIFACT_MANIFEST_BYTES" \
+    "$UPLOADED_ARTIFACT_MANIFEST_SHA256" >"$remote_pointer" || return 1
 
   # The trainer may have started publishing another checkpoint while the
   # upload was in flight. Publish only the pointer snapshot whose exact,
@@ -2310,8 +2749,13 @@ sync_checkpoint_once() (
     log "checkpoint advanced from $step to $after_step during upload; retrying later"
     return 1
   fi
-  remote_publish_file "$pointer_snapshot" "$CURRENT_POINTER" || return 1
-  log "published checkpoint step $step to $REMOTE"
+  pointer_result=$(publish_remote_pointer "$remote_pointer") || return 1
+  case "$pointer_result" in
+    published) log "published checkpoint step $step to $REMOTE" ;;
+    same) log "checkpoint step $step was already published to $REMOTE" ;;
+    newer) log "remote checkpoint advanced while step $step uploaded; leaving it unchanged" ;;
+    *) return 1 ;;
+  esac
 )
 
 validate_wandb() {

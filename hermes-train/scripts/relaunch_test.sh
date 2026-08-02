@@ -91,6 +91,15 @@ if destination.exists():
     shutil.rmtree(staging)
 else:
     os.replace(staging, destination)
+evidence_bytes = json.dumps(
+    {"version": 1, "checkpoint_manifest_sha256": manifest_sha256},
+    sort_keys=True,
+    separators=(",", ":"),
+).encode()
+evidence_sha256 = hashlib.sha256(evidence_bytes).hexdigest()
+evidence_root = root / "training-evidence"
+evidence_root.mkdir(exist_ok=True)
+(evidence_root / f"sha256-{evidence_sha256}.json").write_bytes(evidence_bytes)
 pointer = {
     "version": 1,
     "generation": generation,
@@ -201,30 +210,74 @@ EOF
 cat >"$fake_gcloud" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-[[ ${1:-} == storage && ${2:-} == cp ]] || exit 64
-shift 2
-exclusive=false
+[[ ${1:-} == storage ]] || exit 64
+shift
+gcs_path() {
+  printf '%s/%s' "$TEST_GCS_ROOT" "${1#gs://}"
+}
+generation_file() {
+  local path=$1 key
+  key=$(printf '%s' "$path" | cksum | awk '{print $1 "-" $2}')
+  printf '%s/.object-generations/%s' "$TEST_GCS_ROOT" "$key"
+}
+if [[ ${1:-} == objects && ${2:-} == describe ]]; then
+  shift 2
+  [[ $# -eq 2 && $2 == --format=value\(generation\) ]] || exit 65
+  object=$(gcs_path "$1")
+  metadata=$(generation_file "$object")
+  [[ -f $object && ! -L $object && -s $metadata ]] || exit 1
+  cat "$metadata"
+  exit 0
+fi
+[[ ${1:-} == cp ]] || exit 64
+shift
+expected_generation=
 while [[ ${1:-} == --* ]]; do
-  [[ $1 == --if-generation-match=0 ]] && exclusive=true
+  case "$1" in
+    --if-generation-match=*) expected_generation=${1#*=} ;;
+  esac
   shift
 done
 [[ $# -eq 2 ]] || exit 65
 source_path=$1
 destination_path=$2
-gcs_path() {
-  printf '%s/%s' "$TEST_GCS_ROOT" "${1#gs://}"
-}
 if [[ $source_path == gs://* ]]; then
   source_path=$(gcs_path "$source_path")
   [[ -f $source_path && ! -L $source_path ]] || exit 1
   cp -- "$source_path" "$destination_path"
 else
   destination_path=$(gcs_path "$destination_path")
-  if [[ $exclusive == true && ( -e $destination_path || -L $destination_path ) ]]; then
+  if [[ -n ${TEST_GCS_DELAY_CURRENT_STEP:-} \
+    && ${destination_path##*/} == current.json ]]; then
+    IFS=$'\t' read -r candidate_step candidate_generation < <(
+      python3 -c 'import json,sys; value=json.load(open(sys.argv[1])); print(value["global_step"], value["generation"], sep="\t")' "$source_path"
+    )
+    if [[ $candidate_step == "$TEST_GCS_DELAY_CURRENT_STEP" \
+      && ( -z ${TEST_GCS_DELAY_CURRENT_GENERATION:-} \
+        || $candidate_generation == "$TEST_GCS_DELAY_CURRENT_GENERATION" ) ]]; then
+      : >"$TEST_GCS_DELAY_READY"
+      while [[ ! -e $TEST_GCS_DELAY_RELEASE ]]; do
+        sleep 0.01
+      done
+    fi
+  fi
+  metadata=$(generation_file "$destination_path")
+  lock=$metadata.lock
+  mkdir -p -- "$(dirname -- "$metadata")"
+  for _attempt in {1..1000}; do
+    mkdir "$lock" 2>/dev/null && break
+    sleep 0.01
+  done
+  [[ -d $lock ]] || exit 1
+  trap 'rmdir -- "$lock" 2>/dev/null || true' EXIT
+  current=0
+  [[ ! -s $metadata ]] || current=$(<"$metadata")
+  if [[ -n $expected_generation && $expected_generation != "$current" ]]; then
     exit 1
   fi
   mkdir -p -- "$(dirname -- "$destination_path")"
   cp -- "$source_path" "$destination_path"
+  printf '%s\n' "$((current + 1))" >"$metadata"
   printf 'UPLOAD\t%s\n' "${2#gs://}" >>"$TEST_GCS_LOG"
 fi
 EOF
@@ -232,6 +285,7 @@ cat >"$fake_artifact_writer" <<'PY'
 #!/usr/bin/env python3
 import hashlib
 import json
+import os
 import pathlib
 import sys
 
@@ -309,6 +363,7 @@ tier_manifest = tier_generation_root / "manifest.json"
 write(tier_manifest, tier_manifest_bytes)
 
 dream_root = runtime / "stores" / "dreams"
+runtime_value = json.loads((runtime / "sleep-runtime.json").read_text())
 dream_candidate_value = {"version": 1, "transaction_id": 41, "token_ids": [1, 2]}
 dream_candidate_bytes = canonical(dream_candidate_value)
 dream_candidate_hash = "sha256:" + hashlib.sha256(dream_candidate_bytes).hexdigest()
@@ -316,28 +371,36 @@ write(
     dream_root / "candidates" / f"{dream_candidate_hash[7:]}.json",
     dream_candidate_bytes,
 )
-parent_policy_adapter_bytes = f"parent-policy-adapter-{tag}\n".encode()
-parent_policy_adapter_hash = (
-    "sha256:" + hashlib.sha256(parent_policy_adapter_bytes).hexdigest()
-)
-write(
-    dream_root / "policy-adapters" / f"{parent_policy_adapter_hash[7:]}.bin",
-    parent_policy_adapter_bytes,
-)
-parent_policy_value = {
-    "version": 1,
-    "transaction_id": 40,
-    "adapter_sha256": parent_policy_adapter_hash,
-    "parent_policy_sha256": None,
-    "parent_adapter_sha256": None,
-    "accepted_adapters": [],
-}
-parent_policy_bytes = canonical(parent_policy_value)
-parent_policy_hash = "sha256:" + hashlib.sha256(parent_policy_bytes).hexdigest()
-write(
-    dream_root / "policies" / f"{parent_policy_hash[7:]}.json",
-    parent_policy_bytes,
-)
+initial_policy = runtime_value.get("dreaming", {}).get("initial_policy")
+if initial_policy is None:
+    parent_policy_adapter_bytes = f"parent-policy-adapter-{tag}\n".encode()
+    parent_policy_adapter_hash = (
+        "sha256:" + hashlib.sha256(parent_policy_adapter_bytes).hexdigest()
+    )
+    write(
+        dream_root / "policy-adapters" / f"{parent_policy_adapter_hash[7:]}.bin",
+        parent_policy_adapter_bytes,
+    )
+    parent_policy_value = {
+        "version": 1,
+        "transaction_id": 40,
+        "adapter_sha256": parent_policy_adapter_hash,
+        "parent_policy_sha256": None,
+        "parent_adapter_sha256": None,
+        "accepted_adapters": [],
+    }
+    parent_policy_bytes = canonical(parent_policy_value)
+    parent_policy_hash = "sha256:" + hashlib.sha256(parent_policy_bytes).hexdigest()
+    parent_policy_path = dream_root / "policies" / f"{parent_policy_hash[7:]}.json"
+    write(parent_policy_path, parent_policy_bytes)
+else:
+    parent_policy_path = runtime / initial_policy["path"]
+    parent_policy_bytes = parent_policy_path.read_bytes()
+    parent_policy_hash = initial_policy["sha256"]
+    if "sha256:" + hashlib.sha256(parent_policy_bytes).hexdigest() != parent_policy_hash:
+        raise SystemExit("external initial policy fixture digest mismatch")
+    parent_policy_value = json.loads(parent_policy_bytes)
+    parent_policy_adapter_hash = parent_policy_value["adapter_sha256"]
 dream_manifest_value = {
     "version": 1,
     "transaction_id": 41,
@@ -460,6 +523,56 @@ overlay = {
         },
     },
 }
+history_count = int(os.environ.get("TEST_DREAM_HISTORY_COUNT", "0"))
+if history_count:
+    history = []
+    for ordinal in range(history_count):
+        historical_candidate = canonical(
+            {"version": 1, "transaction_id": ordinal, "token_ids": [ordinal, 7]}
+        )
+        historical_candidate_hash = (
+            "sha256:" + hashlib.sha256(historical_candidate).hexdigest()
+        )
+        historical_candidate_path = (
+            dream_root / "candidates" / f"{historical_candidate_hash[7:]}.json"
+        )
+        write(historical_candidate_path, historical_candidate)
+        historical_manifest = canonical(
+            {
+                "version": 1,
+                "transaction_id": ordinal,
+                "generation_policy_sha256": None,
+                "generation_policy_adapter_sha256": None,
+                "dreams": [
+                    {
+                        "id": f"historical-dream-{ordinal}",
+                        "artifact_hash": historical_candidate_hash,
+                    }
+                ],
+            }
+        )
+        historical_manifest_hash = (
+            "sha256:" + hashlib.sha256(historical_manifest).hexdigest()
+        )
+        historical_manifest_path = (
+            dream_root / "manifests" / f"{historical_manifest_hash[7:]}.json"
+        )
+        write(historical_manifest_path, historical_manifest)
+        history.append(
+            (
+                historical_manifest_hash,
+                historical_manifest_path,
+                historical_candidate_path,
+            )
+        )
+    sleep_state = overlay["sleep"]["sleep"]
+    sleep_state["artifact_manifests"] = [item[0] for item in history] + [
+        dream_manifest_hash
+    ]
+    sleep_state["completed_transactions"] = [
+        {"generated_manifest": item[0], "dream_trials": []}
+        for item in history[-64:]
+    ]
 overlay_path = runtime / f"state-overlay-{tag}.json"
 overlay_path.write_bytes(canonical(overlay))
 expected = {
@@ -467,7 +580,7 @@ expected = {
     "tensor": str(tensor_generation_root / "transaction.json"),
     "tier": str(tier_generation_root / "optimizer.bpk"),
     "dream": str(dream_root / "policies" / f"{policy_hash[7:]}.json"),
-    "dream_parent": str(dream_root / "policies" / f"{parent_policy_hash[7:]}.json"),
+    "dream_parent": str(parent_policy_path),
     "dream_policy_adapter": str(
         dream_root / "policy-adapters" / f"{policy_adapter_hash[7:]}.bin"
     ),
@@ -475,6 +588,9 @@ expected = {
     "journal": str(journal),
     "future_model": str(output / "sleep-models" / f"future-{tag}.safetensors"),
 }
+if history_count:
+    expected["oldest_dream_manifest"] = str(history[0][1])
+    expected["oldest_dream_candidate"] = str(history[0][2])
 (runtime / f"expected-{tag}.json").write_bytes(canonical(expected))
 print(overlay_path)
 PY
@@ -488,16 +604,51 @@ write_sleep_runtime() {
   mkdir -p -- "$runtime_root/stores/tensor" "$runtime_root/stores/prospective" \
     "$runtime_root/stores/optimizers" "$runtime_root/stores/candidates" \
     "$runtime_root/stores/rejections" "$runtime_root/stores/dreams"
-  cat >"$runtime" <<'EOF'
-{
-  "tensor_transaction_directory": "stores/tensor",
-  "prospective_directory": "stores/prospective",
-  "tier_optimizer_directory": "stores/optimizers",
-  "candidate_directory": "stores/candidates",
-  "rejection_report_directory": "stores/rejections",
-  "dreaming": {"artifact_directory": "stores/dreams"}
+  python3 - "$runtime_root" "$runtime" <<'PY'
+import hashlib
+import json
+import os
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+runtime = pathlib.Path(sys.argv[2])
+dreaming = {"artifact_directory": "stores/dreams"}
+if os.environ.get("TEST_EXTERNAL_INITIAL_POLICY") == "true":
+    adapter = b"deployment-initial-policy-adapter\n"
+    adapter_sha256 = "sha256:" + hashlib.sha256(adapter).hexdigest()
+    adapter_path = root / "stores" / "dreams" / "policy-adapters" / f"{adapter_sha256[7:]}.bin"
+    adapter_path.parent.mkdir(parents=True, exist_ok=True)
+    adapter_path.write_bytes(adapter)
+    policy = json.dumps(
+        {
+            "version": 1,
+            "transaction_id": 0,
+            "adapter_sha256": adapter_sha256,
+            "parent_policy_sha256": None,
+            "parent_adapter_sha256": None,
+            "accepted_adapters": [],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    policy_path = root / "deployment" / "initial-policy.json"
+    policy_path.parent.mkdir(parents=True, exist_ok=True)
+    policy_path.write_bytes(policy)
+    dreaming["initial_policy"] = {
+        "path": "deployment/initial-policy.json",
+        "sha256": "sha256:" + hashlib.sha256(policy).hexdigest(),
+    }
+value = {
+    "tensor_transaction_directory": "stores/tensor",
+    "prospective_directory": "stores/prospective",
+    "tier_optimizer_directory": "stores/optimizers",
+    "candidate_directory": "stores/candidates",
+    "rejection_report_directory": "stores/rejections",
+    "dreaming": dreaming,
 }
-EOF
+runtime.write_text(json.dumps(value, sort_keys=True, separators=(",", ":")))
+PY
   printf '%s\t%s' "$runtime" \
     "$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$runtime")"
 }
@@ -529,7 +680,7 @@ EOF
   "$TEST_SCRIPT_DIR/relaunch.sh" "$config" >"$case_root/seed.log" 2>&1 &
   local supervisor_pid=$!
   local published=false
-  for _attempt in {1..200}; do
+  for _attempt in {1..1200}; do
     if [[ -s $case_root/remote/current.json ]] \
       && [[ $(current_generation "$case_root/remote" 2>/dev/null) == "$expected_generation" ]]; then
       published=true
@@ -674,7 +825,13 @@ EOF
   [[ -s $case_root/remote/generations/$remote_generation/generation-manifest.json ]] \
     || fail "generation manifest was not synced"
   [[ -s $case_root/remote/current.json ]] || fail "current pointer was not published"
-  [[ -s $case_root/remote/metrics.jsonl ]] || fail "root metric journal was not synced"
+  local metrics_path
+  metrics_path=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["metrics_path"])' \
+    "$case_root/remote/current.json")
+  [[ -s $case_root/remote/$metrics_path ]] \
+    || fail "immutable checkpoint metric prefix was not synced"
+  [[ ! -e $case_root/remote/metrics.jsonl ]] \
+    || fail "mutable root metric journal was published"
   [[ ! -e $case_root/remote/latest.json && ! -e $case_root/remote/checkpoints ]] \
     || fail "obsolete flat remote checkpoint layout was published"
 }
@@ -899,6 +1056,73 @@ EOF
     || fail "corrupt remote checkpoint failure was not explained"
 }
 
+run_training_evidence_rejected_test() {
+  local mode=$1
+  local case_root=$TEST_ROOT/training-evidence-$mode
+  local config=$case_root/relaunch.conf
+  local generation supervisor_pid observed=false
+  write_checkpoint "$case_root/output" 23 2 "evidence-$mode"
+  generation=$(current_generation "$case_root/output")
+  case "$mode" in
+    missing)
+      rm -rf -- "$case_root/output/training-evidence"
+      ;;
+    conflicting)
+      python3 - "$case_root/output" "${generation#sha256-}" <<'PY'
+import hashlib
+import json
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1]) / "training-evidence"
+payload = json.dumps(
+    {
+        "version": 1,
+        "checkpoint_manifest_sha256": sys.argv[2],
+        "conflicting_receipt": True,
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+).encode()
+digest = hashlib.sha256(payload).hexdigest()
+(root / f"sha256-{digest}.json").write_bytes(payload)
+PY
+      ;;
+    *) fail "unknown training-evidence rejection mode: $mode" ;;
+  esac
+  cat >"$config" <<EOF
+HERMES_TRAIN_OUTPUT=$case_root/output
+HERMES_TRAIN_STATE_DIR=$case_root/state
+HERMES_TRAIN_REMOTE_URL=file://$case_root/remote
+HERMES_TRAIN_COMMAND=($fake_trainer train)
+HERMES_TRAIN_SYNC_INTERVAL=1
+HERMES_TRAIN_MAX_RESTARTS=0
+EOF
+  export TEST_CALLS=$case_root/calls
+  export TEST_READY=$case_root/ready
+  export TEST_RELEASE=$case_root/release
+  export TEST_BLOCK=true
+  export TEST_FAIL_ONCE=false
+  unset TEST_EXPECT_STEP TEST_WANDB_CALLS TEST_FAILURE_MARKER
+  "$TEST_SCRIPT_DIR/relaunch.sh" "$config" >"$case_root/log" 2>&1 &
+  supervisor_pid=$!
+  for _attempt in {1..200}; do
+    if grep -q 'checkpoint must have exactly one checkpoint-bound training-evidence artifact' \
+      "$case_root/state/sync.log" 2>/dev/null; then
+      observed=true
+      break
+    fi
+    sleep 0.05
+  done
+  : >"$TEST_RELEASE"
+  wait "$supervisor_pid"
+  unset TEST_BLOCK TEST_READY TEST_RELEASE
+  [[ $observed == true ]] \
+    || fail "$mode checkpoint-bound training-evidence failure was not explained"
+  [[ ! -e $case_root/remote/current.json ]] \
+    || fail "$mode checkpoint-bound training evidence was published"
+}
+
 run_sleep_and_qat_vm_loss_restore_test() {
   local case_root=$TEST_ROOT/artifact-vm-loss
   local config=$case_root/relaunch.conf
@@ -963,6 +1187,128 @@ PY
     || fail "restore overwrote an unrelated local generated artifact"
   [[ $(find "$case_root/seed-output/training-evidence" -type f | wc -l) -eq 1 ]] \
     || fail "generation-bound training evidence was not restored exactly"
+}
+
+run_rewritten_closure_rejected_test() {
+  local case_root=$TEST_ROOT/rewritten-closure
+  local config=$case_root/relaunch.conf
+  local generation closure
+  prepare_artifact_checkpoint "$case_root" 33 rewrite
+  publish_remote_checkpoint "$case_root" 33 "$PREPARED_COMMAND"
+  generation=$(current_generation "$case_root/remote")
+  closure=$(artifact_manifest_for "$case_root/remote" "$generation")
+  python3 - "$closure" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+value = json.loads(path.read_text())
+for root in value["roots"]:
+    root["files"] = []
+path.write_text(json.dumps(value, sort_keys=True, separators=(",", ":")))
+PY
+  rm -rf -- "$case_root/seed-output" "$case_root/runtime/stores"
+  cat >"$config" <<EOF
+HERMES_TRAIN_OUTPUT=$case_root/seed-output
+HERMES_TRAIN_STATE_DIR=$case_root/restore-state
+HERMES_TRAIN_REMOTE_URL=file://$case_root/remote
+HERMES_TRAIN_COMMAND=($fake_trainer train $PREPARED_COMMAND)
+HERMES_TRAIN_MAX_RESTARTS=0
+EOF
+  export TEST_CALLS=$case_root/restore-calls
+  export TEST_FAIL_ONCE=false
+  unset TEST_BLOCK TEST_EXPECT_STEP TEST_WANDB_CALLS TEST_FAILURE_MARKER
+  if "$TEST_SCRIPT_DIR/relaunch.sh" "$config" >"$case_root/log" 2>&1; then
+    fail "rewritten generated-artifact closure was accepted"
+  fi
+  [[ ! -e $TEST_CALLS ]] \
+    || fail "trainer launched after generated-artifact closure omission"
+  grep -q 'rewritten generated-artifact closure' "$case_root/restore-state/sync.log" \
+    || fail "rewritten generated-artifact closure failure was not explained"
+}
+
+run_full_dream_manifest_history_test() {
+  local case_root=$TEST_ROOT/full-dream-history
+  local config=$case_root/relaunch.conf
+  local oldest_manifest oldest_candidate
+  export TEST_DREAM_HISTORY_COUNT=65
+  prepare_artifact_checkpoint "$case_root" 35 history
+  unset TEST_DREAM_HISTORY_COUNT
+  oldest_manifest=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["oldest_dream_manifest"])' "$PREPARED_EXPECTED")
+  oldest_candidate=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["oldest_dream_candidate"])' "$PREPARED_EXPECTED")
+  publish_remote_checkpoint "$case_root" 35 "$PREPARED_COMMAND"
+  rm -rf -- "$case_root/seed-output" "$case_root/runtime/stores"
+  cat >"$config" <<EOF
+HERMES_TRAIN_OUTPUT=$case_root/seed-output
+HERMES_TRAIN_STATE_DIR=$case_root/restore-state
+HERMES_TRAIN_REMOTE_URL=file://$case_root/remote
+HERMES_TRAIN_COMMAND=($fake_trainer train $PREPARED_COMMAND)
+HERMES_TRAIN_MAX_RESTARTS=0
+EOF
+  export TEST_CALLS=$case_root/restore-calls
+  export TEST_EXPECT_STEP=35
+  export TEST_FAIL_ONCE=false
+  unset TEST_BLOCK TEST_WANDB_CALLS TEST_FAILURE_MARKER
+  "$TEST_SCRIPT_DIR/relaunch.sh" "$config"
+  [[ -f $oldest_manifest && ! -L $oldest_manifest ]] \
+    || fail "Dreaming manifest older than the 64-transaction tail was not restored"
+  [[ -f $oldest_candidate && ! -L $oldest_candidate ]] \
+    || fail "Dreaming candidate older than the 64-transaction tail was not restored"
+}
+
+run_external_initial_policy_test() {
+  local case_root=$TEST_ROOT/external-initial-policy
+  local config=$case_root/relaunch.conf
+  local generation closure policy_path policy_sha256
+  export TEST_EXTERNAL_INITIAL_POLICY=true
+  prepare_artifact_checkpoint "$case_root" 39 external-policy
+  unset TEST_EXTERNAL_INITIAL_POLICY
+  policy_path=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["dream_parent"])' "$PREPARED_EXPECTED")
+  policy_sha256=$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$policy_path")
+  publish_remote_checkpoint "$case_root" 39 "$PREPARED_COMMAND"
+  generation=$(current_generation "$case_root/remote")
+  closure=$(artifact_manifest_for "$case_root/remote" "$generation")
+  python3 - "$closure" "$policy_sha256" <<'PY'
+import json
+import sys
+
+closure = json.load(open(sys.argv[1]))
+if closure["dream_initial_policy_sha256"] != sys.argv[2]:
+    raise SystemExit("closure does not bind the external initial policy")
+selected_digests = {
+    entry["sha256"] for root in closure["roots"] for entry in root["files"]
+}
+if sys.argv[2] in selected_digests:
+    raise SystemExit("deployment-owned initial policy was copied into generated-artifact CAS")
+PY
+  rm -rf -- "$case_root/seed-output" "$case_root/runtime/stores"
+  cat >"$config" <<EOF
+HERMES_TRAIN_OUTPUT=$case_root/seed-output
+HERMES_TRAIN_STATE_DIR=$case_root/restore-state
+HERMES_TRAIN_REMOTE_URL=file://$case_root/remote
+HERMES_TRAIN_COMMAND=($fake_trainer train $PREPARED_COMMAND)
+HERMES_TRAIN_MAX_RESTARTS=0
+EOF
+  export TEST_CALLS=$case_root/restore-calls
+  export TEST_EXPECT_STEP=39
+  export TEST_FAIL_ONCE=false
+  unset TEST_BLOCK TEST_WANDB_CALLS TEST_FAILURE_MARKER
+  "$TEST_SCRIPT_DIR/relaunch.sh" "$config"
+  [[ -f $policy_path && ! -L $policy_path ]] \
+    || fail "deployment-bound initial policy disappeared during restore"
+
+  rm -rf -- "$case_root/seed-output"
+  printf 'tampered\n' >>"$policy_path"
+  export TEST_CALLS=$case_root/tampered-calls
+  unset TEST_EXPECT_STEP
+  if "$TEST_SCRIPT_DIR/relaunch.sh" "$config" >"$case_root/tampered.log" 2>&1; then
+    fail "tampered deployment-bound initial policy was accepted"
+  fi
+  [[ ! -e $TEST_CALLS ]] \
+    || fail "trainer launched with a tampered deployment-bound initial policy"
+  grep -q 'initial_policy digest mismatch' "$case_root/tampered.log" \
+    || fail "external initial policy binding failure was not explained"
 }
 
 run_auxiliary_corruption_rejected_test() {
@@ -1126,6 +1472,115 @@ EOF
     || fail "current.json was not published strictly after CAS objects and closure manifest"
 }
 
+run_concurrent_pointer_race_test() {
+  local mode=$1
+  local case_root=$TEST_ROOT/concurrent-pointer-$mode
+  local first_config=$case_root/first.conf
+  local second_config=$case_root/second.conf
+  local first_step second_step first_generation second_generation
+  local first_pid second_pid delayed=false published=false observed_generation
+  case "$mode" in
+    stale)
+      first_step=61
+      second_step=62
+      ;;
+    fork)
+      first_step=63
+      second_step=63
+      ;;
+    *) fail "unknown pointer race mode: $mode" ;;
+  esac
+  write_checkpoint "$case_root/first-output" "$first_step" 2 "$mode-first"
+  write_checkpoint "$case_root/second-output" "$second_step" 2 "$mode-second"
+  first_generation=$(current_generation "$case_root/first-output")
+  second_generation=$(current_generation "$case_root/second-output")
+  [[ $first_generation != "$second_generation" ]] \
+    || fail "$mode pointer race fixture did not produce distinct generations"
+  mkdir -p -- "$case_root/gcs"
+  : >"$case_root/gcs.log"
+  cat >"$first_config" <<EOF
+HERMES_TRAIN_OUTPUT=$case_root/first-output
+HERMES_TRAIN_STATE_DIR=$case_root/first-state
+HERMES_TRAIN_REMOTE_URL=gs://test-bucket/$mode
+HERMES_TRAIN_GCLOUD=$fake_gcloud
+HERMES_TRAIN_COMMAND=($fake_trainer train)
+HERMES_TRAIN_SYNC_INTERVAL=1
+HERMES_TRAIN_MAX_RESTARTS=0
+EOF
+  cat >"$second_config" <<EOF
+HERMES_TRAIN_OUTPUT=$case_root/second-output
+HERMES_TRAIN_STATE_DIR=$case_root/second-state
+HERMES_TRAIN_REMOTE_URL=gs://test-bucket/$mode
+HERMES_TRAIN_GCLOUD=$fake_gcloud
+HERMES_TRAIN_COMMAND=($fake_trainer train)
+HERMES_TRAIN_SYNC_INTERVAL=1
+HERMES_TRAIN_MAX_RESTARTS=0
+EOF
+  export TEST_GCS_ROOT=$case_root/gcs
+  export TEST_GCS_LOG=$case_root/gcs.log
+  export TEST_GCS_DELAY_CURRENT_STEP=$first_step
+  export TEST_GCS_DELAY_CURRENT_GENERATION=$first_generation
+  export TEST_GCS_DELAY_READY=$case_root/delayed
+  export TEST_GCS_DELAY_RELEASE=$case_root/release-pointer
+  export TEST_BLOCK=true
+  export TEST_FAIL_ONCE=false
+  unset TEST_EXPECT_STEP TEST_WANDB_CALLS TEST_FAILURE_MARKER
+  TEST_CALLS=$case_root/first-calls \
+    TEST_READY=$case_root/first-ready \
+    TEST_RELEASE=$case_root/release-first \
+    "$TEST_SCRIPT_DIR/relaunch.sh" "$first_config" >"$case_root/first.log" 2>&1 &
+  first_pid=$!
+  for _attempt in {1..400}; do
+    if [[ -e $TEST_GCS_DELAY_READY ]]; then
+      delayed=true
+      break
+    fi
+    sleep 0.05
+  done
+  if [[ $delayed != true ]]; then
+    : >"$case_root/release-first"
+    wait "$first_pid" || true
+    fail "$mode pointer publisher did not reach its delayed compare-and-swap"
+  fi
+  TEST_CALLS=$case_root/second-calls \
+    TEST_READY=$case_root/second-ready \
+    TEST_RELEASE=$case_root/release-second \
+    "$TEST_SCRIPT_DIR/relaunch.sh" "$second_config" >"$case_root/second.log" 2>&1 &
+  second_pid=$!
+  for _attempt in {1..400}; do
+    observed_generation=$(current_generation \
+      "$case_root/gcs/test-bucket/$mode" 2>/dev/null || true)
+    if [[ $observed_generation == "$second_generation" ]]; then
+      published=true
+      break
+    fi
+    sleep 0.05
+  done
+  : >"$TEST_GCS_DELAY_RELEASE"
+  : >"$case_root/release-first"
+  : >"$case_root/release-second"
+  wait "$first_pid"
+  wait "$second_pid"
+  unset TEST_BLOCK TEST_GCS_ROOT TEST_GCS_LOG TEST_GCS_DELAY_CURRENT_STEP \
+    TEST_GCS_DELAY_CURRENT_GENERATION TEST_GCS_DELAY_READY \
+    TEST_GCS_DELAY_RELEASE
+  [[ $published == true ]] || fail "$mode winning checkpoint was not published"
+  [[ $(current_generation "$case_root/gcs/test-bucket/$mode") == "$second_generation" ]] \
+    || fail "$mode delayed publisher rewound or replaced the winning checkpoint"
+  case "$mode" in
+    stale)
+      grep -Eq 'remote checkpoint advanced|leaving it unchanged' \
+        "$case_root/first-state/sync.log" \
+        || fail "stale concurrent publisher did not report the newer checkpoint"
+      ;;
+    fork)
+      grep -q 'equal-step remote checkpoint fork' \
+        "$case_root/first-state/sync.log" \
+        || fail "equal-step concurrent fork was not rejected explicitly"
+      ;;
+  esac
+}
+
 run_cross_generation_cas_dedup_test() {
   local case_root=$TEST_ROOT/artifact-dedup
   local first second
@@ -1176,11 +1631,18 @@ run_global_step_mismatch_rejected_test
 run_unsafe_pointer_rejected_test
 run_unsafe_manifest_path_rejected_test
 run_corrupt_remote_rejected_test
+run_training_evidence_rejected_test missing
+run_training_evidence_rejected_test conflicting
 run_sleep_and_qat_vm_loss_restore_test
+run_rewritten_closure_rejected_test
+run_full_dream_manifest_history_test
+run_external_initial_policy_test
 run_auxiliary_corruption_rejected_test missing
 run_auxiliary_corruption_rejected_test tampered
 run_selected_artifact_symlink_rejected_test
 run_existing_artifact_conflict_rejected_test
 run_remote_publication_order_test
+run_concurrent_pointer_race_test stale
+run_concurrent_pointer_race_test fork
 run_cross_generation_cas_dedup_test
 printf 'relaunch_test: ok\n'
