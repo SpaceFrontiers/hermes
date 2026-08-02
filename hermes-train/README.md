@@ -518,7 +518,12 @@ hermes-train run-benchmark \
 ```
 
 Each target JSON points to both its checkpoint manifest and an immutable
-training-evidence JSON artifact. Resource accounting is sealed inside the
+training-evidence JSON artifact, and must declare the bytes evaluated with a
+required `representation`. Use `{"type":"full_precision"}` for the sealed
+generation weights, or
+`{"type":"hquant","candidate_manifest":".../candidate.json","candidate_manifest_sha256":"sha256:<64 lowercase hex>"}`
+for a published QAT candidate. There is no implicit full-precision target.
+Resource accounting is sealed inside the
 checkpoint generation, where the generation manifest authenticates it and the
 actual `weights.safetensors` bytes. The runner reopens every generation member,
 derives the tensor count from SafeTensors, and requires the outer evidence and
@@ -538,9 +543,14 @@ input/host stalls; failed attempts and ordinary checkpoint serialization are
 not represented by this checkpoint-bound metric. External benchmark jobs also
 enforce their measured per-evaluation GPU-hour budget. `gpu_busy_seconds`
 remains a utilization diagnostic and is not substituted for compute budget.
-`stored_bytes` is exactly the sealed `weights.safetensors`
-length, excluding optimizer and trainer state. `parameters` is checked against
-both the instantiated model and the actual SafeTensors inventory.
+For a full-precision target, `stored_bytes` is exactly the sealed
+`weights.safetensors` length. For an HQUANT target it is the sum of every
+validated packed and retained-floating weight member in the archive; metadata,
+the candidate's canonical FP master, candidate-container/manifest overhead,
+optimizer, and trainer state are excluded. The runner
+authenticates `candidate.json`, its source checkpoint, archive manifest, and
+every archive member before accepting that claim. `parameters` is checked
+against both the SafeTensors and HQUANT inventories.
 `routed_active_parameters` includes all
 non-expert parameters, complete routers and shared experts, and ordinary top-k
 routed experts. Dense, MoE, and sleep-memory models are measured from the live
@@ -548,12 +558,16 @@ module; memory accounting follows the synchronized active-slot masks while its
 fixed fallback/active reserve route lane remains constant.
 
 The persistent benchmark evaluator receives verified local artifact paths, target
-checkpoint manifests, fixed model/example-order seeds, target role, pair
-ordinal, and the hard per-evaluation GPU-hour budget. It returns only a finite
-score, measured GPU hours, example count, and optional finite metrics. The
+checkpoint manifests, the concrete FP weights or HQUANT archive transport,
+fixed model/example-order seeds, target role, pair ordinal, and the hard
+per-evaluation GPU-hour budget. An HQUANT evaluator must supply its own real
+backend; the trainer does not dequantize to FP as a benchmark substitute. It
+returns only a finite score, measured GPU hours, example count, and optional finite metrics. The
 runner itself verifies the complete public/sealed catalog, equal example counts,
 target manifests, ordering, budgets, and at least three strictly ordered paired
-seeds.
+seeds. Benchmark protocol v2 serializes the verified representation object in
+every evaluator request; benchmark-run, resource-request, and promotion
+identities include its path-free FP/HQUANT content identity.
 
 Promotion requires the structurally bound execution receipt published by the
 first-party resource host; a plain raw-observation JSON file is invalid. Run
