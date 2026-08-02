@@ -1,218 +1,732 @@
 # hermes-train
 
-Training for the same MAL-driven `Transformer` used by `hermes-llm` inference.
-There is no Python model mirror or checkpoint adapter.
+`hermes-train` trains and evaluates the same MAL-defined `Transformer` used by
+`hermes-llm`. Model weights remain safetensors; there is no Python model mirror.
 
 ## Build
 
 ```bash
-# CPU
-cargo build --release -p hermes-train
-
-# Apple Metal
+cargo build --release -p hermes-train                 # CPU
 cargo build --release -p hermes-train --features metal
-
-# NVIDIA CUDA
 cargo build --release -p hermes-train --features cuda
 ```
 
-## Train
+## WorkflowV2
+
+Training configuration is a strict version-2 workflow. It describes
+`pretrain`, `continued_pretrain`, `sft`, `preference`, `rl`, `distillation`,
+`sleep`, `quantization`, `evaluation`, and `promotion` phases. Task adapters
+cover causal LM, summarization, retrieval representation/ranking/planning,
+instruction tuning, QA/reasoning, pairwise preference, and verifiable RL.
+Unknown fields and unsupported schema versions fail before execution.
+
+Validate and inspect resolved paths before a run:
+
+```bash
+hermes-train validate-workflow --workflow hermes-train/workflow.example.json
+```
+
+For the complete education recipe, also bind validation to the exact
+sleep-capable MAL before creating any run state. This rejects missing sleep
+hooks, mixed memory/ordinary layers, and tier-name or reserve-capacity drift:
+
+```bash
+hermes-train validate-workflow \
+  --workflow hermes-train/workflow.education.example.json \
+  --config hermes-mal/well-known/retriever_300m_moe_sleep.mal
+```
+
+The built-in streaming trainer runs causal LM, summarization, retrieval
+planning/representation, instruction-tuning, and QA/reasoning phases, including
+QAT or quantization distillation over those objectives. For a MAL model with an
+explicit memory hierarchy it also runs periodic in-model sleep at optimizer
+boundaries through the content-pinned first-party runtime. It rejects retrieval
+ranking, preference, general distillation, RL, standalone sleep, evaluation,
+and promotion; dispatch those phases through `NativeWorkflowHost`.
 
 ```bash
 hermes-train train \
-  --config models/hybrid-tiny.mal \
+  --config hermes-mal/well-known/retriever_300m_moe.mal \
   --tokenizer tokenizer.json \
-  --curriculum curriculum.json \
+  --workflow hermes-train/workflow.example.json \
   --output checkpoint \
   --checkpoint-every 500
 ```
 
-### Build the education curriculum
-
-[`education-curriculum.example.json`](education-curriculum.example.json)
-defines four ordered tiers: language foundations, school fundamentals,
-university material, and advanced scholarship. Each tier emits a causal-LM
-stage followed by a contrastive-retrieval stage, with deterministic replay of
-earlier tiers.
-
-The builder has a strict data boundary: Search API performs embedding-backed
-hybrid discovery and returns IDs plus lightweight metadata;
-`public.documents_assembled` in `alloydb-documents` supplies the canonical full
-copy for only those IDs. Search-result text can never enter the output. URI
-scheme and prefix do not affect selection; URIs are metadata only. The builder
-requires Search API's `hybrid` mode, which fuses sparse and dense retrieval.
-Both reranking paths are explicitly disabled: discovery sends `rerank: false`
-and `cross_rerank: false`.
-The example uses focused English and Russian subject queries rather than one
-generic result window. Each query runs once without a date constraint and again
-across publication-time buckets, always using the Search API's complete 500-hit
-window; IDs are then globally deduplicated. This broadens coverage without
-offset pagination beyond the API's `offset + limit <= 500` contract. Discovery
-is constrained by each stage's document types, while language is verified
-against the canonical AlloyDB record instead of adding an expensive search-time
-language scan. University and research stages use a named yearly partition
-profile from 1980 onward. Their subject-specific hybrid queries provide the
-positive relevance gate; canonical document type, language, negative-title,
-and text-quality checks remain mandatory. Foundation and school stages also
-require positive title patterns, where educational level cannot be inferred
-safely from a broad subject query alone. Advanced searches run once per
-canonical document type so one high-volume type cannot consume the complete
-500-hit fusion window for a subject and year.
-
-Install the live-only dependencies, set the standard libpq environment
-variables (`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, and `PGPASSWORD`), and
-run:
+For the sleep-capable model, use a wake-only WorkflowV2 projection whose every
+phase carries the same `periodic_sleep` configuration, and bind the runtime
+configuration itself by digest:
 
 ```bash
-python -m pip install asyncpg zstandard gigatoken==0.10.0
-python hermes-train/scripts/build_education_curriculum.py \
-  --config hermes-train/education-curriculum.example.json \
+hermes-train train \
+  --config hermes-mal/well-known/retriever_300m_moe_sleep.mal \
   --tokenizer tokenizer.json \
-  --output /data/education-curriculum
+  --workflow wake-with-periodic-sleep.json \
+  --sleep-runtime hermes-train/sleep-runtime.periodic.example.json \
+  --sleep-runtime-sha256 "sha256:$SLEEP_RUNTIME_SHA256" \
+  --output checkpoint
 ```
 
-Use `--search-limit 10` for a live smoke build; an explicit search cap is
-recorded in the manifest and skips the production minimum-token gate. The
-output includes the staged JSONL files, validation splits, a directly
-consumable `curriculum.json`, and a checksummed `manifest.json` with Search API
-query and rejection counts. The manifest embeds the complete non-secret build
-configuration and its canonical hash for deterministic reproduction. An
-ID/score/URI-only cache under `.discovery-cache/` makes interrupted discovery
-resumable without retaining Search API snippets or other enriched fields.
-The manifest also records canonical character counts plus language and document
-type distributions so a completed corpus can be sized and audited without
-opening document bodies. Documents with concentrated extraction-control or
-Unicode replacement characters are rejected; isolated parser controls are
-normalized before shard writing.
-Large builds use a bounded-memory streaming path: canonical bodies are fetched
-from AlloyDB with deterministic multi-connection prefetch, written immediately,
-and never retained beyond the bounded prefetch/tokenization windows. A SQLite
-build catalog plus atomic tier files makes discovery and completed tiers
-restartable. GigaToken counts every emitted chunk with the exact deployed
-`tokenizer.json`; the example refuses to finish below 10 billion unique causal
-tokens and records both unique tokens and replay-adjusted curriculum exposure in
-the manifest. The final advanced stage stops after the exact count crosses the
-15-billion target (with at most one prefetched-batch overshoot); hard document
-caps keep the result in the requested 10–20B range.
-Selection and replay are covered without live services by
-`python3 hermes-train/scripts/test_education_curriculum.py`.
-After a production build, independently re-read every shard, verify checksums,
-split isolation, text hygiene, and all stored token counts with:
+Create the runtime's `workflow_signature` without touching checkpoint or
+runtime state. Use every training-semantic option from the eventual invocation;
+the output path itself is not part of the signature:
 
 ```bash
-python hermes-train/scripts/audit_education_curriculum.py \
-  --output /data/education-curriculum \
-  --tokenizer tokenizer.json
+hermes-train train \
+  --config hermes-mal/well-known/retriever_300m_moe_sleep.mal \
+  --tokenizer tokenizer.json \
+  --workflow wake-with-periodic-sleep.json \
+  --print-run-signature
 ```
 
-Training is defined by a strict version-2 JSON workflow; phase geometry is not
-split between CLI flags and a data manifest. Start from
-[`curriculum.example.json`](curriculum.example.json), then set its data paths,
-step budgets, and measured batch sizes. Relative paths resolve against the
-workflow file. Set a phase's `shuffle_buffer` to zero only for ordered
-diagnostic runs.
-
-Built-in task adapters cover causal LM, summarization, retrieval
-representation/ranking/planning, instruction tuning, QA/reasoning, pairwise
-preference learning, and verifiable RL. Structured tasks require JSONL; causal
-LM also accepts plain text. All formats may be Zstandard-compressed. The
-complete phase and task schemas, loss masks, truncation behavior, and resume
-contract are in
-[`docs/training-objectives-and-curricula.md`](../docs/training-objectives-and-curricula.md).
-
-The trainer uses batched Muon updates for hidden 2D matrices and AdamW for
-embeddings, output weights, norms, biases, and convolution kernels. Muon uses a
-20x learning rate; AdamW uses beta2 0.95; global gradient norm clipping covers
-both parameter sets. It supports cosine or warmup-stable-decay scheduling and
-fine-tuning from safetensors. CUDA training uses BF16 Tensor Core operands while
-model parameters and optimizer state remain FP32; Muon's Newton-Schulz
-iterations also use BF16.
-It writes the latest checkpoint every 500 optimizer steps by default; pass
-`--checkpoint-every 0` to save only at completion. A full checkpoint includes
-the model and both optimizer states, so accelerator work pauses while those
-tensors are copied and published. Choose a shorter interval only when the
-additional recovery granularity is worth that throughput cost. Files are staged
-behind an in-progress marker and the training-state file is published last, so
-resume and remote sync never consume a partially replaced checkpoint.
-Each training checkpoint includes weights, AdamW and Muon state, and the exact
-curriculum position. Relaunch the same command with `--resume` to replay the
-deterministic bounded shuffle up to that position and continue the schedule.
-For causal stages, `.token-cache/<run-signature>/` stores an append-only local
-cache of tokenized documents. Resume reconstructs the exact packer/shuffle
-state from this stream without re-running the tokenizer; an interrupted tail
-record is discarded and rebuilt from the corpus. The cache is derived, may be
-deleted safely between runs, and is intentionally not uploaded as part of the
-authoritative model/optimizer checkpoint.
-Corpus reading, Zstandard decompression, tokenization, packing, and bounded
-shuffling run on a dedicated reader thread. It stays up to two batches ahead of
-the optimizer, so increasing host-side buffering does not improve throughput
-when that queue is already full; in that case the remaining utilization gap is
-inside accelerator execution or deliberate checkpoint/diagnostic pauses.
-Resume verifies the entire curriculum and optimization signature. Use
-`--checkpoint` instead when warm-starting a new curriculum from existing
-safetensors.
-On Mamba models, training and inference use fused CubeCL selective-scan kernels
-on Metal and CUDA; CPU uses the tensor-operation reference implementation.
-
-Outputs are deliberately minimal:
-
-- `config.json`, with the logical tokenizer vocabulary size applied; embedding
-  and output tensors use a derived 64-row storage alignment
-- `resolved-curriculum.json`, with defaults applied and relative paths resolved
-- `metrics.jsonl`, flushed after every optimizer step for live reporters
-- `.token-cache/`, a repairable local causal-token cache for fast resume
-- `weights.safetensors`, using the shared model's parameter names
-- `adamw-state.bpk`, `muon-state.bpk`, and `training-state.json` for resume
-
-The checkpoint loads directly in `hermes-llm` with strict tensor and shape
-validation. Experiment services such as W&B can tail `metrics.jsonl` without
-being linked into the training process.
-
-MoE models add `router_aux_loss` and `optimized_loss` to each metrics row. The
-task-specific `loss` remains directly comparable with dense runs. See
-[`docs/moe-design.md`](../docs/moe-design.md) for the MAL schema, routing
-semantics, research basis, and current grouped-kernel limitation.
-
-Pass `--layer-metrics-every N` to add pre-clipping `layer_grad_norms` every N
-optimizer steps for the model visualization lab. This diagnostic is disabled by
-default because it walks every layer and copies the resulting norms to the CPU.
-The W&B sidecar expands the array into `layer_grad_norm/layer_N` scalar series,
-while the local JSONL retains the dense row used by the lab heatmap.
-
-## Reliable relaunch and W&B
-
-[`scripts/relaunch.sh`](scripts/relaunch.sh) is the boot-safe supervisor for
-long-running or spot-instance jobs. It owns `--output` and automatically adds
-`--resume` only when all model, AdamW, Muon, and training-state files form a
-complete checkpoint. A lock makes repeated boot hooks idempotent, failed
-trainer processes are relaunched after a configurable delay, and termination
-attempts one final remote sync.
-
-Remote backups use either `gs://` (through `gcloud storage`) or `file://`.
-Checkpoints are uploaded to an immutable `checkpoints/<step>/` directory and
-`latest.json` is published last. On boot, a newer complete remote checkpoint
-is restored, while a newer persistent-disk checkpoint is never overwritten by
-an older backup. An interrupted local checkpoint is not resumed unless a
-complete remote copy can replace it.
-
-Copy and edit the example configuration, then run the supervisor as the same
-user that owns the training files:
+For standalone `sleep` under `run-workflow`, derive that field from the
+resolved lifecycle workflow instead:
 
 ```bash
-cp hermes-train/curriculum.example.json /opt/hermes-run/curriculum.json
-cp hermes-train/scripts/relaunch.conf.example /opt/hermes-run/relaunch.conf
+hermes-train validate-workflow \
+  --workflow hermes-train/workflow.sleep.example.json \
+  --signature-only
+```
+
+Runtime schema version 1 resolves every relative path against the runtime JSON.
+Start from
+[`sleep-runtime.periodic.example.json`](sleep-runtime.periodic.example.json) or
+[`sleep-runtime.standalone.example.json`](sleep-runtime.standalone.example.json).
+Every all-zero digest in those files is an intentionally invalid operational
+placeholder: replace it with the exact artifact or execution signature, then
+hash the finalized runtime JSON for `--sleep-runtime-sha256`. Periodic mode must
+omit `wake_context_journal`,
+`initial_tier_optimizer_state`, `initial_model_parameter_ids`, and the nested
+Dreaming journal because the trainer seals fresh boundary artifacts. Standalone
+mode requires those three top-level artifacts and, when Dreaming is enabled,
+the same wake journal in both sections. The five transaction, prospective,
+tier-optimizer, candidate, and rejection output directories must be distinct;
+the loader creates missing directories and rejects symlinks or non-directories.
+
+The trainer seals a fresh, bounded model-owned wake-context journal at each due
+boundary. It checkpoints the exact model, tier optimizers, active masks, RNG
+reservations, transaction cursor, and generated-artifact identities after each
+sleep subphase. Resume reopens every pinned input and refuses a different
+runtime identity. The stock loop schedules sleep on completed
+`optimizer_steps`; it rejects a `model_tokens` clock because it cannot split an
+indivisible optimizer update across token boundaries. The lower-level sleep
+controller retains the typed clock for hosts that can partition work exactly.
+
+Relative data paths resolve against the workflow file. Causal documents are
+EOS-joined and token-packed. Corpus decoding, tokenization, bounded shuffling,
+and prefetch run on a reader thread. Structured generation losses cover target
+tokens only; retrieval uses configured representation layers and explicit
+positive/negative grouping.
+
+[`workflow.education.example.json`](workflow.education.example.json) is the
+full 300M production recipe: roughly 13.8B scheduled causal tokens progress through
+language foundations, school knowledge, university material, and scholarly
+material before retrieval, summarization, reasoning, planning, distillation,
+DPO, GRPO, binary QAT, public/sealed evaluation, and promotion. Only the four
+causal tiers are outputs of `compose-curriculum`. Every later task data path is
+a separately prepared immutable input with its own task schema, manifest, and
+content identity; the causal composer does not synthesize retrieval, QA,
+preference, RL, or evaluation records. Fixed stratified mixtures are the
+baseline. Generated QA and adaptive sampling or transformations must be built
+as separately identified, ablation-gated artifacts.
+Every optimizer-bearing phase in this sleep-model recipe—including forward-KL,
+DPO, GRPO, and binary QAT—carries the same explicit `periodic_sleep` object and
+uses the phase-neutral `candidates/education-sleep` store. Evaluation and
+promotion do not install wake hooks.
+
+For a backend that implements multiple phase algorithms, the stock lifecycle
+CLI uses one pinned JSONL executable for ordinary phases. Promotion is always
+executed by the trainer's built-in verified gate and is never delegated to that
+executable:
+
+```bash
+hermes-train run-workflow \
+  --workflow hermes-train/workflow.example.json \
+  --executor /opt/hermes/bin/phase-worker \
+  --executor-sha256 "sha256:$PHASE_WORKER_SHA256" \
+  --state /data/run/workflow-runtime.json \
+  --metrics /data/run/metrics.jsonl \
+  --run-id workflow-seed-1 \
+  --initial-checkpoint-uri checkpoint://initial/generation-manifest.json \
+  --initial-checkpoint-sha256 "sha256:$INITIAL_CHECKPOINT_SHA256"
+```
+
+The stock command sends each non-sleep, non-promotion phase—including typed
+DPO, forward-KL, and GRPO phases—to that worker. Add `--sleep-runtime PATH` and
+`--sleep-runtime-sha256 sha256:...` to execute standalone `sleep` phases with
+the first-party model loader, deterministic rollouts, frozen token-semantic
+judge, likelihood retention evaluator, tier optimizer, Dreaming backend, and
+durable stores; use the checked-in standalone runtime example above. Its input
+checkpoint URI must name a local regular safetensors file because this
+first-party runtime is deliberately local-artifact-only. `run-workflow` still
+rejects `periodic_sleep`, because only the integrated `train` loop owns real
+optimizer boundaries. The worker receives one
+strict protocol-v2 JSON request on stdin and emits
+typed `metric` messages (event plus global step and optional checkpoint hash),
+newline-delimited progress cursors, and exactly one yielded or complete
+message. The host derives phase identity instead of trusting worker-supplied
+labels. At every runtime boundary it syncs the metric journal before atomically
+recording the committed metric count; resume validates that prefix and removes
+any uncommitted or torn tail. Resume also requires the same resolved workflow,
+worker hash, and metric run id. Optimization/mutation results must be new
+immutable checkpoint URIs and assessment cannot change weights. The native
+promotion gate releases only the exact accepted current candidate.
+
+If a worker yields, invoke the same command with `--resume` and without either
+initial-checkpoint option. The runtime verifies the workflow, worker digest,
+metric run id, and committed metric prefix before continuing. The concrete
+post-training library implements DPO, forward `KL(teacher || student)`, clipped
+GRPO with a non-negative KL estimator, JSONL/zstd streaming, and an exact-answer
+verifier. Its native `PhaseExecutor` checkpoints a content-bound cursor before
+each optimizer publication and after its immutable model/optimizer receipt, so
+either interruption window resumes without applying an update twice. The
+trainer injects task-aligned model, frozen-reference, teacher-distribution,
+rollout, idempotent publisher, and any non-built-in verifier adapters; there is
+no repository-specific model loader. Adapter, input, workflow, provider, RNG,
+and publisher identities are verified on resume. A phase with `periodic_sleep`
+is accepted only when the trainer supplies the explicit idempotent boundary
+hook.
+
+The complete education recipe combines periodic sleep with phase kinds outside
+the wake trainer and therefore uses the public embedded host in `native_host`.
+An embedding application constructs `NativeWorkflowAdapters` and registers a
+pinned external worker for ordinary phases, a
+`NativePostTrainingContextFactory` for native DPO/KL/GRPO, a
+`NativePeriodicWakeExecutor` for every optimizer-bearing phase carrying
+`periodic_sleep`, and a `NativeSleepPhaseContextFactory` when the workflow has
+a standalone `sleep` phase.
+
+`NativeWorkflowHost::start` or `resume` computes a content identity from the
+resolved workflow and registered worker/factory identities, owns the atomic
+runtime checkpoint and optional metric journal, and exposes
+`drive_until_yield_or_complete`. Typed post-training uses the native library
+when its factory is registered; all remaining periodic sleep stays in process;
+standalone sleep is always native; promotion is always the built-in verified
+gate; only ordinary phases may fall back to the external worker. Missing routes
+fail before state is created or loaded. This host supplies orchestration only:
+deployment code must provide the actual model, storage, judge, and evaluator
+implementations.
+
+## Corpus preparation
+
+The generic pipeline is discovery → materialization → normalization → exact
+deduplication → topic/difficulty classification → controlled transformations
+and repetition → tokenization/sharding → immutable manifest. `SearchBackend`,
+`RecordMaterializer`, `CorpusTokenizer`, and `Deduplicator` are replaceable.
+
+The production example uses Search API hybrid sparse+dense fusion with both
+rerankers forced off, followed by `PostgresRecordMaterializer` for canonical
+document bodies. Query clauses, request fields, result mappings, SQL fields,
+pagination, and URI values are configuration—not trainer constants. Secrets are
+read only through configured environment-variable names. Its post-dedup target
+is 10–20B unique tokens.
+
+PostgreSQL transport policy is mandatory and cannot be weakened by the DSN.
+The production example uses `verified_tls`, forces TLS 1.2 or newer, verifies
+the exact configured server name, disables platform roots, and reads a PEM CA
+bundle from `CORPUS_POSTGRES_ROOT_CERT_PEM` only after its configured SHA-256
+matches. Set the DSN's `host` to the same DNS name; an optional `hostaddr` may
+select its network address. Use `trust.source: system` only when platform trust
+is an intentional deployment input. There are no invalid-certificate or
+invalid-hostname switches.
+
+`plaintext_local_proxy` exists for a trusted local AlloyDB Auth Proxy or local
+tests. It requires `acknowledge_plaintext: true` and accepts only numeric
+loopback IPs or Unix sockets, while forcing TLS off for that one local hop; the
+proxy remains responsible for its authenticated encrypted upstream. Direct
+PostgreSQL endpoints should use `verified_tls`. If an AlloyDB direct endpoint
+cannot present a verifiable certificate/name, use the Auth Proxy rather than
+weakening verification.
+
+`request_mapping.query_pointer`, pagination pointers, parameter mappings, and
+response mappings define the provider wire format. `fusion.sparse` and
+`fusion.dense` independently declare their clause and vector-field pointers;
+the pipeline verifies both clauses on every request. Every pointer in
+`disabled_reranker_pointers` must resolve to `false`. Search API owns query
+embedding, while the corpus process sends text and materializes full records
+from PostgreSQL. `snapshot.request_revision_pointer` pins the configured index
+generation on every request; the configured response provider/revision pointers
+must echo that exact identity on every page. A missing or drifted proof aborts
+before page contents enter the discovery catalog. Discovery also rejects a page
+larger than its requested limit, a total below the returned offset, a short page
+that contradicts a declared total, or a total that changes or disappears on a
+later page. The strict v2 progress journal retains the declared total across
+resume. The checked-in endpoint,
+snapshot revision, digest values, and credentials are placeholders and must be
+replaced with pinned production values.
+
+```bash
+hermes-train prepare-corpus \
+  --recipe hermes-train/corpus.production.example.json \
+  --tokenizer tokenizer.json \
+  --output /data/corpora \
+  --work-directory /data/corpus-work
+```
+
+Completed build directories are immutable and contain checksummed token shards
+plus `manifest.json`. Discovery pages are first merged by record key and then
+materialized in canonical key order, so overlapping query order cannot select a
+record's curriculum tier. Topic and difficulty rules inspect canonical text and
+configured canonical metadata; explicit priorities and specificity resolve
+overlap independently of rule declaration order.
+
+`prepare-corpus` is crash-resumable. Each discovery page or materialization
+batch commits its SQLite discovery/dedup mutations together with a
+content-hashed cursor, after syncing any completed output shards. Re-running the
+same command resumes `.building`, repairs only a journal mirror that is one
+or more committed transactions behind, removes uncommitted regular shard tails, and
+fails closed on identity, journal, committed-file, or symlink drift. The search
+index proof, PostgreSQL `snapshot_statement`, tokenizer revision, recipe, and
+dedup policy must remain identical across resume. Completed publication is
+idempotent. A build aborts if a source snapshot changes or the final unique-token
+count falls outside the configured bounds.
+
+The PostgreSQL `snapshot_statement` must return a stable, remotely maintained
+dataset generation that changes whenever materialized source rows change. An
+MVCC value such as `txid_current_snapshot()` is intentionally unsuitable for
+cross-process resume: a restarted build will fail closed because that value is
+different. Keep rows for a published generation immutable, or include the
+generation in the materialization query.
+
+Turn one classified build into fixed topic/capability mixtures with the generic
+composition pass. First replace `source_manifest_sha256` with the canonical
+`manifest_sha256` printed by `prepare-corpus`:
+
+```bash
+hermes-train compose-curriculum \
+  --config hermes-train/curriculum-composition.example.json \
+  --output hermes-train/corpus \
+  --work-directory /data/curriculum-work
+```
+
+The example atomically publishes
+`corpus/education-curriculum-2026-08/{foundation,school,university,scholarly}`,
+matching the paths in the education workflow. Stage and stratum predicates may
+use classified `topic`, `difficulty`, view names, or exact arbitrary metadata;
+no search provider or field name is compiled into composition. Positive integer
+weights define the fixed token mixture, and `max_fraction_deviation` is checked
+before publication. A row matching two strata in one stage is rejected rather
+than silently depending on configuration order; eligible unmatched rows must
+be explicitly set to `exclude` or they fail the build. Source rows are copied with
+their URI strings untouched, and bounded transient spools avoid loading the
+10–20B-token corpus into memory. Composition syncs a content-pinned progress
+journal after every source and output shard. Re-running the same command
+resumes an interrupted `.building` generation, verifies every committed
+spool/shard and identity, and replays only the uncommitted shard; configuration,
+source, journal, file, or symlink drift fails closed.
+
+## In-model sleep memory
+
+MAL can opt a block into an ordered fast-to-slow `memory` chain. Fixed low-rank
+reserve experts, router rows, activation masks, and generation counters are
+preallocated. Dormant learned slot parameters have no forward, backward,
+auxiliary-loss, or optimizer path. The router projection nevertheless has its
+full configured capacity width from the first checkpoint: parameter-free zero
+columns occupy dormant lanes, and each active learned row replaces its lane.
+A deterministic untrainable low-rank fallback executes the exact zero-output
+top-1 route until an active slot replaces it, so both router width and wake
+reserve top-k stay constant through every sleep cycle. The additional random
+expert is available only through dream-generation forwards.
+
+`retriever_300m_moe_sleep.mal` is experimental and leaves the ordinary 300M
+preset unchanged. Upgrade an existing checkpoint explicitly:
+
+```bash
+hermes-train upgrade-memory-checkpoint \
+  --source-config hermes-mal/well-known/retriever_300m_moe.mal \
+  --target-config hermes-mal/well-known/retriever_300m_moe_sleep.mal \
+  --checkpoint weights.safetensors \
+  --output sleep-weights.safetensors
+```
+
+The upgrader strictly maps each source FFN into the fast tier, initializes
+slower tiers as residual no-ops, leaves reserves dormant, and verifies topology
+and logit parity in tests. KV caches and Mamba recurrent state remain ordinary
+inference state and are not long-term memory.
+
+Sleep schedules, Knowledge Seeding, semantic/edit imitation with GRPO,
+retention transactions, dream selection by model-loss gradient alignment,
+isolated frozen-model LM-head LoRA trials (paper geometry rank 64 / alpha 128),
+and ReSTEM updates have an in-process tensor implementation. Each built-in
+trial derives final-normalized hidden features once, trains only `[rank,
+hidden]` and `[rank, vocabulary]` adapter tensors, and adds their delta to the
+frozen base projection. Its content-addressed receipt binds the adapter to the
+immutable base checkpoint and exact model-parameter digest, logical
+output-projection target, exact shapes, candidate, and evaluator. The stock
+runtime provides model-owned rollout generation, a frozen
+content-pinned token n-gram overlap judge, a pinned likelihood retention
+evaluator, prospective tier updates, and atomic publication. The n-gram judge
+is deterministic but is not a neural semantic judge; deployments can provide a
+frozen semantic model through the same typed interface. A ReSTEM cycle with no
+positive isolated trials publishes an idempotent no-op policy node, and each
+later periodic cycle authenticates and uses the newest committed node as its
+parent, including after exact resume.
+Transaction IDs, teacher/student hashes, subphases, masks, reserve generations,
+evaluator hashes, artifacts, optimizer namespaces, and RNG streams are
+checkpoint-v2 state. Failed consolidation restores the immutable teacher; a
+sender slot is reset only after accepted transfer.
+
+Wake training partitions gradients into ordinary and per-memory-tier scopes.
+Each tier has its own AdamW state, accumulator, and update clock; a partial
+gradient-accumulation window is discarded for every scope. One global norm and
+clip covers wake and tier gradients before a completed optimizer window is
+committed.
+
+Dream generation adds exactly one deterministic-random expert per token from
+outside each persistent FFN MoE's ordinary top-k. Reserve-memory routers remain
+ordinary top-1 from the initial zero fallback onward. Their capacity-width
+projection is fixed; dormant learned rows stay off graph behind parameter-free
+zero columns, and activation replaces columns without growing router work.
+Routed-active acceptance counts that fixed low-rank lane before activation and
+every completed cycle; there is no first-activation baseline exception. The
+independent 5% wake throughput and latency gates cover this fixed-width router
+and fixed expert-matmul path.
+
+This is a versioned, paper-inspired implementation of [_Language Models Need
+Sleep_](https://arxiv.org/abs/2606.03979). The paper grows low-rank experts;
+Hermes instead preallocates bounded reserves and uses the versioned
+`distill_into_base_v1` terminal transaction so stored and routed-active capacity
+remain bounded. That adaptation, plus unspecified paper hyperparameters, means
+the implementation is experimental until paired acceptance runs reproduce the
+reported trends.
+
+## Ultra-low-bit quantization
+
+Hermes supports group-128 binary (`1.125` encoded bits/weight for full groups),
+dense two-bit ternary (`2.125`), and compact base-3 ternary (`1.75`) checkpoint
+codecs, including one FP16 scale per group. The training path performs deterministic
+fake quantization on the active device and uses a straight-through estimator
+while full-precision master weights and optimizer state remain authoritative.
+Embeddings and LM heads are included by default; scalar norms and other
+non-matrix tensors stay in their original dtype.
+
+```bash
+hermes-train quantize \
+  --checkpoint checkpoint/weights.safetensors \
+  --format binary-g128 \
+  --output checkpoint/weights.binary-g128
+```
+
+The output is a complete, immutable weight archive: HQUANT matrix files, byte-exact
+floating tensors, per-tensor error measurements, source SHA-256, and a manifest
+whose average bits/weight includes every stored tensor. A direct packed
+matrix-vector implementation is a correctness oracle, not a claim that a fused
+CUDA/Metal production kernel or runnable quantized Transformer backend already
+exists. Model topology and tokenizer assets remain separate. The binary weight alphabet,
+group size, and FP16 scaling follow PrismML's published
+[Bonsai representation](https://github.com/PrismML-Eng/Bonsai-demo); HQUANT is
+a native Hermes archive, not a GGUF file. Hermes does not claim to reproduce
+PrismML's undisclosed conversion or training algorithm. The binary scale
+estimator follows the public reference; Hermes's ternary L2 estimator and
+base-3 storage are explicitly Hermes-native experiments.
+
+Quantization is also a task-data WorkflowV2 training phase. The education
+workflow demonstrates ternary warm-up followed by binary QAT and treats QAT as
+an optimizer-bearing periodic-sleep phase. If its final optimizer step is a
+sleep boundary, the trainer commits and checkpoints that boundary first, binds
+the resulting model digest, and only then atomically publishes and reopens
+`quantized-candidates/<stable-key>/{weights.safetensors,hquant/,candidate.json}`,
+records the immutable candidate receipt in checkpoint v2, and emits exact
+archive/error metrics. Resume can finish an interrupted post-sleep publication,
+while a candidate recorded before an outstanding boundary is rejected. A retry
+accepts only the same validated bytes. To use a frozen teacher instead,
+configure the training object with an exact, lowercase, prefixed digest:
+
+```json
+{
+  "name": "binary-distillation",
+  "type": "quantization",
+  "task": { "type": "causal_lm" },
+  "data": "corpus/quantization-calibration/manifest.json",
+  "sequence_length": 2048,
+  "batch_size": 12,
+  "gradient_accumulation": 8,
+  "steps": 1000,
+  "quantization": {
+    "format": "binary_g128",
+    "group_size": 128,
+    "start_step": 0,
+    "embeddings": true,
+    "lm_head": true,
+    "training": {
+      "type": "distillation",
+      "teacher_checkpoint": "teachers/full-precision.safetensors",
+      "teacher_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "temperature": 1.0,
+      "loss_weight": 1.0
+    }
+  }
+}
+```
+
+Relative teacher paths resolve against the workflow. The built-in trainer
+rejects symlinks, verifies the teacher bytes before loading, disables teacher
+dropout, and persists the teacher identity in quantization checkpoint state.
+`start_step` and `end_step` are absolute optimizer-step boundaries.
+Replace the all-zero example digest with the teacher file's real SHA-256 before
+running it.
+
+## Acceptance and promotion
+
+Public and sealed suites use paired seeds and a capacity-/compute-matched
+baseline. Promotion requires at least three paired seeds, a positive paired
+confidence bound for improvement cases, stable-anchor regression no greater
+than one absolute point or measured baseline variation, exact resume, constant
+routed-active parameters, at least 95% wake throughput, and at most 5% wake
+latency regression.
+
+Acceptance suites and benchmark suite manifests are strict schema v2. Each case
+has an explicit catalog identity and `stable_anchor` value. The separately
+SHA-256-addressed acceptance-policy v2 artifact prescribes the complete anchor
+catalog set; promotion rejects any suite flag that differs, so a suite author
+cannot exempt an improvement case. The policy also pins the resource evaluator
+identity and digest, grouped-mm and PyTorch fixture hashes, minimum trial/sample
+counts, parity error ceilings, and wake performance ratios. Resource evidence
+contains no tolerances.
+
+An untrainable rank-matched zero route occupies each memory tier's reserve route lane, so
+the first receiver activation replaces equal active compute instead of adding
+it. Resource-comparison v2 capacity evidence contains cycle zero followed by
+every completed sleep cycle without gaps. Promotion recomputes each envelope
+and requires routed-active parameters, stored parameters, and stored bytes to
+remain exactly equal to cycle zero and the verified candidate target; that
+target may not exceed the matched baseline. There is no activation or topology
+resize exception.
+
+Both public and sealed manifests must cover causal pretraining, summarization,
+retrieval representation/ranking, retrieval planning, reasoning/QA, preference,
+verifiable RL, synthetic retention, CLINC, Banking77, MK-NIAH, QASPER,
+no-context SQuAD incorporation, and ARC Dreaming. `--include-later-sweeps` also
+requires Manchu, Kalamang, and BABILong. Catalog IDs and benchmark families are
+fixed by the runner rather than inferred from filenames.
+
+First produce each immutable run with the content-pinned evaluator. `PATH=HASH`
+arguments use raw 64-character SHA-256 digests; the evaluator identity includes
+the `sha256:` prefix and must exactly equal `evaluator_version` in the run
+config.
+
+```bash
+hermes-train run-benchmark \
+  --config "benchmarks/run-config.json=$RUN_CONFIG_SHA256" \
+  --suite "benchmarks/public.manifest.json=$PUBLIC_SUITE_SHA256" \
+  --suite "benchmarks/sealed.manifest.json=$SEALED_SUITE_SHA256" \
+  --baseline "benchmarks/baseline-target.json=$BASELINE_TARGET_SHA256" \
+  --candidate "benchmarks/candidate-target.json=$CANDIDATE_TARGET_SHA256" \
+  --evaluator /opt/hermes/bin/benchmark-worker \
+  --evaluator-sha256 "sha256:$BENCHMARK_WORKER_SHA256" \
+  --output runs/wake-only.json
+```
+
+Each target JSON points to both its checkpoint manifest and an immutable
+training-evidence JSON artifact. Resource accounting is sealed inside the
+checkpoint generation, where the generation manifest authenticates it and the
+actual `weights.safetensors` bytes. The runner reopens every generation member,
+derives the tensor count from SafeTensors, and requires the outer evidence and
+target to match the sealed GPU hours, stored/routed parameter counts, weight
+length, and weight hash. A digest-shaped claim without these artifacts cannot
+enter promotion. The built-in trainer creates the outer attestation under
+`training-evidence/sha256-<evidence-hash>.json` after sealing the generation and
+prints both manifest and evidence paths and hashes. Evidence lives outside the
+generation so it cannot create a circular generation-manifest hash, and
+`current.json` is advanced only after evidence publication succeeds.
+
+For this single-accelerator trainer, `training_gpu_hours` is the measured
+committed training time: the integer-nanosecond sum of optimizer-step
+`Throughput.elapsed_seconds` windows plus successful, non-overlapping sleep and
+quantization-export phase windows, divided by 3600. Wake windows include
+input/host stalls; failed attempts and ordinary checkpoint serialization are
+not represented by this checkpoint-bound metric. External benchmark jobs also
+enforce their measured per-evaluation GPU-hour budget. `gpu_busy_seconds`
+remains a utilization diagnostic and is not substituted for compute budget.
+`stored_bytes` is exactly the sealed `weights.safetensors`
+length, excluding optimizer and trainer state. `parameters` is checked against
+both the instantiated model and the actual SafeTensors inventory.
+`routed_active_parameters` includes all
+non-expert parameters, complete routers and shared experts, and ordinary top-k
+routed experts. Dense, MoE, and sleep-memory models are measured from the live
+module; memory accounting follows the synchronized active-slot masks while its
+fixed fallback/active reserve route lane remains constant.
+
+The persistent benchmark evaluator receives verified local artifact paths, target
+checkpoint manifests, fixed model/example-order seeds, target role, pair
+ordinal, and the hard per-evaluation GPU-hour budget. It returns only a finite
+score, measured GPU hours, example count, and optional finite metrics. The
+runner itself verifies the complete public/sealed catalog, equal example counts,
+target manifests, ordering, budgets, and at least three strictly ordered paired
+seeds.
+
+Promotion requires the structurally bound execution receipt published by the
+first-party resource host; a plain raw-observation JSON file is invalid. Run
+the host after all eleven benchmark runs exist. The policy is
+content-addressed and its `resource_evaluator_version` must equal the pinned
+binary hash. Every `--artifact-root` is a safe relative directory beneath the
+existing evidence vault; the worker may write exact-resume artifacts only
+there.
+
+```bash
+mkdir -p evidence/resource-vault
+hermes-train run-resource-benchmark \
+  --selected-run "runs/static-equal-moe.json=$SELECTED_RUN_SHA256" \
+  --comparison-run "runs/wake-only.json=$WAKE_ONLY_SHA256" \
+  --comparison-run "runs/static-replay.json=$STATIC_REPLAY_SHA256" \
+  --comparison-run "runs/cms-no-seeding.json=$CMS_NO_SEEDING_SHA256" \
+  --comparison-run "runs/fixed-on-policy.json=$FIXED_ON_POLICY_SHA256" \
+  --comparison-run "runs/expansion-matched.json=$EXPANSION_MATCHED_SHA256" \
+  --comparison-run "runs/consolidation-only.json=$CONSOLIDATION_ONLY_SHA256" \
+  --comparison-run "runs/no-semantic-reward.json=$NO_SEMANTIC_SHA256" \
+  --comparison-run "runs/no-imitation-reward.json=$NO_IMITATION_SHA256" \
+  --comparison-run "runs/no-gradient-selection.json=$NO_GRADIENT_SHA256" \
+  --comparison-run "runs/no-random-expert.json=$NO_RANDOM_EXPERT_SHA256" \
+  --policy "acceptance-policy.json=$POLICY_SHA256" \
+  --evaluator /opt/hermes/bin/resource-worker \
+  --evaluator-sha256 "sha256:$RESOURCE_WORKER_SHA256" \
+  --evaluator-timeout-seconds 3600 \
+  --artifact-root exact-resume/run-2026-08-02 \
+  --output-directory evidence/resource-vault
+```
+
+The host sends one bounded JSON line and accepts exactly one bounded JSON line.
+The response contains raw wake trials, capacity observations, grouped-mm and
+PyTorch samples, and relative exact-resume artifact references—never target,
+policy, threshold, or evaluator identities. The host derives those identities,
+binds the exact UTF-8 evaluator argument vector, verifies every referenced file,
+and publishes `sha256-<digest>.json` without replacement. It then reopens the
+publication and repeats receipt and exact-artifact verification. A timeout,
+extra output, path traversal, symlink, binary change, or policy mismatch fails
+closed and the child process group is reaped.
+
+This receipt provides deterministic execution provenance within the trusted
+training-host/operator boundary. It is not a cryptographic remote-attestation
+scheme and does not claim resistance to an operator who controls that host.
+
+```bash
+hermes-train evaluate-candidate \
+  --selected-run "runs/static-equal-moe.json=$SELECTED_RUN_SHA256" \
+  --comparison-run "runs/wake-only.json=$WAKE_ONLY_SHA256" \
+  --comparison-run "runs/static-replay.json=$STATIC_REPLAY_SHA256" \
+  --comparison-run "runs/cms-no-seeding.json=$CMS_NO_SEEDING_SHA256" \
+  --comparison-run "runs/fixed-on-policy.json=$FIXED_ON_POLICY_SHA256" \
+  --comparison-run "runs/expansion-matched.json=$EXPANSION_MATCHED_SHA256" \
+  --comparison-run "runs/consolidation-only.json=$CONSOLIDATION_ONLY_SHA256" \
+  --comparison-run "runs/no-semantic-reward.json=$NO_SEMANTIC_SHA256" \
+  --comparison-run "runs/no-imitation-reward.json=$NO_IMITATION_SHA256" \
+  --comparison-run "runs/no-gradient-selection.json=$NO_GRADIENT_SHA256" \
+  --comparison-run "runs/no-random-expert.json=$NO_RANDOM_EXPERT_SHA256" \
+  --resources "evidence/resource-vault/sha256-$RESOURCE_EVIDENCE_SHA256.json=$RESOURCE_EVIDENCE_SHA256" \
+  --policy "acceptance-policy.json=$POLICY_SHA256" \
+  --output promotion-report.json
+```
+
+SHA-256 arguments are raw 64-character hexadecimal digests. The selected run
+plus exactly ten repeatable `--comparison-run PATH=SHA256` values must cover the
+fixed eleven-ablation catalog; do not repeat the selected run. Every run must
+use the same content-pinned evaluator, manifests, candidate, ordering, paired
+seeds, and measured training-compute allowance. Resource-comparison v2 stores
+a mandatory host-derived execution receipt, raw paired
+token/elapsed/latency observations, raw per-cycle capacity
+observations, and raw reference/candidate kernel values. After rechecking the
+artifact digest, promotion recomputes aggregate throughput, nearest-rank p95
+latency, capacity minima/maxima, and maximum absolute/relative parity errors.
+It binds the resource artifact to the selected benchmark-run digest, complete
+comparison-run set, exact targets, policy, fixtures, workload, evaluator binary
+and argument vector, and approved relative output roots. That verified run in
+turn binds the checkpoint and trainer-produced training evidence. Promotion
+reconstructs the execution-request hash; cached parsed objects must also equal
+reparsed addressed bytes immediately before evaluation.
+
+Exact-resume evidence addresses the interrupted generation, both distinct
+final generations, and both metric journals. Promotion reopens and validates
+every checkpoint member, checks the recorded interruption/final steps, and
+recomputes raw and semantic metric digests. The semantic digest
+omits run IDs, record sequences, timestamps, device samples, and elapsed/rate
+fields while retaining steps, phases, token counts, objectives, losses,
+rewards, and checkpoint identities. Raw logs from interrupted and uninterrupted
+runs are therefore allowed to differ in honest wall-clock observations; final
+state and semantic progress must still match exactly.
+
+The benchmark runner records fixed ordering, at least three paired seeds,
+GPU-hour budgets, evaluator hashes, public/sealed visibility, and the required
+sleep/continual-learning ablations. The strongest matched baseline is derived
+from the verified runs. Verified benchmark-run artifacts are access-controlled,
+content-addressed evidence and retain sealed case ids and scores for audit; they
+never contain the private suite examples. Promotion reports contain public
+per-case results and only an aggregate sealed gate. The standalone command's
+output path must not already exist; the report is published atomically even
+when gates reject the candidate, and rejection exits nonzero.
+
+For WorkflowV2 release, configure the typed `promotion` object shown in
+[`workflow.sleep.example.json`](workflow.sleep.example.json): one selected run,
+exactly ten distinct comparison runs, resource evidence, and an acceptance
+policy are all `sha256:`-addressed. Paths resolve against the workflow. The
+built-in gate requires regular non-symlink inputs, rechecks checkpoint and
+training-evidence files embedded in every run, and requires the selected
+candidate manifest hash to equal the runtime's current checkpoint hash. It
+writes a deterministic digest-named decision under `artifact_directory`.
+Retries accept only byte-identical existing decisions; rejected decisions are
+retained for audit but never create a release receipt. Accepted receipts remain
+explicit inputs to serving promotion; training never mutates serving weights.
+
+## Checkpoints, metrics, and relaunch
+
+Checkpoint v2 contains model and optimizer state plus workflow phase counters,
+token counts, metric journal position, parameter IDs, data/artifact references,
+independent optimizer namespaces, sleep state, quantization state, evaluator
+hashes, and RNG counters. Each save seals an immutable
+`generations/sha256-<manifest-hash>/` directory,
+including `generation-manifest.json`, then atomically replaces `current.json`.
+Every manifest file is size- and SHA-256-verified before resume. Unsupported
+checkpoint schema versions fail explicitly.
+
+`metrics.jsonl` is a strict append-only schema-v2 stream. Typed events include
+optimization losses, throughput, phase timing, tier updates, active capacity,
+post-training update receipts, distillation divergence, imitation rewards,
+dream selection/trials, retention, quantization, and device utilization. Resume
+validates the committed prefix and removes only metric records newer than the model checkpoint. Already committed
+optimizer-window durations remain byte-for-byte unchanged, so later checkpoint
+evidence accumulates prior measured time plus newly observed windows; it does
+not claim wall-clock timing is reproducible across executions. The built-in
+trainer creates this journal in `--output`; `run-workflow` requires `--metrics`
+and `--run-id` together. `--layer-metrics-every N` opts the built-in trainer into
+the more expensive per-layer gradient-norm series used by the visualization
+lab.
+
+CUDA builds start one persistent, asynchronous `nvidia-smi` sampler at a
+one-second interval. Select the physical GPU by index, UUID, or PCI bus ID with
+`--gpu-physical-device`; set `--gpu-metrics-interval-ms 0` to disable it or a
+value of at least 100 to change the cadence. Non-CUDA builds default to zero.
+Both values are part of the run signature, so a resume cannot silently change
+the monitored device or cadence. Samples contain real GPU utilization,
+used/total memory, power, and temperature and retain their exact collection
+timestamp; the trainer drains a bounded channel into `metrics.jsonl` at safe
+boundaries so the metric writer remains single-owner. Missing `nvidia-smi`, an
+unsupported counter, malformed output, process exit, or channel pressure emits
+a warning and never stops or synchronously polls the accelerator. The W&B
+sidecar forwards these `device_utilization` events unchanged.
+
+[`scripts/relaunch.sh`](scripts/relaunch.sh) supervises preemptible jobs, resumes
+only complete checkpoints, and derives an exact generated-artifact closure from
+the sealed `training-state.json`. Sleep transactions, tier optimizer snapshots,
+Dreaming trials, wake journals, QAT candidates/archives, and checkpoint-bound
+training evidence are stored once in a global SHA-256 object store; each
+generation receives a small immutable closure manifest. The supervisor uploads
+and re-verifies the checkpoint generation, closure manifest, and every referenced
+object before publishing `current.json` last. Restore verifies that same closure
+before atomically installing immutable artifacts and refuses to overwrite a
+different local file. Mutable pointers, staging files, and artifacts from a later
+generation are never captured. The append-only `metrics.jsonl` journal remains
+at the checkpoint root and is synchronized separately. It supports `gs://` and
+`file://`. The supervisor wraps the built-in `train` command; a service
+supervising `run-workflow` must preserve its runtime state/metric files and add
+`--resume` after a yielded or interrupted run. Copy
+[`scripts/relaunch.conf.example`](scripts/relaunch.conf.example), keep W&B
+credentials in its referenced mode-600 environment file, and run:
+
+```bash
 hermes-train/scripts/relaunch.sh /opt/hermes-run/relaunch.conf
 ```
 
-For boot and process supervision, use that command as `ExecStart` in a systemd
-service with `Restart=on-failure`, or from an `@reboot` cron entry. The script
-itself keeps the trainer alive after ordinary process failures, so systemd is
-mainly protection for the supervisor and machine lifecycle.
-
-Set `HERMES_TRAIN_WANDB_ENV` and `HERMES_TRAIN_WANDB_PYTHON` in the run
-configuration to supervise [`scripts/wandb_tail.py`](scripts/wandb_tail.py)
-with the trainer. The environment file should be mode 600 and contain the API
-key plus a stable `WANDB_RUN_ID`; the reporter then backfills `metrics.jsonl`,
-survives file replacement during restore, and reconnects to the same run after
-every restart. W&B configuration is validated before training starts so a
-requested reporter cannot silently disappear.
+When configured, [`scripts/wandb_tail.py`](scripts/wandb_tail.py) validates and
+flattens typed JSONL events into a stable W&B run. Install `wandb` in the Python
+environment named by `HERMES_TRAIN_WANDB_PYTHON`, set a stable `WANDB_RUN_ID`,
+and keep `HERMES_TRAIN_WANDB_ENV` outside the repository. W&B remains a sidecar:
+a reporting or network failure cannot stop training.
