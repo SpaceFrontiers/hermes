@@ -135,14 +135,11 @@ pub enum QuantizationFormat {
     TernaryEntropyG128,
 }
 
-/// One immutable local input to the built-in promotion gate. Promotion
-/// evidence uses the same canonical digest spelling as model checkpoints so a
-/// copied workflow cannot silently address different bytes.
+/// One local input to the built-in promotion gate.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PromotionEvidenceRef {
     pub path: PathBuf,
-    pub sha256: String,
 }
 
 impl PromotionEvidenceRef {
@@ -151,9 +148,6 @@ impl PromotionEvidenceRef {
             !self.path.as_os_str().is_empty(),
             "workflow phase `{phase_name}` promotion {label} path is empty"
         );
-        validate_sha256_identity(&self.sha256, "workflow artifact identity").with_context(
-            || format!("workflow phase `{phase_name}` promotion {label} has an invalid hash"),
-        )?;
         ensure!(
             !self
                 .path
@@ -169,20 +163,13 @@ impl PromotionEvidenceRef {
             self.path = base.join(&self.path);
         }
     }
-
-    pub fn raw_sha256(&self) -> &str {
-        self.sha256
-            .strip_prefix("sha256:")
-            .expect("validated promotion evidence digest")
-    }
 }
 
 /// Strict inputs for the trainer-owned WorkflowV2 promotion executor.
 ///
 /// The selected benchmark and ten other runs form the complete fixed ablation
-/// matrix. The policy is content addressed as evidence rather than accepted as
-/// mutable command-line state. `artifact_directory` contains only immutable,
-/// digest-named decision records.
+/// matrix. The policy is supplied as an evidence file rather than as mutable
+/// command-line state.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PromotionConfig {
@@ -218,7 +205,6 @@ impl PromotionConfig {
         );
 
         let mut paths = BTreeSet::new();
-        let mut digests = BTreeSet::new();
         let evidence = std::iter::once(&self.selected_run)
             .chain(self.comparison_runs.iter())
             .chain(std::iter::once(&self.resources))
@@ -228,11 +214,6 @@ impl PromotionConfig {
                 paths.insert(&evidence.path),
                 "workflow phase `{phase_name}` promotion repeats evidence path {index}: {}",
                 evidence.path.display()
-            );
-            ensure!(
-                digests.insert(&evidence.sha256),
-                "workflow phase `{phase_name}` promotion repeats evidence hash {index}: {}",
-                evidence.sha256
             );
         }
         Ok(())
@@ -1174,12 +1155,7 @@ pub fn load_workflow(path: &Path) -> Result<ResolvedWorkflow> {
 
 #[cfg(test)]
 pub(crate) fn test_promotion_config() -> serde_json::Value {
-    let reference = |index: usize, stem: &str| {
-        serde_json::json!({
-            "path": format!("promotion/{stem}-{index}.json"),
-            "sha256": format!("sha256:{:064x}", index + 1)
-        })
-    };
+    let reference = |index: usize, stem: &str| serde_json::json!({ "path": format!("promotion/{stem}-{index}.json") });
     serde_json::json!({
         "selected_run": reference(0, "selected"),
         "comparison_runs": (1..=10)

@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail, ensure};
@@ -15,14 +14,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use hermes_llm::{
     BlockDef, ModelDef, Tokenizer, Transformer, save_safetensors, upgrade_safetensors_to_memory,
 };
-use hermes_train::acceptance::{AcceptancePolicy, PromotionReport};
-use hermes_train::artifact_io::{hash_regular_file, read_regular_bounded};
-use hermes_train::benchmark::{
-    AblationId, BenchmarkRunConfig, BenchmarkRunner, BenchmarkTarget, VerifiedBenchmarkRun,
-    VerifiedBenchmarkSuite, VerifiedResourceComparison, evaluate_verified_promotion,
-    validate_catalog_coverage,
-};
-use hermes_train::benchmark_worker::ExternalBenchmarkEvaluator;
+use hermes_train::artifact_io::hash_regular_file;
 use hermes_train::builtin_sleep_runtime::{
     BuiltinPeriodicSleepBoundaryDriver, BuiltinSleepPhaseContextFactory,
 };
@@ -55,7 +47,6 @@ use hermes_train::quantization::{
     BONSAI_GROUP_SIZE, QuantizationRecipe, UltraQuantFormat, WorkflowQuantizationPlan,
     WorkflowQuantizationTraining, export_safetensors_archive, fake_quantized_transformer,
 };
-use hermes_train::resource_worker::{ExternalResourceEvaluator, run_resource_benchmark};
 use hermes_train::runtime::{
     ALL_PHASE_KINDS, ExecutorRegistry, ImmutableArtifact, ImmutableModelCheckpoint, RuntimeStatus,
     WorkflowRunState, run_until_yield_or_complete,
@@ -104,7 +95,6 @@ const FNV1A64_PRIME: u64 = 0x100000001b3;
 const DATA_RNG_STREAM: &str = "data";
 const MODEL_RNG_STREAM: &str = "model_dropout";
 const MODEL_RNG_DOMAIN: u64 = 0xd2b7_4407_b1ce_6e93;
-const MAX_CLI_CONTENT_ADDRESSED_JSON_BYTES: u64 = 64 * 1024 * 1024;
 
 #[derive(Parser)]
 #[command(name = "hermes-train", about = "Hermes model training")]
@@ -129,12 +119,6 @@ enum Command {
     Quantize(QuantizeArgs),
     /// Upgrade an ordinary checkpoint into an explicit sleep-memory topology.
     UpgradeMemoryCheckpoint(UpgradeMemoryCheckpointArgs),
-    /// Apply paired-seed quality, retention, resource, and resume gates.
-    EvaluateCandidate(EvaluateCandidateArgs),
-    /// Produce one immutable paired benchmark run with a pinned evaluator.
-    RunBenchmark(RunBenchmarkArgs),
-    /// Execute and publish raw resource evidence with a pinned evaluator.
-    RunResourceBenchmark(RunResourceBenchmarkArgs),
     /// Run WorkflowV2 with pinned workers and first-party native sleep.
     RunWorkflow(RunWorkflowArgs),
 }
@@ -331,118 +315,6 @@ struct UpgradeMemoryCheckpointArgs {
     checkpoint: PathBuf,
     #[arg(short = 'o', long)]
     output: PathBuf,
-}
-
-#[derive(clap::Args)]
-struct EvaluateCandidateArgs {
-    /// Selected benchmark run JSON as PATH=SHA256.
-    #[arg(long, value_name = "PATH=SHA256")]
-    selected_run: ContentAddressedPath,
-    /// Additional ablation run as PATH=SHA256. Repeat for every other fixed
-    /// ablation; the selected run plus these inputs must cover all ablations.
-    #[arg(long = "comparison-run", value_name = "PATH=SHA256", required = true)]
-    comparison_runs: Vec<ContentAddressedPath>,
-    /// Executed resource evidence JSON as PATH=SHA256.
-    #[arg(long, value_name = "PATH=SHA256")]
-    resources: ContentAddressedPath,
-    /// Acceptance policy JSON as PATH=SHA256. Promotion never supplies
-    /// defaults because this exact identity is bound into resource execution.
-    #[arg(long, value_name = "PATH=SHA256")]
-    policy: ContentAddressedPath,
-    /// New immutable report path. Existing files are never replaced.
-    #[arg(short = 'o', long)]
-    output: PathBuf,
-}
-
-#[derive(clap::Args)]
-struct RunBenchmarkArgs {
-    /// BenchmarkRunConfig JSON as PATH=SHA256.
-    #[arg(long, value_name = "PATH=SHA256")]
-    config: ContentAddressedPath,
-    /// Public or sealed suite manifest as PATH=SHA256. Repeat to provide the
-    /// complete current benchmark catalog.
-    #[arg(long = "suite", value_name = "PATH=SHA256", required = true)]
-    suites: Vec<ContentAddressedPath>,
-    /// Capacity/compute-matched baseline target JSON as PATH=SHA256.
-    #[arg(long, value_name = "PATH=SHA256")]
-    baseline: ContentAddressedPath,
-    /// Candidate target JSON as PATH=SHA256.
-    #[arg(long, value_name = "PATH=SHA256")]
-    candidate: ContentAddressedPath,
-    /// Local executable implementing benchmark-worker protocol v2.
-    #[arg(long)]
-    evaluator: PathBuf,
-    #[arg(long = "evaluator-arg", allow_hyphen_values = true)]
-    evaluator_arguments: Vec<OsString>,
-    /// Hard wall-clock limit for each request and graceful worker shutdown.
-    #[arg(long, default_value_t = 3_600)]
-    evaluator_timeout_seconds: u64,
-    /// Require later Manchu/Kalamang/BABILong sweep entries too.
-    #[arg(long)]
-    include_later_sweeps: bool,
-    /// New immutable benchmark-run JSON. Existing files are never replaced.
-    #[arg(short = 'o', long)]
-    output: PathBuf,
-}
-
-#[derive(clap::Args)]
-struct RunResourceBenchmarkArgs {
-    /// Selected benchmark run JSON as PATH=SHA256.
-    #[arg(long, value_name = "PATH=SHA256")]
-    selected_run: ContentAddressedPath,
-    /// Every other fixed ablation run as PATH=SHA256.
-    #[arg(long = "comparison-run", value_name = "PATH=SHA256", required = true)]
-    comparison_runs: Vec<ContentAddressedPath>,
-    /// Acceptance policy JSON as PATH=SHA256.
-    #[arg(long, value_name = "PATH=SHA256")]
-    policy: ContentAddressedPath,
-    /// Local executable implementing resource-worker protocol v2.
-    #[arg(long)]
-    evaluator: PathBuf,
-    /// Exact UTF-8 argument vector, bound into the execution receipt.
-    #[arg(long = "evaluator-arg", allow_hyphen_values = true)]
-    evaluator_arguments: Vec<OsString>,
-    /// Hard wall-clock limit for request write, execution, and response read.
-    #[arg(long, default_value_t = 3_600)]
-    evaluator_timeout_seconds: u64,
-    /// Safe relative worker output directory beneath --output-directory.
-    #[arg(long = "artifact-root", required = true)]
-    artifact_roots: Vec<PathBuf>,
-    /// Existing, non-symlink evidence vault. Publication is content-addressed.
-    #[arg(short = 'o', long)]
-    output_directory: PathBuf,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct ContentAddressedPath {
-    path: PathBuf,
-    sha256: String,
-}
-
-impl FromStr for ContentAddressedPath {
-    type Err = String;
-
-    fn from_str(value: &str) -> std::result::Result<Self, Self::Err> {
-        let (path, sha256) = value
-            .rsplit_once('=')
-            .ok_or_else(|| "expected PATH=SHA256".to_owned())?;
-        if path.is_empty() {
-            return Err("content-addressed path is empty".to_owned());
-        }
-        if sha256.len() != 64
-            || !sha256
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-        {
-            return Err(
-                "SHA256 must contain exactly 64 lowercase hexadecimal characters".to_owned(),
-            );
-        }
-        Ok(Self {
-            path: path.into(),
-            sha256: sha256.to_owned(),
-        })
-    }
 }
 
 #[derive(clap::Args)]
@@ -1578,25 +1450,6 @@ fn load_quantization_teacher(
     }))
 }
 
-fn read_addressed_json<T: serde::de::DeserializeOwned>(input: &ContentAddressedPath) -> Result<T> {
-    let bytes = read_regular_bounded(
-        &input.path,
-        MAX_CLI_CONTENT_ADDRESSED_JSON_BYTES,
-        "content-addressed CLI JSON",
-    )
-    .with_context(|| format!("failed to read {}", input.path.display()))?;
-    let actual = format!("{:x}", Sha256::digest(&bytes));
-    ensure!(
-        actual.eq_ignore_ascii_case(&input.sha256),
-        "content hash mismatch for {}: expected {}, got {}",
-        input.path.display(),
-        input.sha256,
-        actual
-    );
-    serde_json::from_slice(&bytes)
-        .with_context(|| format!("invalid JSON in {}", input.path.display()))
-}
-
 fn validate_workflow_command(args: ValidateWorkflowArgs) -> Result<()> {
     let workflow = load_workflow_v2(&args.workflow)?;
     if let Some(config) = &args.config {
@@ -1740,184 +1593,6 @@ fn upgrade_memory_checkpoint_command(args: UpgradeMemoryCheckpointArgs) -> Resul
     upgrade_safetensors_to_memory(&mut model, &source, &args.checkpoint, &args.output)?;
     println!("published={}", args.output.display());
     Ok(())
-}
-
-fn evaluate_candidate_command(args: EvaluateCandidateArgs) -> Result<()> {
-    ensure!(
-        args.comparison_runs.len() + 1 == AblationId::ALL.len(),
-        "promotion requires the selected run plus exactly {} additional comparison runs; got {} additional runs",
-        AblationId::ALL.len() - 1,
-        args.comparison_runs.len()
-    );
-    let selected = VerifiedBenchmarkRun::load(&args.selected_run.path, &args.selected_run.sha256)?;
-    let mut comparisons = Vec::with_capacity(AblationId::ALL.len());
-    comparisons.push(selected.clone());
-    for comparison in &args.comparison_runs {
-        comparisons.push(VerifiedBenchmarkRun::load(
-            &comparison.path,
-            &comparison.sha256,
-        )?);
-    }
-    let resources = VerifiedResourceComparison::load(&args.resources.path, &args.resources.sha256)?;
-    let policy: AcceptancePolicy = read_addressed_json(&args.policy)?;
-    let report = evaluate_verified_promotion(
-        &selected,
-        &comparisons,
-        &resources,
-        &policy,
-        &args.policy.sha256,
-    )?;
-    publish_promotion_report(&args.output, &report)
-}
-
-fn run_resource_benchmark_command(args: RunResourceBenchmarkArgs) -> Result<()> {
-    ensure!(
-        args.comparison_runs.len() + 1 == AblationId::ALL.len(),
-        "resource benchmarking requires the selected run plus exactly {} additional comparison runs; got {} additional runs",
-        AblationId::ALL.len() - 1,
-        args.comparison_runs.len()
-    );
-    ensure!(
-        args.evaluator_timeout_seconds > 0,
-        "resource evaluator timeout must be positive"
-    );
-    let selected = VerifiedBenchmarkRun::load(&args.selected_run.path, &args.selected_run.sha256)?;
-    let mut comparisons = Vec::with_capacity(AblationId::ALL.len());
-    comparisons.push(selected.clone());
-    for comparison in &args.comparison_runs {
-        comparisons.push(VerifiedBenchmarkRun::load(
-            &comparison.path,
-            &comparison.sha256,
-        )?);
-    }
-    let policy: AcceptancePolicy = read_addressed_json(&args.policy)?;
-    let evaluator = ExternalResourceEvaluator::new(&args.evaluator, args.evaluator_arguments)?
-        .with_timeout(Duration::from_secs(args.evaluator_timeout_seconds))?;
-    let publication = run_resource_benchmark(
-        &selected,
-        &comparisons,
-        &policy,
-        &args.policy.sha256,
-        &evaluator,
-        &args.artifact_roots,
-        &args.output_directory,
-    )?;
-    println!(
-        "published={} sha256={}",
-        publication.path.display(),
-        publication.sha256
-    );
-    Ok(())
-}
-
-fn run_benchmark_command(args: RunBenchmarkArgs) -> Result<()> {
-    ensure!(
-        args.evaluator_timeout_seconds > 0,
-        "benchmark evaluator timeout must be positive"
-    );
-    let config: BenchmarkRunConfig = read_addressed_json(&args.config)?;
-    let suites = args
-        .suites
-        .iter()
-        .map(|suite| VerifiedBenchmarkSuite::load(&suite.path, &suite.sha256))
-        .collect::<Result<Vec<_>>>()?;
-    validate_catalog_coverage(&suites, args.include_later_sweeps)?;
-    let mut baseline: BenchmarkTarget = read_addressed_json(&args.baseline)?;
-    let mut candidate: BenchmarkTarget = read_addressed_json(&args.candidate)?;
-    baseline.resolve_paths(&args.baseline.path);
-    candidate.resolve_paths(&args.candidate.path);
-    let mut evaluator = ExternalBenchmarkEvaluator::new(&args.evaluator, args.evaluator_arguments)?
-        .with_timeout(Duration::from_secs(args.evaluator_timeout_seconds))?;
-    ensure!(
-        config.evaluator_arguments.as_slice() == evaluator.arguments(),
-        "benchmark evaluator arguments do not match the content-addressed run config"
-    );
-    let run = BenchmarkRunner { config }.run(&suites, &baseline, &candidate, &mut evaluator)?;
-    evaluator.finish()?;
-    publish_new_json(&args.output, &run)?;
-    let digest = file_sha256(&args.output)?;
-    println!("published={} sha256={}", args.output.display(), digest);
-    Ok(())
-}
-
-fn publish_promotion_report(output: &Path, report: &PromotionReport) -> Result<()> {
-    publish_new_json(output, report)?;
-    println!("accepted={} report={}", report.accepted, output.display());
-    ensure!(
-        report.accepted,
-        "candidate failed promotion gates; immutable report published at {}",
-        output.display()
-    );
-    Ok(())
-}
-
-/// Publish complete JSON without an overwrite window. A hard link is used as
-/// the final same-filesystem operation because `rename` replaces an existing
-/// destination on supported trainer platforms.
-fn publish_new_json<T: Serialize>(output: &Path, value: &T) -> Result<()> {
-    ensure!(
-        !output.exists(),
-        "refusing to overwrite existing report {}",
-        output.display()
-    );
-    let parent = output.parent().unwrap_or_else(|| Path::new("."));
-    ensure!(
-        parent.is_dir(),
-        "report parent directory does not exist: {}",
-        parent.display()
-    );
-    let file_name = output
-        .file_name()
-        .context("promotion report path has no file name")?;
-
-    for attempt in 0..100_u32 {
-        let mut temporary_name = OsString::from(".");
-        temporary_name.push(file_name);
-        temporary_name.push(format!(".{}.{}.tmp", std::process::id(), attempt));
-        let temporary = parent.join(temporary_name);
-        let mut file = match OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary)
-        {
-            Ok(file) => file,
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(error) => {
-                return Err(error).with_context(|| {
-                    format!("failed to create temporary report {}", temporary.display())
-                });
-            }
-        };
-        let publish = (|| -> Result<()> {
-            serde_json::to_writer_pretty(&mut file, value)?;
-            file.write_all(b"\n")?;
-            file.sync_all()?;
-            fs::hard_link(&temporary, output).with_context(|| {
-                if output.exists() {
-                    format!("refusing to overwrite existing report {}", output.display())
-                } else {
-                    format!("failed to atomically publish report {}", output.display())
-                }
-            })?;
-            fs::remove_file(&temporary).with_context(|| {
-                format!("failed to remove temporary report {}", temporary.display())
-            })?;
-            fs::File::open(parent)
-                .with_context(|| format!("failed to open report directory {}", parent.display()))?
-                .sync_all()
-                .with_context(|| format!("failed to sync report directory {}", parent.display()))?;
-            Ok(())
-        })();
-        if publish.is_err() {
-            drop(file);
-            let _ = fs::remove_file(&temporary);
-        }
-        return publish;
-    }
-    bail!(
-        "failed to allocate a unique temporary report beside {}",
-        output.display()
-    )
 }
 
 fn validate_cli_native_sleep_selection(
@@ -2091,9 +1766,6 @@ fn main() -> Result<()> {
         Command::ComposeCurriculum(args) => compose_curriculum_command(args),
         Command::Quantize(args) => quantize_command(args),
         Command::UpgradeMemoryCheckpoint(args) => upgrade_memory_checkpoint_command(args),
-        Command::EvaluateCandidate(args) => evaluate_candidate_command(args),
-        Command::RunBenchmark(args) => run_benchmark_command(args),
-        Command::RunResourceBenchmark(args) => run_resource_benchmark_command(args),
         Command::RunWorkflow(args) => run_workflow_command(args),
     }
 }
@@ -2432,180 +2104,6 @@ mod tests {
     }
 
     #[test]
-    fn promotion_cli_parses_content_addressed_comparison_pairs() {
-        let selected_sha = "a".repeat(64);
-        let resource_sha = "b".repeat(64);
-        let comparison_sha = "c".repeat(64);
-        let policy_sha = "d".repeat(64);
-        let selected = format!("runs/selected.json={selected_sha}");
-        let resources = format!("resources.json={resource_sha}");
-        let policy = format!("policy.json={policy_sha}");
-        let comparison = format!("runs/model=variant.json={comparison_sha}");
-        let cli = Cli::try_parse_from([
-            "hermes-train",
-            "evaluate-candidate",
-            "--selected-run",
-            &selected,
-            "--comparison-run",
-            &comparison,
-            "--resources",
-            &resources,
-            "--policy",
-            &policy,
-            "--output",
-            "report.json",
-        ])
-        .unwrap();
-        let Command::EvaluateCandidate(args) = cli.command else {
-            panic!("wrong parsed command");
-        };
-        assert_eq!(args.selected_run.path, Path::new("runs/selected.json"));
-        assert_eq!(args.comparison_runs.len(), 1);
-        assert_eq!(
-            args.comparison_runs[0].path,
-            Path::new("runs/model=variant.json")
-        );
-        assert_eq!(args.comparison_runs[0].sha256, comparison_sha);
-        assert_eq!(args.resources.sha256, resource_sha);
-        assert_eq!(args.policy.sha256, policy_sha);
-    }
-
-    #[test]
-    fn promotion_cli_rejects_unaddressed_comparison_input() {
-        let sha = "a".repeat(64);
-        let selected = format!("selected.json={sha}");
-        let resources = format!("resources.json={sha}");
-        let policy = format!("policy.json={sha}");
-        assert!(
-            Cli::try_parse_from([
-                "hermes-train",
-                "evaluate-candidate",
-                "--selected-run",
-                &selected,
-                "--comparison-run",
-                "comparison-without-a-digest.json",
-                "--resources",
-                &resources,
-                "--policy",
-                &policy,
-                "--output",
-                "report.json",
-            ])
-            .is_err()
-        );
-    }
-
-    #[test]
-    fn promotion_cli_requires_the_addressed_policy() {
-        let sha = "a".repeat(64);
-        let selected = format!("selected.json={sha}");
-        let comparison = format!("comparison.json={sha}");
-        let resources = format!("resources.json={sha}");
-        assert!(
-            Cli::try_parse_from([
-                "hermes-train",
-                "evaluate-candidate",
-                "--selected-run",
-                &selected,
-                "--comparison-run",
-                &comparison,
-                "--resources",
-                &resources,
-                "--output",
-                "report.json",
-            ])
-            .is_err()
-        );
-    }
-
-    #[test]
-    fn resource_benchmark_cli_pins_all_inputs_and_output_scope() {
-        let digest = "a".repeat(64);
-        let selected = format!("selected.json={digest}");
-        let comparison = format!("comparison.json={digest}");
-        let policy = format!("policy.json={digest}");
-        let cli = Cli::try_parse_from([
-            "hermes-train",
-            "run-resource-benchmark",
-            "--selected-run",
-            &selected,
-            "--comparison-run",
-            &comparison,
-            "--policy",
-            &policy,
-            "--evaluator",
-            "./resource-worker",
-            "--evaluator-arg=--profile=h100",
-            "--artifact-root",
-            "exact/run-1",
-            "--output-directory",
-            "evidence",
-        ])
-        .unwrap();
-        let Command::RunResourceBenchmark(args) = cli.command else {
-            panic!("wrong parsed command");
-        };
-        assert_eq!(args.policy.sha256, digest);
-        assert_eq!(args.artifact_roots, vec![PathBuf::from("exact/run-1")]);
-        assert_eq!(args.evaluator_arguments, ["--profile=h100"]);
-    }
-
-    #[test]
-    fn benchmark_cli_requires_content_addresses_for_every_json_input() {
-        let digest = "a".repeat(64);
-        let config = format!("run.json={digest}");
-        let public = format!("public.json={digest}");
-        let sealed = format!("sealed.json={digest}");
-        let baseline = format!("baseline.json={digest}");
-        let candidate = format!("candidate.json={digest}");
-        let cli = Cli::try_parse_from([
-            "hermes-train",
-            "run-benchmark",
-            "--config",
-            &config,
-            "--suite",
-            &public,
-            "--suite",
-            &sealed,
-            "--baseline",
-            &baseline,
-            "--candidate",
-            &candidate,
-            "--evaluator",
-            "./evaluator",
-            "--output",
-            "run-output.json",
-        ])
-        .unwrap();
-        let Command::RunBenchmark(args) = cli.command else {
-            panic!("wrong parsed command");
-        };
-        assert_eq!(args.suites.len(), 2);
-        assert_eq!(args.config.sha256, digest);
-        assert_eq!(args.evaluator_timeout_seconds, 3_600);
-
-        assert!(
-            Cli::try_parse_from([
-                "hermes-train",
-                "run-benchmark",
-                "--config",
-                "unaddressed.json",
-                "--suite",
-                &public,
-                "--baseline",
-                &baseline,
-                "--candidate",
-                &candidate,
-                "--evaluator",
-                "./evaluator",
-                "--output",
-                "run-output.json",
-            ])
-            .is_err()
-        );
-    }
-
-    #[test]
     fn workflow_metrics_require_a_run_id_and_parse_as_a_pair() {
         let cli = Cli::try_parse_from([
             "hermes-train",
@@ -2707,37 +2205,6 @@ mod tests {
             before_metrics,
             "a mismatched native runtime identity truncated the metric journal"
         );
-    }
-
-    #[test]
-    fn addressed_json_rejects_changed_bytes() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("value.json");
-        fs::write(&path, br#"{"value":1}"#).unwrap();
-        let input = ContentAddressedPath {
-            path,
-            sha256: "0".repeat(64),
-        };
-        let error = read_addressed_json::<serde_json::Value>(&input).unwrap_err();
-        let error = format!("{error:#}");
-        assert!(error.contains("content hash mismatch"));
-    }
-
-    #[test]
-    fn addressed_json_rejects_oversized_file_before_allocation() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("oversized.json");
-        let file = fs::File::create(&path).unwrap();
-        file.set_len(MAX_CLI_CONTENT_ADDRESSED_JSON_BYTES + 1)
-            .unwrap();
-        drop(file);
-        let input = ContentAddressedPath {
-            path,
-            sha256: "0".repeat(64),
-        };
-        let error = read_addressed_json::<serde_json::Value>(&input).unwrap_err();
-        let error = format!("{error:#}");
-        assert!(error.contains("byte limit"), "{error}");
     }
 
     #[test]
@@ -3018,70 +2485,6 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("identical periodic_sleep"), "{error}");
-    }
-
-    #[test]
-    fn promotion_requires_the_complete_ablation_set_before_io() {
-        let args = EvaluateCandidateArgs {
-            selected_run: ContentAddressedPath {
-                path: "missing-selected.json".into(),
-                sha256: "a".repeat(64),
-            },
-            comparison_runs: vec![ContentAddressedPath {
-                path: "missing-comparison.json".into(),
-                sha256: "b".repeat(64),
-            }],
-            resources: ContentAddressedPath {
-                path: "missing-resources.json".into(),
-                sha256: "c".repeat(64),
-            },
-            policy: ContentAddressedPath {
-                path: "missing-policy.json".into(),
-                sha256: "d".repeat(64),
-            },
-            output: "report.json".into(),
-        };
-        let error = evaluate_candidate_command(args).unwrap_err().to_string();
-        assert!(error.contains("exactly 10 additional comparison runs"));
-    }
-
-    #[test]
-    fn rejected_promotion_is_published_once_without_overwrite() {
-        let temporary = tempfile::tempdir().unwrap();
-        let output = temporary.path().join("promotion.json");
-        let rejected = PromotionReport {
-            accepted: false,
-            cases: Vec::new(),
-            sealed: hermes_train::acceptance::SealedGate {
-                case_count: 3,
-                passed: false,
-            },
-            resource_gates: std::collections::BTreeMap::from([("exact_resume".into(), false)]),
-        };
-        let error = publish_promotion_report(&output, &rejected)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("failed promotion gates"));
-        let original = fs::read(&output).unwrap();
-        let json: serde_json::Value = serde_json::from_slice(&original).unwrap();
-        assert_eq!(json["accepted"], false);
-        assert_eq!(json["sealed"]["case_count"], 3);
-
-        let accepted = PromotionReport {
-            accepted: true,
-            cases: Vec::new(),
-            sealed: hermes_train::acceptance::SealedGate {
-                case_count: 0,
-                passed: true,
-            },
-            resource_gates: std::collections::BTreeMap::new(),
-        };
-        let error = publish_promotion_report(&output, &accepted)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("refusing to overwrite"));
-        assert_eq!(fs::read(&output).unwrap(), original);
-        assert_eq!(fs::read_dir(temporary.path()).unwrap().count(), 1);
     }
 
     #[test]
@@ -3669,28 +3072,20 @@ mod tests {
         )
         .unwrap();
         assert!(publication.checkpoint_manifest.is_file());
-        assert!(publication.training_evidence.is_file());
-        let evidence: hermes_train::benchmark::TrainingEvidence =
-            serde_json::from_slice(&fs::read(&publication.training_evidence).unwrap()).unwrap();
+        let generation = publication.checkpoint_manifest.parent().unwrap();
+        let accounting: hermes_train::benchmark::TrainingAccounting = serde_json::from_slice(
+            &fs::read(generation.join(hermes_train::benchmark::TRAINING_ACCOUNTING_FILE)).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(accounting.parameters, model.num_parameters() as u64);
+        assert_eq!(accounting.routed_active_parameters, accounting.parameters);
         assert_eq!(
-            evidence.checkpoint_manifest_sha256,
-            publication.checkpoint_manifest_sha256
+            accounting.weights_bytes,
+            fs::metadata(generation.join("weights.safetensors"))
+                .unwrap()
+                .len()
         );
-        assert_eq!(evidence.parameters, model.num_parameters() as u64);
-        assert_eq!(evidence.routed_active_parameters, evidence.parameters);
-        assert_eq!(
-            evidence.stored_bytes,
-            fs::metadata(
-                publication
-                    .checkpoint_manifest
-                    .parent()
-                    .unwrap()
-                    .join("weights.safetensors")
-            )
-            .unwrap()
-            .len()
-        );
-        assert!((evidence.training_gpu_hours - 2.0 / 3600.0).abs() < 1e-15);
+        assert!((accounting.training_gpu_hours - 2.0 / 3600.0).abs() < 1e-15);
 
         let mut mismatched_qat_state = state.clone();
         mismatched_qat_state.quantization = Some(QuantizationTrainingState {
@@ -3733,7 +3128,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             resumed_weights_sha256,
-            format!("sha256:{}", evidence.weights_sha256)
+            format!("sha256:{}", accounting.weights_sha256)
         );
         assert_eq!(resumed_state.global_step, state.global_step);
         assert_eq!(resumed_state.phase, state.phase);

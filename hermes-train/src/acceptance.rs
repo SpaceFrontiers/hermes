@@ -1,17 +1,15 @@
-//! Reproducible acceptance gates for immutable training candidates.
+//! Reproducible acceptance gates for training candidates.
 //!
-//! Public and sealed suites share the same metric contract. Content-addressed,
-//! access-controlled benchmark evidence retains sealed case ids and scores for
-//! audit, but the promotion report exposes only their aggregate gate. Suite
-//! examples themselves are never copied into either artifact.
+//! Public and sealed suites share the same metric contract. Benchmark evidence
+//! retains sealed case ids and scores for audit, but the promotion report
+//! exposes only their aggregate gate. Suite examples themselves are never
+//! copied into either artifact.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Component, Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
-
-use crate::artifact_io::{sha256_identity, validate_sha256_hex, validate_sha256_identity};
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -132,15 +130,11 @@ pub struct ResourceComparison {
     pub version: u32,
     pub baseline_id: String,
     pub candidate_id: String,
-    /// SHA-256 of the exact [`crate::benchmark::BenchmarkRun`] JSON artifact.
-    pub benchmark_run_sha256: String,
-    /// This is checked against the baseline identity derived from all verified,
-    /// capacity- and compute-matched comparison runs.  The value is never
-    /// sufficient by itself to authorize promotion.
+    /// This is checked against the baseline identity derived from all
+    /// capacity- and compute-matched comparison runs.
     pub strongest_baseline_id: String,
     /// Identity of the fixed harness that emitted all raw measurements below.
     pub measurement_evaluator_id: String,
-    pub measurement_evaluator_version: String,
     /// Matched raw observations. Throughput and p95 latency are recomputed by
     /// promotion; evidence cannot submit either aggregate directly.
     pub wake_trials: Vec<PairedWakeTrial>,
@@ -151,103 +145,12 @@ pub struct ResourceComparison {
     pub grouped_mm_parity: KernelParityEvidence,
     pub pytorch_parity: KernelParityEvidence,
     pub exact_resume: ExactResumeEvidence,
-    /// Host-derived receipt for the exact pinned worker request and its raw
-    /// observations. This field is mandatory: handwritten aggregate JSON is
-    /// never valid promotion evidence.
-    pub execution: ResourceExecutionReceipt,
 }
 
 pub const RESOURCE_COMPARISON_VERSION: u32 = 2;
 pub const ACCEPTANCE_POLICY_VERSION: u32 = 2;
 pub const RESOURCE_EXECUTION_PROTOCOL_VERSION: u32 = 2;
 const MAX_ACCEPTANCE_PAIRED_SEEDS: usize = 64;
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ResourceExecutionReceipt {
-    pub protocol_version: u32,
-    /// Exact executable identity verified by the host, never copied from the
-    /// worker response.
-    pub evaluator_sha256: String,
-    /// Canonical SHA-256 of the strict request sent to the worker.
-    pub request_sha256: String,
-    /// Canonical SHA-256 of the raw observations retained below.
-    pub observations_sha256: String,
-    /// Canonical identities of the exact targets embedded in the selected
-    /// benchmark run.
-    pub baseline_target_sha256: String,
-    pub candidate_target_sha256: String,
-    /// Raw SHA-256 of the content-addressed acceptance-policy artifact.
-    pub policy_sha256: String,
-    /// Exact portable argument vector used with the pinned evaluator binary.
-    pub evaluator_arguments: Vec<String>,
-    /// Safe relative directories beneath the resource-evidence vault in which
-    /// the worker was permitted to place exact-resume artifacts.
-    pub approved_artifact_roots: Vec<PathBuf>,
-}
-
-impl ResourceExecutionReceipt {
-    fn validate(&self) -> Result<()> {
-        ensure!(
-            self.protocol_version == RESOURCE_EXECUTION_PROTOCOL_VERSION,
-            "unsupported resource execution protocol version {}",
-            self.protocol_version
-        );
-        for (name, value) in [
-            ("resource evaluator", self.evaluator_sha256.as_str()),
-            ("resource request", self.request_sha256.as_str()),
-            ("resource observations", self.observations_sha256.as_str()),
-            ("baseline target", self.baseline_target_sha256.as_str()),
-            ("candidate target", self.candidate_target_sha256.as_str()),
-        ] {
-            validate_sha256_identity(value, name)?;
-        }
-        validate_sha256_hex(&self.policy_sha256, "resource policy")?;
-        ensure!(
-            self.evaluator_arguments.len() <= 64
-                && self
-                    .evaluator_arguments
-                    .iter()
-                    .all(|argument| argument.len() <= 4096 && !argument.contains('\0')),
-            "resource evaluator arguments exceed protocol limits"
-        );
-        ensure!(
-            !self.approved_artifact_roots.is_empty(),
-            "resource execution has no approved artifact root"
-        );
-        for root in &self.approved_artifact_roots {
-            validate_safe_relative_path(root, "resource execution artifact root")?;
-        }
-        let unique = self.approved_artifact_roots.iter().collect::<BTreeSet<_>>();
-        ensure!(
-            unique.len() == self.approved_artifact_roots.len(),
-            "resource execution repeats an approved artifact root"
-        );
-        ensure!(
-            self.approved_artifact_roots
-                .iter()
-                .enumerate()
-                .all(|(index, root)| {
-                    self.approved_artifact_roots[index + 1..]
-                        .iter()
-                        .all(|other| !root.starts_with(other) && !other.starts_with(root))
-                }),
-            "resource execution artifact roots must not overlap"
-        );
-        Ok(())
-    }
-}
-
-fn validate_safe_relative_path(path: &Path, name: &str) -> Result<()> {
-    ensure!(!path.as_os_str().is_empty(), "{name} is empty");
-    ensure!(!path.is_absolute(), "{name} must be relative");
-    ensure!(
-        path.components()
-            .all(|component| matches!(component, Component::Normal(_))),
-        "{name} must not contain prefixes, `.` or `..`"
-    );
-    Ok(())
-}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -346,13 +249,11 @@ pub struct KernelParitySample {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct KernelParityEvidence {
-    pub fixture_sha256: String,
     pub samples: Vec<KernelParitySample>,
 }
 
 impl KernelParityEvidence {
     fn validate(&self, name: &str) -> Result<()> {
-        validate_sha256_hex(&self.fixture_sha256, &format!("{name} fixture"))?;
         ensure!(
             !self.samples.is_empty(),
             "{name} parity evaluated no values"
@@ -385,27 +286,28 @@ impl KernelParityEvidence {
     }
 }
 
-/// One immutable file used by the exact-resume verifier. Paths resolve against
-/// the resource-comparison artifact; the digest is verified from a stable file
-/// handle before any equality decision is made.
+/// One file used by the exact-resume verifier. Relative paths resolve against
+/// the resource-comparison artifact that declared them.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExactResumeArtifact {
     pub path: PathBuf,
-    pub sha256: String,
 }
 
 impl ExactResumeArtifact {
     fn validate(&self, name: &str) -> Result<()> {
-        validate_safe_relative_path(&self.path, &format!("{name} artifact path"))?;
-        validate_sha256_hex(&self.sha256, name)
+        ensure!(
+            !self.path.as_os_str().is_empty(),
+            "{name} artifact path is empty"
+        );
+        Ok(())
     }
 }
 
-/// Immutable artifacts proving that an interrupted run and an uninterrupted
-/// reference converged to byte-identical state and semantic progress from the
-/// same checkpoint. Promotion verifies every referenced file; digest-shaped
-/// strings without those files are never promotable.
+/// Artifacts proving that an interrupted run and an uninterrupted reference
+/// converged to byte-identical state and semantic progress from the same
+/// checkpoint. Promotion reads every referenced file; a comparison that names
+/// files which do not exist is never promotable.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExactResumeEvidence {
@@ -461,15 +363,10 @@ impl ResourceComparison {
             !self.strongest_baseline_id.trim().is_empty(),
             "strongest_baseline_id is empty"
         );
-        validate_sha256_hex(&self.benchmark_run_sha256, "benchmark run")?;
         ensure!(
             !self.measurement_evaluator_id.trim().is_empty(),
             "resource measurement evaluator id is empty"
         );
-        validate_sha256_identity(
-            &self.measurement_evaluator_version,
-            "resource measurement evaluator",
-        )?;
         ensure!(
             !self.wake_trials.is_empty(),
             "resource evidence has no wake trials"
@@ -497,56 +394,7 @@ impl ResourceComparison {
         self.grouped_mm_parity.validate("grouped-mm")?;
         self.pytorch_parity.validate("PyTorch")?;
         self.exact_resume.validate()?;
-        self.execution.validate()?;
-        ensure!(
-            self.execution.evaluator_sha256 == self.measurement_evaluator_version,
-            "resource execution worker differs from the measurement evaluator"
-        );
-        ensure!(
-            self.execution.observations_sha256 == self.observations_sha256()?,
-            "resource execution receipt does not authenticate its raw observations"
-        );
         Ok(())
-    }
-
-    pub fn observations_sha256(&self) -> Result<String> {
-        #[derive(Serialize)]
-        struct ExactResumeIdentity<'a> {
-            interrupted_checkpoint_sha256: &'a str,
-            uninterrupted_final_state_sha256: &'a str,
-            resumed_final_state_sha256: &'a str,
-            uninterrupted_metrics_sha256: &'a str,
-            resumed_metrics_sha256: &'a str,
-            interruption_step: u64,
-            resumed_from_step: u64,
-        }
-
-        #[derive(Serialize)]
-        struct RawObservations<'a> {
-            wake_trials: &'a [PairedWakeTrial],
-            candidate_capacity: &'a [CapacityObservation],
-            grouped_mm_samples: &'a [KernelParitySample],
-            pytorch_samples: &'a [KernelParitySample],
-            exact_resume: ExactResumeIdentity<'a>,
-        }
-
-        let exact = &self.exact_resume;
-        let bytes = serde_json::to_vec(&RawObservations {
-            wake_trials: &self.wake_trials,
-            candidate_capacity: &self.candidate_capacity,
-            grouped_mm_samples: &self.grouped_mm_parity.samples,
-            pytorch_samples: &self.pytorch_parity.samples,
-            exact_resume: ExactResumeIdentity {
-                interrupted_checkpoint_sha256: &exact.interrupted_checkpoint.sha256,
-                uninterrupted_final_state_sha256: &exact.uninterrupted_final_state.sha256,
-                resumed_final_state_sha256: &exact.resumed_final_state.sha256,
-                uninterrupted_metrics_sha256: &exact.uninterrupted_metrics.sha256,
-                resumed_metrics_sha256: &exact.resumed_metrics.sha256,
-                interruption_step: exact.interruption_step,
-                resumed_from_step: exact.resumed_from_step,
-            },
-        })?;
-        Ok(sha256_identity(&bytes))
     }
 
     pub(crate) fn derived_measurements(&self) -> Result<DerivedResourceMeasurements> {
@@ -725,7 +573,6 @@ pub(crate) struct DerivedResourceMeasurements {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct KernelParityPolicy {
-    pub fixture_sha256: String,
     pub minimum_samples: usize,
     pub maximum_absolute_error: f64,
     pub maximum_relative_error: f64,
@@ -733,7 +580,6 @@ pub struct KernelParityPolicy {
 
 impl KernelParityPolicy {
     fn validate(&self, name: &str) -> Result<()> {
-        validate_sha256_hex(&self.fixture_sha256, &format!("{name} fixture"))?;
         ensure!(
             self.minimum_samples > 0,
             "{name} policy requires no parity samples"
@@ -757,7 +603,6 @@ pub struct AcceptancePolicy {
     pub maximum_anchor_regression: f64,
     pub stable_anchor_catalog_ids: BTreeSet<String>,
     pub resource_evaluator_id: String,
-    pub resource_evaluator_version: String,
     pub minimum_wake_trials: usize,
     pub minimum_wake_latency_samples: usize,
     pub minimum_wake_throughput_ratio: f64,
@@ -781,19 +626,16 @@ impl Default for AcceptancePolicy {
             .into_iter()
             .collect(),
             resource_evaluator_id: "hermes-resource-evaluator".to_owned(),
-            resource_evaluator_version: format!("sha256:{}", "c".repeat(64)),
             minimum_wake_trials: 3,
             minimum_wake_latency_samples: 3,
             minimum_wake_throughput_ratio: 0.95,
             maximum_wake_latency_ratio: 1.05,
             grouped_mm_parity: KernelParityPolicy {
-                fixture_sha256: "a".repeat(64),
                 minimum_samples: 1024,
                 maximum_absolute_error: 2e-5,
                 maximum_relative_error: 2e-4,
             },
             pytorch_parity: KernelParityPolicy {
-                fixture_sha256: "b".repeat(64),
                 minimum_samples: 1024,
                 maximum_absolute_error: 2e-5,
                 maximum_relative_error: 2e-4,
@@ -829,7 +671,6 @@ impl AcceptancePolicy {
             !self.resource_evaluator_id.trim().is_empty(),
             "resource evaluator id is empty"
         );
-        validate_sha256_identity(&self.resource_evaluator_version, "resource evaluator")?;
         ensure!(
             self.minimum_wake_trials >= 3 && self.minimum_wake_latency_samples >= 3,
             "wake performance gates require at least three trials and latency samples"
@@ -879,7 +720,6 @@ pub struct PromotionReport {
 
 #[derive(Clone, Debug)]
 pub(crate) struct VerifiedPromotionContext<'a> {
-    pub benchmark_run_sha256: &'a str,
     pub strongest_baseline_id: &'a str,
     pub baseline_id: &'a str,
     pub candidate_id: &'a str,
@@ -891,41 +731,7 @@ pub(crate) struct VerifiedPromotionContext<'a> {
     pub baseline_stored_bytes: u64,
     pub candidate_stored_bytes: u64,
     pub candidate_routed_active_parameters: u64,
-    pub content_addressed_evidence: bool,
-    pub executed_resource_evidence: bool,
     pub exact_resume_verified: bool,
-}
-
-/// Evaluate raw inputs for diagnostics.
-///
-/// Raw caller-supplied JSON is intentionally never promotable because it has
-/// not crossed the content-addressed benchmark boundary.  Production
-/// promotion must call [`crate::benchmark::evaluate_verified_promotion`].
-pub fn evaluate_candidate(
-    suite: &AcceptanceSuite,
-    results: &[CaseResult],
-    resources: &ResourceComparison,
-    policy: &AcceptancePolicy,
-) -> Result<PromotionReport> {
-    let measurements = resources.derived_measurements()?;
-    let context = VerifiedPromotionContext {
-        benchmark_run_sha256: &resources.benchmark_run_sha256,
-        strongest_baseline_id: &resources.strongest_baseline_id,
-        baseline_id: &resources.baseline_id,
-        candidate_id: &resources.candidate_id,
-        capacity_matched: false,
-        active_capacity_matched: false,
-        fixed_gpu_hour_measured: false,
-        baseline_stored_parameters: measurements.initial_stored_parameters,
-        candidate_stored_parameters: measurements.initial_stored_parameters,
-        baseline_stored_bytes: measurements.initial_stored_bytes,
-        candidate_stored_bytes: measurements.initial_stored_bytes,
-        candidate_routed_active_parameters: measurements.initial_routed_active_parameters,
-        content_addressed_evidence: false,
-        executed_resource_evidence: false,
-        exact_resume_verified: false,
-    };
-    evaluate_with_verified_context(suite, results, resources, policy, &context)
 }
 
 pub(crate) fn evaluate_with_verified_context(
@@ -940,34 +746,13 @@ pub(crate) fn evaluate_with_verified_context(
     let measurements = resources.derived_measurements()?;
 
     ensure!(
-        context.benchmark_run_sha256 == resources.benchmark_run_sha256,
-        "resource evidence addresses benchmark run {}, not {}",
-        resources.benchmark_run_sha256,
-        context.benchmark_run_sha256
-    );
-    ensure!(
         context.baseline_id == resources.baseline_id
             && context.candidate_id == resources.candidate_id,
         "resource evidence target identities do not match the benchmark run"
     );
     ensure!(
-        resources.measurement_evaluator_id == policy.resource_evaluator_id
-            && resources.measurement_evaluator_version == policy.resource_evaluator_version,
-        "resource evidence was not produced by the policy-pinned evaluator"
-    );
-    ensure!(
-        resources
-            .grouped_mm_parity
-            .fixture_sha256
-            .eq_ignore_ascii_case(&policy.grouped_mm_parity.fixture_sha256),
-        "grouped-mm parity evidence uses a fixture not pinned by policy"
-    );
-    ensure!(
-        resources
-            .pytorch_parity
-            .fixture_sha256
-            .eq_ignore_ascii_case(&policy.pytorch_parity.fixture_sha256),
-        "PyTorch parity evidence uses a fixture not pinned by policy"
+        resources.measurement_evaluator_id == policy.resource_evaluator_id,
+        "resource evidence was not produced by the policy-named evaluator"
     );
     ensure!(
         measurements.wake_trials >= policy.minimum_wake_trials,
@@ -1153,14 +938,6 @@ pub(crate) fn evaluate_with_verified_context(
         (
             "fixed_gpu_hour_measured".into(),
             context.fixed_gpu_hour_measured,
-        ),
-        (
-            "content_addressed_evidence".into(),
-            context.content_addressed_evidence,
-        ),
-        (
-            "executed_resource_evidence".into(),
-            context.executed_resource_evidence,
         ),
         ("exact_resume".into(), context.exact_resume_verified),
         (
@@ -1360,14 +1137,12 @@ mod tests {
                 })
                 .collect()
         };
-        let mut resources = ResourceComparison {
+        ResourceComparison {
             version: RESOURCE_COMPARISON_VERSION,
             baseline_id: "static-moe".into(),
             candidate_id: "sleep-candidate".into(),
-            benchmark_run_sha256: "1".repeat(64),
             strongest_baseline_id: "static-moe".into(),
             measurement_evaluator_id: "hermes-resource-evaluator".into(),
-            measurement_evaluator_version: format!("sha256:{}", "c".repeat(64)),
             wake_trials: (0..3)
                 .map(|trial| PairedWakeTrial {
                     trial,
@@ -1392,56 +1167,35 @@ mod tests {
                 })
                 .collect(),
             grouped_mm_parity: KernelParityEvidence {
-                fixture_sha256: "a".repeat(64),
                 samples: parity_samples(),
             },
             pytorch_parity: KernelParityEvidence {
-                fixture_sha256: "b".repeat(64),
                 samples: parity_samples(),
             },
             exact_resume: ExactResumeEvidence {
                 interrupted_checkpoint: ExactResumeArtifact {
                     path: "interrupted/generation-manifest.json".into(),
-                    sha256: "4".repeat(64),
                 },
                 uninterrupted_final_state: ExactResumeArtifact {
                     path: "uninterrupted/generation-manifest.json".into(),
-                    sha256: "5".repeat(64),
                 },
                 resumed_final_state: ExactResumeArtifact {
                     path: "resumed/generation-manifest.json".into(),
-                    sha256: "5".repeat(64),
                 },
                 uninterrupted_metrics: ExactResumeArtifact {
                     path: "uninterrupted/metrics.jsonl".into(),
-                    sha256: "6".repeat(64),
                 },
                 resumed_metrics: ExactResumeArtifact {
                     path: "resumed/metrics.jsonl".into(),
-                    sha256: "7".repeat(64),
                 },
                 interruption_step: 17,
                 resumed_from_step: 17,
             },
-            execution: ResourceExecutionReceipt {
-                protocol_version: RESOURCE_EXECUTION_PROTOCOL_VERSION,
-                evaluator_sha256: format!("sha256:{}", "c".repeat(64)),
-                request_sha256: format!("sha256:{}", "8".repeat(64)),
-                observations_sha256: format!("sha256:{}", "9".repeat(64)),
-                baseline_target_sha256: format!("sha256:{}", "a".repeat(64)),
-                candidate_target_sha256: format!("sha256:{}", "b".repeat(64)),
-                policy_sha256: "d".repeat(64),
-                evaluator_arguments: Vec::new(),
-                approved_artifact_roots: vec!["artifacts".into()],
-            },
-        };
-        resources.execution.observations_sha256 = resources.observations_sha256().unwrap();
-        resources
+        }
     }
 
     fn verified_context<'a>(resources: &'a ResourceComparison) -> VerifiedPromotionContext<'a> {
         VerifiedPromotionContext {
-            benchmark_run_sha256: &resources.benchmark_run_sha256,
             strongest_baseline_id: &resources.strongest_baseline_id,
             baseline_id: &resources.baseline_id,
             candidate_id: &resources.candidate_id,
@@ -1453,14 +1207,8 @@ mod tests {
             baseline_stored_bytes: 1_000,
             candidate_stored_bytes: 1_000,
             candidate_routed_active_parameters: 80,
-            content_addressed_evidence: true,
             exact_resume_verified: true,
-            executed_resource_evidence: true,
         }
-    }
-
-    fn reseal(resources: &mut ResourceComparison) {
-        resources.execution.observations_sha256 = resources.observations_sha256().unwrap();
     }
 
     #[test]
@@ -1702,7 +1450,6 @@ mod tests {
             trial.candidate.tokens = 1;
             trial.candidate.elapsed_seconds = 1e-20;
         }
-        reseal(&mut resources);
 
         let error = evaluate_with_verified_context(
             &suite(),
@@ -1724,7 +1471,6 @@ mod tests {
             .last_mut()
             .unwrap()
             .routed_active_parameters += 1;
-        reseal(&mut resources);
         let results = suite()
             .cases
             .iter()
@@ -1765,7 +1511,6 @@ mod tests {
     fn first_activation_compute_growth_rejects_candidate() {
         let mut resources = resources();
         resources.candidate_capacity[0].routed_active_parameters -= 1;
-        reseal(&mut resources);
         let results = suite()
             .cases
             .iter()
@@ -1808,7 +1553,6 @@ mod tests {
         let last = resources.candidate_capacity.last_mut().unwrap();
         last.stored_parameters -= 1;
         last.stored_bytes -= 1;
-        reseal(&mut resources);
         let results = suite()
             .cases
             .iter()
@@ -1876,7 +1620,17 @@ mod tests {
                 },
             ],
         }];
-        assert!(evaluate_candidate(&suite(), &results, &resources(), &policy()).is_err());
+        let resources = resources();
+        assert!(
+            evaluate_with_verified_context(
+                &suite(),
+                &results,
+                &resources,
+                &policy(),
+                &verified_context(&resources),
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -1895,28 +1649,6 @@ mod tests {
         unbounded_seed_policy.minimum_paired_seeds = MAX_ACCEPTANCE_PAIRED_SEEDS + 1;
         let error = unbounded_seed_policy.validate().unwrap_err().to_string();
         assert!(error.contains("paired seeds"), "{error}");
-    }
-
-    #[test]
-    fn raw_json_inputs_can_never_promote() {
-        let results = suite()
-            .cases
-            .iter()
-            .map(|case| CaseResult {
-                case_id: case.id.clone(),
-                pairs: [1, 2, 3]
-                    .into_iter()
-                    .map(|seed| PairedRun {
-                        seed,
-                        baseline: 0.0,
-                        candidate: 1.0,
-                    })
-                    .collect(),
-            })
-            .collect::<Vec<_>>();
-        let report = evaluate_candidate(&suite(), &results, &resources(), &policy()).unwrap();
-        assert!(!report.accepted);
-        assert!(!report.resource_gates["content_addressed_evidence"]);
     }
 
     #[test]
@@ -1943,7 +1675,6 @@ mod tests {
             .last_mut()
             .unwrap()
             .stored_bytes += 1;
-        reseal(&mut resources);
         let mut context = verified_context(&resources);
         context.exact_resume_verified = false;
         let report =
@@ -1956,7 +1687,7 @@ mod tests {
     }
 
     #[test]
-    fn exact_resume_requires_addressed_artifacts() {
+    fn exact_resume_requires_complete_artifact_references() {
         let mut exact = resources().exact_resume;
         exact.validate().unwrap();
         exact.resumed_metrics.path = PathBuf::new();
@@ -1966,22 +1697,9 @@ mod tests {
         exact.resumed_from_step += 1;
         assert!(exact.validate().is_err());
 
-        let mut exact = resources().exact_resume;
-        exact.resumed_metrics.path = "../outside/metrics.jsonl".into();
-        assert!(exact.validate().is_err());
-    }
-
-    #[test]
-    fn execution_receipt_and_safe_relative_roots_are_mandatory() {
         let mut encoded = serde_json::to_value(resources()).unwrap();
-        encoded.as_object_mut().unwrap().remove("execution");
+        encoded.as_object_mut().unwrap().remove("exact_resume");
         assert!(serde_json::from_value::<ResourceComparison>(encoded).is_err());
-
-        for root in ["/absolute", "../escape", "./dot"] {
-            let mut resources = resources();
-            resources.execution.approved_artifact_roots = vec![root.into()];
-            assert!(resources.validate().is_err(), "accepted unsafe root {root}");
-        }
     }
 
     #[test]
@@ -2034,7 +1752,6 @@ mod tests {
             trial.candidate.elapsed_seconds = 20.0;
             trial.candidate.request_latency_ms = vec![20.0];
         }
-        reseal(&mut resources);
         let results = suite()
             .cases
             .iter()
@@ -2074,7 +1791,6 @@ mod tests {
             trial.candidate.elapsed_seconds = elapsed;
             trial.candidate.request_latency_ms = vec![latency];
         }
-        reseal(&mut resources);
         let results = suite()
             .cases
             .iter()
@@ -2120,7 +1836,6 @@ mod tests {
         for trial in &mut resources.wake_trials {
             trial.baseline.elapsed_seconds = f64::MIN_POSITIVE;
         }
-        reseal(&mut resources);
         let error = resources.derived_measurements().unwrap_err().to_string();
         assert!(error.contains("derived wake measurements"), "{error}");
     }

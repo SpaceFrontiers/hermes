@@ -20,8 +20,7 @@ use serde::{Deserialize, Serialize};
 use crate::acceptance::SuiteVisibility;
 use crate::benchmark::{
     BenchmarkEvaluator, BenchmarkSpec, BenchmarkTarget, EvaluationMeasurement, EvaluationRequest,
-    TargetRole, VerifiedArtifact, VerifiedModelRepresentation,
-    validate_benchmark_evaluator_arguments,
+    ResolvedModelRepresentation, SuiteArtifact, TargetRole, validate_benchmark_evaluator_arguments,
 };
 #[cfg(unix)]
 use crate::protocol_process::{ProtocolRead, SupervisedProcess};
@@ -37,9 +36,9 @@ pub struct BenchmarkWorkerRequest<'a> {
     pub suite_id: &'a str,
     pub visibility: SuiteVisibility,
     pub case: &'a BenchmarkSpec,
-    pub artifact: &'a VerifiedArtifact,
+    pub artifact: &'a SuiteArtifact,
     pub target: &'a BenchmarkTarget,
-    pub model: &'a VerifiedModelRepresentation,
+    pub model: &'a ResolvedModelRepresentation,
     pub role: TargetRole,
     pub model_seed: u64,
     pub example_order_seed: u64,
@@ -357,14 +356,13 @@ mod tests {
     fn fixture(
         directory: &Path,
     ) -> (
-        VerifiedArtifact,
+        SuiteArtifact,
         BenchmarkSpec,
         BenchmarkTarget,
-        VerifiedModelRepresentation,
+        ResolvedModelRepresentation,
     ) {
-        let artifact = VerifiedArtifact {
+        let artifact = SuiteArtifact {
             path: directory.join("fixture.jsonl"),
-            sha256: "1".repeat(64),
             bytes: 1,
         };
         let case = BenchmarkSpec {
@@ -376,25 +374,21 @@ mod tests {
             stable_anchor: false,
             artifact: BenchmarkArtifact {
                 path: artifact.path.clone(),
-                sha256: artifact.sha256.clone(),
             },
             evaluator: BTreeMap::new(),
         };
         let target = BenchmarkTarget {
             id: "candidate".into(),
-            checkpoint_manifest: directory.join("checkpoint.json"),
+            checkpoint_manifest: directory.join("generation-manifest.json"),
             checkpoint_manifest_sha256: "2".repeat(64),
-            training_evidence: directory.join("training-evidence.json"),
-            training_evidence_sha256: "3".repeat(64),
             training_gpu_hours: 1.0,
             parameters: 10,
             routed_active_parameters: 8,
             stored_bytes: 100,
             representation: crate::benchmark::ModelRepresentationTarget::FullPrecision,
         };
-        let model = VerifiedModelRepresentation::FullPrecision {
+        let model = ResolvedModelRepresentation::FullPrecision {
             weights: directory.join("weights.safetensors"),
-            weights_sha256: "4".repeat(64),
             stored_bytes: 100,
         };
         (artifact, case, target, model)

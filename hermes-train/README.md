@@ -574,11 +574,10 @@ routed-active parameters, at least 95% wake throughput, and at most 5% wake
 latency regression.
 
 Acceptance suites and benchmark suite manifests are strict schema v2. Each case
-has an explicit catalog identity and `stable_anchor` value. The separately
-SHA-256-addressed acceptance-policy v2 artifact prescribes the complete anchor
-catalog set; promotion rejects any suite flag that differs, so a suite author
-cannot exempt an improvement case. The policy also pins the resource evaluator
-identity and digest, grouped-mm and PyTorch fixture hashes, minimum trial/sample
+has an explicit catalog identity and `stable_anchor` value. The acceptance-policy
+v2 artifact prescribes the complete anchor catalog set; promotion rejects any
+suite flag that differs, so a suite author cannot exempt an improvement case.
+The policy also names the resource evaluator, and pins minimum trial/sample
 counts, parity error ceilings, and wake performance ratios. Resource evidence
 contains no tolerances.
 
@@ -587,54 +586,33 @@ the first receiver activation replaces equal active compute instead of adding
 it. Resource-comparison v2 capacity evidence contains cycle zero followed by
 every completed sleep cycle without gaps. Promotion recomputes each envelope
 and requires routed-active parameters, stored parameters, and stored bytes to
-remain exactly equal to cycle zero and the verified candidate target; that
-target may not exceed the matched baseline. There is no activation or topology
-resize exception.
+remain exactly equal to cycle zero and the candidate target; that target may
+not exceed the matched baseline. There is no activation or topology resize
+exception.
 
 Both public and sealed manifests must cover causal pretraining, summarization,
 retrieval representation/ranking, retrieval planning, reasoning/QA, preference,
 verifiable RL, synthetic retention, CLINC, Banking77, MK-NIAH, QASPER,
-no-context SQuAD incorporation, and ARC Dreaming. `--include-later-sweeps` also
-requires Manchu, Kalamang, and BABILong. Catalog IDs and benchmark families are
-fixed by the runner rather than inferred from filenames.
+no-context SQuAD incorporation, and ARC Dreaming. Later sweeps also require
+Manchu, Kalamang, and BABILong. Catalog IDs and benchmark families are fixed by
+the runner rather than inferred from filenames.
 
-First produce each immutable run with the configured evaluator. `PATH=HASH`
-arguments use raw 64-character SHA-256 digests. `evaluator_version` in the run
-config labels the evaluator build that produced the run, and
-`evaluator_arguments` in that same config is the exact UTF-8 argument vector:
-repeat `--evaluator-arg` with identical values when launching the run.
-The host clears the inherited environment and runs the evaluator from `/`, so
-the evaluator must be self-contained and may not depend on ambient shell,
-working-directory, or secret state.
+Benchmark runs are produced by `BenchmarkRunner::run` with a configured
+evaluator (`hermes_train::benchmark_worker::ExternalBenchmarkEvaluator` speaks
+the JSONL worker protocol). `evaluator_arguments` in the run config is the exact
+UTF-8 argument vector passed to that worker. The host clears the inherited
+environment and runs the evaluator from `/`, so the evaluator must be
+self-contained and may not depend on ambient shell, working-directory, or secret
+state.
 
-```bash
-hermes-train run-benchmark \
-  --config "benchmarks/run-config.json=$RUN_CONFIG_SHA256" \
-  --suite "benchmarks/public.manifest.json=$PUBLIC_SUITE_SHA256" \
-  --suite "benchmarks/sealed.manifest.json=$SEALED_SUITE_SHA256" \
-  --baseline "benchmarks/baseline-target.json=$BASELINE_TARGET_SHA256" \
-  --candidate "benchmarks/candidate-target.json=$CANDIDATE_TARGET_SHA256" \
-  --evaluator /opt/hermes/bin/benchmark-worker \
-  --output runs/wake-only.json
-```
-
-Each target JSON points to both its checkpoint manifest and an immutable
-training-evidence JSON artifact, and must declare the bytes evaluated with a
-required `representation`. Use `{"type":"full_precision"}` for the sealed
-generation weights, or
+Each target JSON points to its checkpoint manifest and must declare the bytes
+evaluated with a required `representation`. Use `{"type":"full_precision"}` for
+the sealed generation weights, or
 `{"type":"hquant","candidate_manifest":".../candidate.json","candidate_manifest_sha256":"sha256:<64 lowercase hex>"}`
 for a published QAT candidate. There is no implicit full-precision target.
-Resource accounting is sealed inside the
-checkpoint generation, where the generation manifest authenticates it and the
-actual `weights.safetensors` bytes. The runner reopens every generation member,
-derives the tensor count from SafeTensors, and requires the outer evidence and
-target to match the sealed GPU hours, stored/routed parameter counts, weight
-length, and weight hash. A digest-shaped claim without these artifacts cannot
-enter promotion. The built-in trainer creates the outer attestation under
-`training-evidence/sha256-<evidence-hash>.json` after sealing the generation and
-prints both manifest and evidence paths and hashes. Evidence lives outside the
-generation so it cannot create a circular generation-manifest hash, and
-`current.json` is advanced only after evidence publication succeeds.
+Resource accounting is sealed inside the checkpoint generation as
+`training-accounting.json`, where the generation manifest authenticates it and
+the actual `weights.safetensors` bytes.
 
 For this single-accelerator trainer, `training_gpu_hours` is the measured
 committed training time: the integer-nanosecond sum of optimizer-step
@@ -648,137 +626,72 @@ For a full-precision target, `stored_bytes` is exactly the sealed
 `weights.safetensors` length. For an HQUANT target it is the sum of every
 validated packed and retained-floating weight member in the archive; metadata,
 the candidate's canonical FP master, candidate-container/manifest overhead,
-optimizer, and trainer state are excluded. The runner
-authenticates `candidate.json`, its source checkpoint, archive manifest, and
-every archive member before accepting that claim. `parameters` is checked
-against both the SafeTensors and HQUANT inventories.
+optimizer, and trainer state are excluded. `parameters` is checked against the
+HQUANT archive inventory.
 `routed_active_parameters` includes all
 non-expert parameters, complete routers and shared experts, and ordinary top-k
 routed experts. Dense, MoE, and sleep-memory models are measured from the live
 module; memory accounting follows the synchronized active-slot masks while its
 fixed fallback/active reserve route lane remains constant.
 
-The persistent benchmark evaluator receives verified local artifact paths, target
+The persistent benchmark evaluator receives local artifact paths, target
 checkpoint manifests, the concrete FP weights or HQUANT archive transport,
 fixed model/example-order seeds, target role, pair ordinal, and the hard
 per-evaluation GPU-hour budget. An HQUANT evaluator must supply its own real
 backend; the trainer does not dequantize to FP as a benchmark substitute. It
-returns only a finite score, measured GPU hours, example count, and optional finite metrics. The
-runner itself verifies the complete public/sealed catalog, equal example counts,
-target manifests, ordering, budgets, and at least three strictly ordered paired
-seeds. Benchmark protocol v2 serializes the verified representation object in
-every evaluator request; benchmark-run, resource-request, and promotion
-identities include its path-free FP/HQUANT content identity.
+returns only a finite score, measured GPU hours, example count, and optional
+finite metrics. The runner itself verifies the complete public/sealed catalog,
+equal example counts, target manifests, ordering, budgets, and at least three
+strictly ordered paired seeds.
 
-Promotion requires the structurally bound execution receipt published by the
-first-party resource host; a plain raw-observation JSON file is invalid. Run
-the host after all eleven benchmark runs exist. The policy is
-content-addressed and its `resource_evaluator_version` is recorded in the
-execution receipt that promotion re-verifies. Every `--artifact-root` is a safe relative directory beneath the
-existing evidence vault; the worker may write exact-resume artifacts only
-there.
-
-```bash
-mkdir -p evidence/resource-vault
-hermes-train run-resource-benchmark \
-  --selected-run "runs/static-equal-moe.json=$SELECTED_RUN_SHA256" \
-  --comparison-run "runs/wake-only.json=$WAKE_ONLY_SHA256" \
-  --comparison-run "runs/static-replay.json=$STATIC_REPLAY_SHA256" \
-  --comparison-run "runs/cms-no-seeding.json=$CMS_NO_SEEDING_SHA256" \
-  --comparison-run "runs/fixed-on-policy.json=$FIXED_ON_POLICY_SHA256" \
-  --comparison-run "runs/expansion-matched.json=$EXPANSION_MATCHED_SHA256" \
-  --comparison-run "runs/consolidation-only.json=$CONSOLIDATION_ONLY_SHA256" \
-  --comparison-run "runs/no-semantic-reward.json=$NO_SEMANTIC_SHA256" \
-  --comparison-run "runs/no-imitation-reward.json=$NO_IMITATION_SHA256" \
-  --comparison-run "runs/no-gradient-selection.json=$NO_GRADIENT_SHA256" \
-  --comparison-run "runs/no-random-expert.json=$NO_RANDOM_EXPERT_SHA256" \
-  --policy "acceptance-policy.json=$POLICY_SHA256" \
-  --evaluator /opt/hermes/bin/resource-worker \
-  --evaluator-timeout-seconds 3600 \
-  --artifact-root exact-resume/run-2026-08-02 \
-  --output-directory evidence/resource-vault
-```
-
-The host sends one bounded JSON line and accepts exactly one bounded JSON line.
-The response contains raw wake trials, capacity observations, grouped-mm and
-PyTorch samples, and relative exact-resume artifact references—never target,
-policy, threshold, or evaluator identities. The host derives those identities,
-binds the exact UTF-8 evaluator argument vector, verifies every referenced file,
-and publishes `sha256-<digest>.json` without replacement. It then reopens the
-publication and repeats receipt and exact-artifact verification. A timeout,
-extra output, path traversal, symlink, binary change, or policy mismatch fails
+`hermes_train::resource_worker::run_resource_benchmark` executes the resource
+host after all eleven benchmark runs exist. It sends one bounded JSON line and
+accepts exactly one bounded JSON line. The response contains raw wake trials,
+capacity observations, grouped-mm and PyTorch samples, and relative exact-resume
+artifact references. The host derives the strongest matched baseline, verifies
+the exact-resume artifacts, and writes `resource-comparison.json` into the
+output directory. A timeout, extra output, or a symlinked evaluator binary fails
 closed and the child process group is reaped.
 
-This receipt provides deterministic execution provenance within the trusted
-training-host/operator boundary. It is not a cryptographic remote-attestation
-scheme and does not claim resistance to an operator who controls that host.
+`hermes_train::benchmark::evaluate_verified_promotion` takes the selected run,
+the complete eleven-ablation comparison matrix, the resource comparison, and the
+acceptance policy. The selected run must appear exactly once in the matrix.
+Every run must use the same evaluator, suites, candidate, ordering, paired
+seeds, and measured training-compute allowance. Resource-comparison v2 stores
+raw paired token/elapsed/latency observations, raw per-cycle capacity
+observations, and raw reference/candidate kernel values. Promotion recomputes
+aggregate throughput, nearest-rank p95 latency, capacity minima/maxima, and
+maximum absolute/relative parity errors — evidence never submits an aggregate.
 
-```bash
-hermes-train evaluate-candidate \
-  --selected-run "runs/static-equal-moe.json=$SELECTED_RUN_SHA256" \
-  --comparison-run "runs/wake-only.json=$WAKE_ONLY_SHA256" \
-  --comparison-run "runs/static-replay.json=$STATIC_REPLAY_SHA256" \
-  --comparison-run "runs/cms-no-seeding.json=$CMS_NO_SEEDING_SHA256" \
-  --comparison-run "runs/fixed-on-policy.json=$FIXED_ON_POLICY_SHA256" \
-  --comparison-run "runs/expansion-matched.json=$EXPANSION_MATCHED_SHA256" \
-  --comparison-run "runs/consolidation-only.json=$CONSOLIDATION_ONLY_SHA256" \
-  --comparison-run "runs/no-semantic-reward.json=$NO_SEMANTIC_SHA256" \
-  --comparison-run "runs/no-imitation-reward.json=$NO_IMITATION_SHA256" \
-  --comparison-run "runs/no-gradient-selection.json=$NO_GRADIENT_SHA256" \
-  --comparison-run "runs/no-random-expert.json=$NO_RANDOM_EXPERT_SHA256" \
-  --resources "evidence/resource-vault/sha256-$RESOURCE_EVIDENCE_SHA256.json=$RESOURCE_EVIDENCE_SHA256" \
-  --policy "acceptance-policy.json=$POLICY_SHA256" \
-  --output promotion-report.json
-```
-
-SHA-256 arguments are raw 64-character hexadecimal digests. The selected run
-plus exactly ten repeatable `--comparison-run PATH=SHA256` values must cover the
-fixed eleven-ablation catalog; do not repeat the selected run. Every run must
-use the same evaluator, manifests, candidate, ordering, paired seeds, and
-measured training-compute allowance. Resource-comparison v2 stores
-a mandatory host-derived execution receipt, raw paired
-token/elapsed/latency observations, raw per-cycle capacity
-observations, and raw reference/candidate kernel values. After rechecking the
-artifact digest, promotion recomputes aggregate throughput, nearest-rank p95
-latency, capacity minima/maxima, and maximum absolute/relative parity errors.
-It binds the resource artifact to the selected benchmark-run digest, complete
-comparison-run set, exact targets, policy, fixtures, workload, evaluator binary
-and argument vector, and approved relative output roots. That verified run in
-turn binds the checkpoint and trainer-produced training evidence. Promotion
-reconstructs the execution-request hash; cached parsed objects must also equal
-reparsed addressed bytes immediately before evaluation.
-
-Exact-resume evidence addresses the interrupted generation, both distinct
-final generations, and both metric journals. Promotion reopens and validates
-every checkpoint member, checks the recorded interruption/final steps, and
-recomputes raw and semantic metric digests. The semantic digest
-omits run IDs, record sequences, timestamps, device samples, and elapsed/rate
-fields while retaining steps, phases, token counts, objectives, losses,
-rewards, and checkpoint identities. Raw logs from interrupted and uninterrupted
-runs are therefore allowed to differ in honest wall-clock observations; final
-state and semantic progress must still match exactly.
+Exact-resume evidence names the interrupted generation, both distinct final
+generations, and both metric journals. Promotion reads all five, requires the
+two final generation manifests to be byte-identical, checks the recorded
+interruption/final steps, and recomputes the semantic metric digest of both
+journals. The semantic digest omits run IDs, record sequences, timestamps,
+device samples, and elapsed/rate fields while retaining steps, phases, token
+counts, objectives, losses, rewards, and checkpoint identities. Raw logs from
+interrupted and uninterrupted runs are therefore allowed to differ in honest
+wall-clock observations; final state and semantic progress must still match
+exactly.
 
 The benchmark runner records fixed ordering, at least three paired seeds,
-GPU-hour budgets, evaluator hashes, public/sealed visibility, and the required
+GPU-hour budgets, evaluator identity, public/sealed visibility, and the required
 sleep/continual-learning ablations. The strongest matched baseline is derived
-from the verified runs. Verified benchmark-run artifacts are access-controlled,
-content-addressed evidence and retain sealed case ids and scores for audit; they
-never contain the private suite examples. Promotion reports contain public
-per-case results and only an aggregate sealed gate. The standalone command's
-output path must not already exist; the report is published atomically even
-when gates reject the candidate, and rejection exits nonzero.
+from the runs rather than asserted by evidence. Benchmark-run artifacts retain
+sealed case ids and scores for audit; they never contain the private suite
+examples. Promotion reports contain public per-case results and only an
+aggregate sealed gate.
 
 For WorkflowV2 release, configure the typed `promotion` object shown in
 [`workflow.sleep.example.json`](workflow.sleep.example.json): one selected run,
 exactly ten distinct comparison runs, resource evidence, and an acceptance
-policy are all `sha256:`-addressed. Paths resolve against the workflow. The
-built-in gate requires regular non-symlink inputs, rechecks checkpoint and
-training-evidence files embedded in every run, and requires the selected
-candidate manifest hash to equal the runtime's current checkpoint hash. It
-writes a deterministic digest-named decision under `artifact_directory`.
-Retries accept only byte-identical existing decisions; rejected decisions are
-retained for audit but never create a release receipt. Accepted receipts remain
-explicit inputs to serving promotion; training never mutates serving weights.
+policy, each given as `{"path": "..."}`. Paths resolve against the workflow. The
+built-in gate requires the selected candidate manifest hash to equal the
+runtime's current checkpoint hash. It writes a deterministic decision under
+`artifact_directory`. Retries accept only byte-identical existing decisions;
+rejected decisions are retained for audit but never create a release receipt.
+Accepted receipts remain explicit inputs to serving promotion; training never
+mutates serving weights.
 
 ## Checkpoints, metrics, and relaunch
 

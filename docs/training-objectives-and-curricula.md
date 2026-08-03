@@ -96,8 +96,8 @@ integrated trainer seals those artifacts at each boundary.
 `hermes-train run-workflow` is the algorithm-neutral lifecycle runner. It
 launches the configured worker executable and sends one protocol-v2 JSON
 request for each non-sleep, non-promotion phase. Promotion
-uses the built-in content-addressed acceptance executor; an external worker
-cannot authorize release. With `--sleep-runtime PATH` and
+uses the built-in acceptance executor; an external worker cannot authorize
+release. With `--sleep-runtime PATH` and
 `--sleep-runtime-sha256 sha256:...`, the stock CLI registers the first-party
 factory for standalone `sleep`. It rejects every `periodic_sleep` setting
 because this lifecycle surface does not own the worker's optimizer boundary.
@@ -162,31 +162,23 @@ judge, evaluator, or storage implementation.
 
 The typed promotion object contains the run against the strongest fixed
 ablation, exactly ten other runs completing the eleven-ablation catalog,
-resource evidence, a required acceptance policy, and an immutable decision
-directory. Every input carries a canonical `sha256:`
-identity and resolves relative to the workflow file. The gate re-verifies the
-checkpoint manifest and trainer-produced `training_evidence` referenced by
-every target, binds the accepted report to the exact current checkpoint, and
-publishes a deterministic digest-named receipt. A retry can reuse only the
-same bytes. Rejected decisions remain auditable but cannot advance the release
-phase.
+resource evidence, a required acceptance policy, and a decision directory.
+Every input is given as a `{"path": "..."}` reference that resolves relative to
+the workflow file. The gate resolves the model transport referenced by every
+target, binds the accepted report to the exact current checkpoint, and publishes
+a deterministic receipt. A retry can reuse only the same bytes. Rejected
+decisions remain auditable but cannot advance the release phase.
 
 The acceptance suite, benchmark suite manifest, acceptance policy, and resource
-comparison use strict v2 schemas. Resource comparison v2 is produced only by
-the first-party `run-resource-benchmark` host: a timeout-bounded worker
-returns raw observations and safe relative artifact references, while the host
-derives a mandatory receipt over the complete run set, exact targets, addressed
-policy, fixtures/workload, evaluator binary and arguments, and approved vault
-roots. Promotion reconstructs that request identity and refuses evidence
-without the structurally matching receipt. This is deterministic provenance
-inside the trusted training-host/operator boundary, not cryptographic remote
-attestation. The addressed policy owns the stable-anchor
-catalog set, resource-evaluator identity, fixture hashes, sample minima, and all
+comparison use strict v2 schemas. Resource comparison v2 is produced by the
+first-party resource host: a timeout-bounded worker returns raw observations and
+relative artifact references, while the host derives the strongest matched
+baseline and verifies the exact-resume artifacts. The policy owns the
+stable-anchor catalog set, resource-evaluator identity, sample minima, and all
 parity/performance limits. The resource comparison contains raw paired wake
 trials, contiguous per-cycle capacity observations, and raw kernel
-reference/candidate values. Exact-resume paths remain portable in the
-receipt-bound artifact and are resolved only on a clone for I/O verification. Promotion
-rechecks its digest and recomputes
+reference/candidate values. Exact-resume paths stay relative in the artifact and
+are resolved only on a clone for I/O verification. Promotion recomputes
 throughput, p95 latency, capacity extrema, and parity errors; evidence cannot
 submit aggregates or choose its own tolerances. Stored and routed-active
 capacity must remain identical to cycle zero across every observed sleep cycle.
@@ -340,9 +332,8 @@ examples.
 
 Public and sealed suites use the same evaluator contract. Their manifests and
 examples stay in separately materialized local artifacts and are not copied
-into result files. The access-controlled, content-addressed benchmark-run
-evidence does retain per-case ids and scores for sealed suites so an authorized
-auditor can reproduce the gate. The promotion report is the narrower release
+into result files. The benchmark-run evidence does retain per-case ids and
+scores for sealed suites so an auditor can reproduce the gate. The promotion report is the narrower release
 artifact: it exposes public per-case results but only a sealed case count and
 aggregate pass/fail result.
 

@@ -1,120 +1,52 @@
 //! Strict execution bridge for promotion resource evidence.
 //!
-//! The worker receives verified model transports, but experiment identity is
-//! computed only from content hashes and policy/workload fields. Its response
-//! contains raw observations only; the host supplies every identity, seals the
-//! receipt under a content-addressed filename, and reopens it before returning.
+//! The worker receives model transports and writes raw observations back over
+//! a versioned JSONL protocol. The host owns process lifetime, the execution
+//! timeout, and publication of the resulting resource comparison.
 
 use std::ffi::OsString;
-use std::fs::{self, File, OpenOptions};
+use std::fs;
+#[cfg(test)]
+use std::io::Read;
 #[cfg(test)]
 use std::io::{BufRead, BufReader};
-use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 
-use crate::artifact_io::{json_sha256_identity, sha256_hex, validate_sha256_hex};
+use crate::artifact_io::atomic_write_new;
 
 use crate::acceptance::{
-    AcceptancePolicy, CapacityObservation, ExactResumeArtifact, ExactResumeEvidence,
-    KernelParityEvidence, KernelParitySample, PairedWakeTrial, RESOURCE_COMPARISON_VERSION,
-    RESOURCE_EXECUTION_PROTOCOL_VERSION, ResourceComparison, ResourceExecutionReceipt,
+    AcceptancePolicy, CapacityObservation, ExactResumeEvidence, KernelParityEvidence,
+    KernelParitySample, PairedWakeTrial, RESOURCE_COMPARISON_VERSION,
+    RESOURCE_EXECUTION_PROTOCOL_VERSION, ResourceComparison,
 };
 use crate::benchmark::{
-    BenchmarkTarget, ModelRepresentationIdentity, VerifiedBenchmarkRun, VerifiedResourceComparison,
-    verified_resource_benchmark_context, verify_resource_comparison_artifacts,
+    BenchmarkTarget, LoadedBenchmarkRun, verified_resource_benchmark_context, verify_exact_resume,
 };
 #[cfg(unix)]
 use crate::protocol_process::{ProtocolRead, SupervisedProcess};
 const MAX_RESOURCE_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
 const DEFAULT_RESOURCE_EVALUATOR_TIMEOUT: Duration = Duration::from_secs(3_600);
-static TEMPORARY_SEQUENCE: AtomicU64 = AtomicU64::new(0);
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ResourceTargetIdentity {
-    pub id: String,
-    pub checkpoint_manifest_sha256: String,
-    pub training_evidence_sha256: String,
-    pub training_gpu_hours: f64,
-    pub parameters: u64,
-    pub routed_active_parameters: u64,
-    pub stored_bytes: u64,
-    pub representation: ModelRepresentationIdentity,
-}
-
-impl From<&BenchmarkTarget> for ResourceTargetIdentity {
-    fn from(target: &BenchmarkTarget) -> Self {
-        Self {
-            id: target.id.clone(),
-            checkpoint_manifest_sha256: target.checkpoint_manifest_sha256.clone(),
-            training_evidence_sha256: target.training_evidence_sha256.clone(),
-            training_gpu_hours: target.training_gpu_hours,
-            parameters: target.parameters,
-            routed_active_parameters: target.routed_active_parameters,
-            stored_bytes: target.stored_bytes,
-            representation: target.representation_identity(),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ResourceFixtureBinding {
-    pub sha256: String,
-    pub minimum_samples: usize,
-    pub maximum_absolute_error: f64,
-    pub maximum_relative_error: f64,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ResourcePolicyBinding {
-    pub evaluator_id: String,
-    pub evaluator_sha256: String,
-    pub minimum_wake_trials: usize,
-    pub minimum_wake_latency_samples: usize,
-    pub minimum_wake_throughput_ratio: f64,
-    pub maximum_wake_latency_ratio: f64,
-    pub grouped_mm: ResourceFixtureBinding,
-    pub pytorch: ResourceFixtureBinding,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ResourceSemanticRequest {
-    pub version: u32,
-    pub selected_benchmark_run_sha256: String,
-    pub comparison_run_sha256: Vec<String>,
-    pub strongest_baseline_id: String,
-    pub baseline: ResourceTargetIdentity,
-    pub candidate: ResourceTargetIdentity,
-    pub policy_sha256: String,
-    pub policy: ResourcePolicyBinding,
-    pub evaluator_arguments: Vec<String>,
-    pub artifact_roots: Vec<PathBuf>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ResourceArtifactTransport {
-    pub relative_path: PathBuf,
-    pub absolute_path: PathBuf,
-}
+const RESOURCE_ARTIFACT_DIRECTORY: &str = "artifacts";
+const RESOURCE_COMPARISON_FILE: &str = "resource-comparison.json";
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResourceWorkerRequest {
     pub version: u32,
-    pub semantic: ResourceSemanticRequest,
-    pub baseline_transport: BenchmarkTarget,
-    pub candidate_transport: BenchmarkTarget,
-    pub artifact_transports: Vec<ResourceArtifactTransport>,
+    /// Capacity- and compute-matched baseline the candidate is measured
+    /// against, with paths resolved against its benchmark run.
+    pub baseline: BenchmarkTarget,
+    pub candidate: BenchmarkTarget,
+    /// Strongest baseline derived from the fixed ablation matrix.
+    pub strongest_baseline_id: String,
+    pub evaluator_arguments: Vec<String>,
+    /// Directory the worker writes its exact-resume artifacts into.
+    pub artifact_directory: PathBuf,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -131,7 +63,6 @@ pub struct ResourceWorkerResponse {
 #[derive(Clone, Debug)]
 pub struct ResourceEvidencePublication {
     pub path: PathBuf,
-    pub sha256: String,
 }
 
 #[derive(Debug)]
@@ -160,7 +91,7 @@ impl ExternalResourceEvaluator {
             "resource evaluator arguments exceed protocol limits"
         );
         Ok(Self {
-            executable: validate_real_path(&executable, RealPathKind::File, "resource evaluator")?,
+            executable: validate_real_path(&executable, "resource evaluator")?,
             arguments,
             timeout: DEFAULT_RESOURCE_EVALUATOR_TIMEOUT,
         })
@@ -186,8 +117,7 @@ impl ExternalResourceEvaluator {
     /// Re-resolve the configured executable path and require that no ancestor
     /// became a symlink or moved since construction.
     fn validate_path_identity(&self) -> Result<()> {
-        let resolved =
-            validate_real_path(&self.executable, RealPathKind::File, "resource evaluator")?;
+        let resolved = validate_real_path(&self.executable, "resource evaluator")?;
         ensure!(
             resolved == self.executable,
             "resource evaluator path identity changed"
@@ -293,15 +223,9 @@ fn drain_resource_output(
     }
 }
 
-#[derive(Clone, Copy)]
-enum RealPathKind {
-    File,
-    Directory,
-}
-
 /// Resolve a path lexically and reject every symlink in the supplied path,
 /// rather than accepting a canonical path that silently traversed one.
-fn validate_real_path(path: &Path, kind: RealPathKind, label: &str) -> Result<PathBuf> {
+fn validate_real_path(path: &Path, label: &str) -> Result<PathBuf> {
     ensure!(!path.as_os_str().is_empty(), "{label} path is empty");
     let candidate = if path.is_absolute() {
         path.to_path_buf()
@@ -336,20 +260,12 @@ fn validate_real_path(path: &Path, kind: RealPathKind, label: &str) -> Result<Pa
             "{label} path traverses symlink {}",
             cursor.display()
         );
-        let final_component = index + 1 == component_count;
-        if final_component {
-            match kind {
-                RealPathKind::File => ensure!(
-                    metadata.file_type().is_file(),
-                    "{label} {} must be a regular file",
-                    cursor.display()
-                ),
-                RealPathKind::Directory => ensure!(
-                    metadata.file_type().is_dir(),
-                    "{label} {} must be a directory",
-                    cursor.display()
-                ),
-            }
+        if index + 1 == component_count {
+            ensure!(
+                metadata.file_type().is_file(),
+                "{label} {} must be a regular file",
+                cursor.display()
+            );
         } else {
             ensure!(
                 metadata.file_type().is_dir(),
@@ -365,431 +281,64 @@ fn validate_real_path(path: &Path, kind: RealPathKind, label: &str) -> Result<Pa
     Ok(normalized)
 }
 
-fn stable_file_bytes(path: &Path, maximum_bytes: u64, label: &str) -> Result<Vec<u8>> {
-    validate_real_path(path, RealPathKind::File, label)?;
-    let before = fs::symlink_metadata(path)?;
-    let mut file =
-        File::open(path).with_context(|| format!("opening {label} {}", path.display()))?;
-    let opened = file.metadata()?;
-    ensure_same_file(&before, &opened, label)?;
-    ensure!(
-        opened.len() <= maximum_bytes,
-        "{label} exceeds its {maximum_bytes}-byte limit"
-    );
-    let capacity = usize::try_from(opened.len())
-        .with_context(|| format!("{label} exceeds this process address space"))?;
-    let mut bytes = Vec::new();
-    bytes
-        .try_reserve_exact(capacity)
-        .with_context(|| format!("reserving bounded buffer for {label}"))?;
-    file.read_to_end(&mut bytes)?;
-    let after = fs::symlink_metadata(path)?;
-    ensure!(
-        after.file_type().is_file() && !after.file_type().is_symlink(),
-        "{label} became a symlink or non-file while reading"
-    );
-    ensure_same_file(&after, &opened, label)?;
-    ensure!(
-        opened.len() == bytes.len() as u64,
-        "{label} changed length while reading"
-    );
-    Ok(bytes)
-}
-
-#[cfg(unix)]
-fn ensure_same_file(left: &fs::Metadata, right: &fs::Metadata, label: &str) -> Result<()> {
-    use std::os::unix::fs::MetadataExt;
-    ensure!(
-        left.dev() == right.dev() && left.ino() == right.ino(),
-        "{label} changed identity while open"
-    );
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn ensure_same_file(left: &fs::Metadata, right: &fs::Metadata, label: &str) -> Result<()> {
-    ensure!(
-        left.file_type().is_file() && right.file_type().is_file(),
-        "{label} changed type while open"
-    );
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
 pub fn run_resource_benchmark(
-    selected_run: &VerifiedBenchmarkRun,
-    comparison_runs: &[VerifiedBenchmarkRun],
+    selected_run: &LoadedBenchmarkRun,
+    comparison_runs: &[LoadedBenchmarkRun],
     policy: &AcceptancePolicy,
-    policy_sha256: &str,
     evaluator: &ExternalResourceEvaluator,
-    artifact_roots: &[PathBuf],
     output_directory: &Path,
 ) -> Result<ResourceEvidencePublication> {
     policy.validate()?;
-    validate_sha256_hex(policy_sha256, "resource policy")?;
     let strongest_baseline_id = verified_resource_benchmark_context(selected_run, comparison_runs)?;
-    let vault = prepare_existing_vault(output_directory)?;
-    let (relative_roots, transports) = prepare_artifact_roots(&vault, artifact_roots)?;
-    let semantic = semantic_request(
-        selected_run,
-        comparison_runs,
-        policy,
-        policy_sha256,
-        &strongest_baseline_id,
-        evaluator.arguments().to_vec(),
-        relative_roots,
-    )?;
-    let request_sha256 = json_sha256_identity(&semantic)?;
+    fs::create_dir_all(output_directory).with_context(|| {
+        format!(
+            "creating resource evidence directory {}",
+            output_directory.display()
+        )
+    })?;
+    let artifact_directory = output_directory.join(RESOURCE_ARTIFACT_DIRECTORY);
+    fs::create_dir_all(&artifact_directory).with_context(|| {
+        format!(
+            "creating resource artifact directory {}",
+            artifact_directory.display()
+        )
+    })?;
+    let mut baseline = selected_run.run().metadata.baseline.clone();
+    let mut candidate = selected_run.run().metadata.candidate.clone();
+    baseline.resolve_paths(selected_run.path());
+    candidate.resolve_paths(selected_run.path());
     let request = ResourceWorkerRequest {
         version: RESOURCE_EXECUTION_PROTOCOL_VERSION,
-        semantic: semantic.clone(),
-        baseline_transport: selected_run.run().metadata.baseline.clone(),
-        candidate_transport: selected_run.run().metadata.candidate.clone(),
-        artifact_transports: transports,
+        baseline: baseline.clone(),
+        candidate: candidate.clone(),
+        strongest_baseline_id: strongest_baseline_id.clone(),
+        evaluator_arguments: evaluator.arguments().to_vec(),
+        artifact_directory,
     };
     let response = evaluator.execute(&request)?;
-    validate_response_artifact_scope(&response, &vault, &semantic.artifact_roots)?;
 
-    let baseline_target_sha256 = json_sha256_identity(&semantic.baseline)?;
-    let candidate_target_sha256 = json_sha256_identity(&semantic.candidate)?;
-    let mut comparison = ResourceComparison {
+    let comparison = ResourceComparison {
         version: RESOURCE_COMPARISON_VERSION,
-        baseline_id: semantic.baseline.id.clone(),
-        candidate_id: semantic.candidate.id.clone(),
-        benchmark_run_sha256: semantic.selected_benchmark_run_sha256.clone(),
-        strongest_baseline_id: strongest_baseline_id.clone(),
-        measurement_evaluator_id: semantic.policy.evaluator_id.clone(),
-        measurement_evaluator_version: policy.resource_evaluator_version.clone(),
+        baseline_id: baseline.id.clone(),
+        candidate_id: candidate.id.clone(),
+        strongest_baseline_id,
+        measurement_evaluator_id: policy.resource_evaluator_id.clone(),
         wake_trials: response.wake_trials,
         candidate_capacity: response.candidate_capacity,
         grouped_mm_parity: KernelParityEvidence {
-            fixture_sha256: semantic.policy.grouped_mm.sha256.clone(),
             samples: response.grouped_mm_samples,
         },
         pytorch_parity: KernelParityEvidence {
-            fixture_sha256: semantic.policy.pytorch.sha256.clone(),
             samples: response.pytorch_samples,
         },
         exact_resume: response.exact_resume,
-        execution: ResourceExecutionReceipt {
-            protocol_version: RESOURCE_EXECUTION_PROTOCOL_VERSION,
-            evaluator_sha256: policy.resource_evaluator_version.clone(),
-            request_sha256,
-            observations_sha256: String::new(),
-            baseline_target_sha256,
-            candidate_target_sha256,
-            policy_sha256: policy_sha256.to_owned(),
-            evaluator_arguments: evaluator.arguments().to_vec(),
-            approved_artifact_roots: semantic.artifact_roots,
-        },
     };
-    comparison.execution.observations_sha256 = comparison.observations_sha256()?;
     comparison.validate()?;
 
-    let bytes = pretty_json_bytes(&comparison)?;
-    let digest = sha256_hex(&bytes);
-    let target = vault.join(format!("sha256-{digest}.json"));
-    validate_execution_receipt(
-        selected_run,
-        comparison_runs,
-        policy,
-        policy_sha256,
-        &strongest_baseline_id,
-        &comparison,
-        &target,
-    )?;
-    verify_resource_comparison_artifacts(&comparison, &target)?;
-    publish_immutable(&target, &bytes)?;
-
-    let verified = VerifiedResourceComparison::load(&target, &digest)?;
-    validate_execution_receipt(
-        selected_run,
-        comparison_runs,
-        policy,
-        policy_sha256,
-        &strongest_baseline_id,
-        verified.comparison(),
-        verified.path(),
-    )?;
-    Ok(ResourceEvidencePublication {
-        path: target,
-        sha256: digest,
-    })
-}
-
-pub(crate) fn validate_execution_receipt(
-    selected_run: &VerifiedBenchmarkRun,
-    comparison_runs: &[VerifiedBenchmarkRun],
-    policy: &AcceptancePolicy,
-    policy_sha256: &str,
-    strongest_baseline_id: &str,
-    comparison: &ResourceComparison,
-    source_path: &Path,
-) -> Result<()> {
-    policy.validate()?;
-    validate_sha256_hex(policy_sha256, "resource policy")?;
-    ensure!(
-        comparison
-            .execution
-            .policy_sha256
-            .eq_ignore_ascii_case(policy_sha256),
-        "resource evidence was executed under another acceptance policy"
-    );
-    ensure!(
-        comparison.execution.evaluator_sha256 == policy.resource_evaluator_version,
-        "resource execution receipt names another evaluator"
-    );
-    let semantic = semantic_request(
-        selected_run,
-        comparison_runs,
-        policy,
-        policy_sha256,
-        strongest_baseline_id,
-        comparison.execution.evaluator_arguments.clone(),
-        comparison.execution.approved_artifact_roots.clone(),
-    )?;
-    ensure!(
-        comparison.execution.request_sha256 == json_sha256_identity(&semantic)?,
-        "resource execution request receipt does not match the verified experiment"
-    );
-    ensure!(
-        comparison.execution.baseline_target_sha256 == json_sha256_identity(&semantic.baseline)?
-            && comparison.execution.candidate_target_sha256
-                == json_sha256_identity(&semantic.candidate)?,
-        "resource execution receipt addresses different benchmark targets"
-    );
-    ensure!(
-        comparison.execution.observations_sha256 == comparison.observations_sha256()?,
-        "resource execution receipt does not match the retained raw observations"
-    );
-    let vault = source_path
-        .parent()
-        .filter(|path| !path.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    validate_exact_artifact_scope(
-        &comparison.exact_resume,
-        vault,
-        &comparison.execution.approved_artifact_roots,
-    )
-}
-
-/// Derive the host-owned receipt used by tests and alternate first-party
-/// frontends after they have collected raw observations. The worker never
-/// gets to provide any of these identities.
-#[cfg(test)]
-pub(crate) fn derive_execution_receipt(
-    selected_run: &VerifiedBenchmarkRun,
-    comparison_runs: &[VerifiedBenchmarkRun],
-    policy: &AcceptancePolicy,
-    policy_sha256: &str,
-    evaluator_arguments: Vec<String>,
-    artifact_roots: Vec<PathBuf>,
-    comparison: &ResourceComparison,
-) -> Result<ResourceExecutionReceipt> {
-    policy.validate()?;
-    validate_sha256_hex(policy_sha256, "resource policy")?;
-    let strongest_baseline_id = verified_resource_benchmark_context(selected_run, comparison_runs)?;
-    let semantic = semantic_request(
-        selected_run,
-        comparison_runs,
-        policy,
-        policy_sha256,
-        &strongest_baseline_id,
-        evaluator_arguments.clone(),
-        artifact_roots.clone(),
-    )?;
-    Ok(ResourceExecutionReceipt {
-        protocol_version: RESOURCE_EXECUTION_PROTOCOL_VERSION,
-        evaluator_sha256: policy.resource_evaluator_version.clone(),
-        request_sha256: json_sha256_identity(&semantic)?,
-        observations_sha256: comparison.observations_sha256()?,
-        baseline_target_sha256: json_sha256_identity(&semantic.baseline)?,
-        candidate_target_sha256: json_sha256_identity(&semantic.candidate)?,
-        policy_sha256: policy_sha256.to_owned(),
-        evaluator_arguments,
-        approved_artifact_roots: artifact_roots,
-    })
-}
-
-fn semantic_request(
-    selected_run: &VerifiedBenchmarkRun,
-    comparison_runs: &[VerifiedBenchmarkRun],
-    policy: &AcceptancePolicy,
-    policy_sha256: &str,
-    strongest_baseline_id: &str,
-    evaluator_arguments: Vec<String>,
-    mut artifact_roots: Vec<PathBuf>,
-) -> Result<ResourceSemanticRequest> {
-    artifact_roots.sort();
-    for root in &artifact_roots {
-        validate_safe_relative(root, "resource artifact root")?;
-    }
-    let mut comparison_run_sha256 = comparison_runs
-        .iter()
-        .map(|run| run.sha256().to_owned())
-        .collect::<Vec<_>>();
-    comparison_run_sha256.sort();
-    ensure!(
-        comparison_run_sha256
-            .windows(2)
-            .all(|pair| pair[0] != pair[1]),
-        "resource comparison set repeats a benchmark-run identity"
-    );
-    Ok(ResourceSemanticRequest {
-        version: RESOURCE_EXECUTION_PROTOCOL_VERSION,
-        selected_benchmark_run_sha256: selected_run.sha256().to_owned(),
-        comparison_run_sha256,
-        strongest_baseline_id: strongest_baseline_id.to_owned(),
-        baseline: ResourceTargetIdentity::from(&selected_run.run().metadata.baseline),
-        candidate: ResourceTargetIdentity::from(&selected_run.run().metadata.candidate),
-        policy_sha256: policy_sha256.to_owned(),
-        policy: ResourcePolicyBinding {
-            evaluator_id: policy.resource_evaluator_id.clone(),
-            evaluator_sha256: policy.resource_evaluator_version.clone(),
-            minimum_wake_trials: policy.minimum_wake_trials,
-            minimum_wake_latency_samples: policy.minimum_wake_latency_samples,
-            minimum_wake_throughput_ratio: policy.minimum_wake_throughput_ratio,
-            maximum_wake_latency_ratio: policy.maximum_wake_latency_ratio,
-            grouped_mm: ResourceFixtureBinding {
-                sha256: policy.grouped_mm_parity.fixture_sha256.clone(),
-                minimum_samples: policy.grouped_mm_parity.minimum_samples,
-                maximum_absolute_error: policy.grouped_mm_parity.maximum_absolute_error,
-                maximum_relative_error: policy.grouped_mm_parity.maximum_relative_error,
-            },
-            pytorch: ResourceFixtureBinding {
-                sha256: policy.pytorch_parity.fixture_sha256.clone(),
-                minimum_samples: policy.pytorch_parity.minimum_samples,
-                maximum_absolute_error: policy.pytorch_parity.maximum_absolute_error,
-                maximum_relative_error: policy.pytorch_parity.maximum_relative_error,
-            },
-        },
-        evaluator_arguments,
-        artifact_roots,
-    })
-}
-
-fn prepare_existing_vault(path: &Path) -> Result<PathBuf> {
-    validate_real_path(path, RealPathKind::Directory, "resource evidence vault")
-}
-
-fn prepare_artifact_roots(
-    vault: &Path,
-    roots: &[PathBuf],
-) -> Result<(Vec<PathBuf>, Vec<ResourceArtifactTransport>)> {
-    ensure!(!roots.is_empty(), "resource benchmark has no artifact root");
-    let mut relative = roots.to_vec();
-    relative.sort();
-    ensure!(
-        relative.windows(2).all(|pair| pair[0] != pair[1]),
-        "resource benchmark repeats an artifact root"
-    );
-    ensure!(
-        relative.iter().enumerate().all(|(index, root)| {
-            relative[index + 1..]
-                .iter()
-                .all(|other| !root.starts_with(other) && !other.starts_with(root))
-        }),
-        "resource benchmark artifact roots must not overlap"
-    );
-    let mut transports = Vec::with_capacity(relative.len());
-    for root in &relative {
-        validate_safe_relative(root, "resource artifact root")?;
-        let absolute = create_safe_subdirectory(vault, root)?;
-        transports.push(ResourceArtifactTransport {
-            relative_path: root.clone(),
-            absolute_path: absolute,
-        });
-    }
-    Ok((relative, transports))
-}
-
-fn create_safe_subdirectory(vault: &Path, relative: &Path) -> Result<PathBuf> {
-    let mut directory = vault.to_path_buf();
-    for component in relative.components() {
-        let Component::Normal(component) = component else {
-            bail!("resource artifact root contains an unsafe path component")
-        };
-        directory.push(component);
-        match fs::create_dir(&directory) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(error) => {
-                return Err(error).with_context(|| {
-                    format!("creating resource artifact root {}", directory.display())
-                });
-            }
-        }
-        let metadata = fs::symlink_metadata(&directory)?;
-        ensure!(
-            metadata.file_type().is_dir() && !metadata.file_type().is_symlink(),
-            "resource artifact root {} became a symlink",
-            directory.display()
-        );
-    }
-    Ok(directory)
-}
-
-fn validate_response_artifact_scope(
-    response: &ResourceWorkerResponse,
-    vault: &Path,
-    roots: &[PathBuf],
-) -> Result<()> {
-    validate_exact_artifact_scope(&response.exact_resume, vault, roots)
-}
-
-fn validate_exact_artifact_scope(
-    exact: &ExactResumeEvidence,
-    vault: &Path,
-    roots: &[PathBuf],
-) -> Result<()> {
-    let canonical_vault = vault
-        .canonicalize()
-        .with_context(|| format!("canonicalizing resource artifact vault {}", vault.display()))?;
-    for artifact in exact_artifacts(exact) {
-        validate_safe_relative(&artifact.path, "exact-resume artifact path")?;
-        ensure!(
-            roots.iter().any(|root| artifact.path.starts_with(root)),
-            "exact-resume artifact {} is outside the approved output roots",
-            artifact.path.display()
-        );
-        let joined = canonical_vault.join(&artifact.path);
-        let canonical = joined.canonicalize().with_context(|| {
-            format!("canonicalizing exact-resume artifact {}", joined.display())
-        })?;
-        ensure!(
-            canonical == joined && canonical.starts_with(&canonical_vault),
-            "exact-resume artifact {} traverses or uses a symlink",
-            artifact.path.display()
-        );
-        let metadata = fs::symlink_metadata(&joined)?;
-        ensure!(
-            metadata.file_type().is_file() && !metadata.file_type().is_symlink(),
-            "exact-resume artifact {} must be a regular non-symlink file",
-            artifact.path.display()
-        );
-    }
-    Ok(())
-}
-
-fn exact_artifacts(exact: &ExactResumeEvidence) -> [&ExactResumeArtifact; 5] {
-    [
-        &exact.interrupted_checkpoint,
-        &exact.uninterrupted_final_state,
-        &exact.resumed_final_state,
-        &exact.uninterrupted_metrics,
-        &exact.resumed_metrics,
-    ]
-}
-
-fn validate_safe_relative(path: &Path, name: &str) -> Result<()> {
-    ensure!(!path.as_os_str().is_empty(), "{name} is empty");
-    ensure!(!path.is_absolute(), "{name} must be relative");
-    ensure!(
-        path.components()
-            .all(|component| matches!(component, Component::Normal(_))),
-        "{name} must not contain prefixes, `.` or `..`"
-    );
-    Ok(())
+    let target = output_directory.join(RESOURCE_COMPARISON_FILE);
+    verify_exact_resume(&comparison.exact_resume, &target)?;
+    atomic_write_new(&target, &pretty_json_bytes(&comparison)?)?;
+    Ok(ResourceEvidencePublication { path: target })
 }
 
 #[cfg(test)]
@@ -849,76 +398,6 @@ fn pretty_json_bytes<T: Serialize>(value: &T) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-fn publish_immutable(path: &Path, bytes: &[u8]) -> Result<()> {
-    let expected_bytes =
-        u64::try_from(bytes.len()).context("resource evidence length exceeds u64")?;
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    let verified_parent = validate_real_path(
-        parent,
-        RealPathKind::Directory,
-        "resource publication parent",
-    )?;
-    ensure!(
-        verified_parent == parent,
-        "resource publication parent changed identity"
-    );
-    match fs::symlink_metadata(path) {
-        Ok(metadata) => {
-            ensure!(
-                metadata.file_type().is_file() && !metadata.file_type().is_symlink(),
-                "content-addressed resource evidence must be a regular non-symlink file"
-            );
-            ensure!(
-                stable_file_bytes(path, expected_bytes, "content-addressed resource evidence",)?
-                    == bytes,
-                "content-addressed resource evidence already exists with different bytes"
-            );
-            return Ok(());
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error).context("inspecting resource evidence publication"),
-    }
-    let sequence = TEMPORARY_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-    let temporary = parent.join(format!(
-        ".resource-evidence.{}.{}.tmp",
-        std::process::id(),
-        sequence
-    ));
-    let result = (|| -> Result<()> {
-        let mut output = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary)?;
-        output.write_all(bytes)?;
-        output.sync_all()?;
-        drop(output);
-        match fs::hard_link(&temporary, path) {
-            Ok(()) => {
-                ensure!(
-                    stable_file_bytes(path, expected_bytes, "published resource evidence")?
-                        == bytes,
-                    "published resource evidence changed during publication"
-                );
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                ensure!(
-                    stable_file_bytes(path, expected_bytes, "concurrent resource evidence")?
-                        == bytes,
-                    "resource evidence publication race produced different bytes"
-                );
-            }
-            Err(error) => return Err(error).context("publishing resource evidence"),
-        }
-        fs::remove_file(&temporary)?;
-        File::open(parent)?.sync_all()?;
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temporary);
-    }
-    result
-}
-
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
@@ -929,10 +408,8 @@ mod tests {
     fn target(id: &str) -> BenchmarkTarget {
         BenchmarkTarget {
             id: id.into(),
-            checkpoint_manifest: format!("/{id}/checkpoint.json").into(),
+            checkpoint_manifest: format!("/{id}/generation-manifest.json").into(),
             checkpoint_manifest_sha256: "1".repeat(64),
-            training_evidence: format!("/{id}/training.json").into(),
-            training_evidence_sha256: "2".repeat(64),
             training_gpu_hours: 1.0,
             parameters: 100,
             routed_active_parameters: 80,
@@ -943,16 +420,13 @@ mod tests {
 
     fn exact_resume(path: impl Into<PathBuf>) -> ExactResumeEvidence {
         let path = path.into();
-        let artifact = |sha256: char| ExactResumeArtifact {
-            path: path.clone(),
-            sha256: sha256.to_string().repeat(64),
-        };
+        let artifact = || crate::acceptance::ExactResumeArtifact { path: path.clone() };
         ExactResumeEvidence {
-            interrupted_checkpoint: artifact('1'),
-            uninterrupted_final_state: artifact('2'),
-            resumed_final_state: artifact('2'),
-            uninterrupted_metrics: artifact('3'),
-            resumed_metrics: artifact('4'),
+            interrupted_checkpoint: artifact(),
+            uninterrupted_final_state: artifact(),
+            resumed_final_state: artifact(),
+            uninterrupted_metrics: artifact(),
+            resumed_metrics: artifact(),
             interruption_step: 1,
             resumed_from_step: 1,
         }
@@ -995,43 +469,11 @@ mod tests {
     fn request(arguments: Vec<String>) -> ResourceWorkerRequest {
         ResourceWorkerRequest {
             version: RESOURCE_EXECUTION_PROTOCOL_VERSION,
-            semantic: ResourceSemanticRequest {
-                version: RESOURCE_EXECUTION_PROTOCOL_VERSION,
-                selected_benchmark_run_sha256: "3".repeat(64),
-                comparison_run_sha256: vec!["3".repeat(64)],
-                strongest_baseline_id: "baseline".into(),
-                baseline: ResourceTargetIdentity::from(&target("baseline")),
-                candidate: ResourceTargetIdentity::from(&target("candidate")),
-                policy_sha256: "4".repeat(64),
-                policy: ResourcePolicyBinding {
-                    evaluator_id: "resource-test".into(),
-                    evaluator_sha256: format!("sha256:{}", "5".repeat(64)),
-                    minimum_wake_trials: 1,
-                    minimum_wake_latency_samples: 1,
-                    minimum_wake_throughput_ratio: 0.95,
-                    maximum_wake_latency_ratio: 1.05,
-                    grouped_mm: ResourceFixtureBinding {
-                        sha256: "6".repeat(64),
-                        minimum_samples: 1,
-                        maximum_absolute_error: 1e-5,
-                        maximum_relative_error: 1e-4,
-                    },
-                    pytorch: ResourceFixtureBinding {
-                        sha256: "7".repeat(64),
-                        minimum_samples: 1,
-                        maximum_absolute_error: 1e-5,
-                        maximum_relative_error: 1e-4,
-                    },
-                },
-                evaluator_arguments: arguments,
-                artifact_roots: vec!["artifacts".into()],
-            },
-            baseline_transport: target("baseline"),
-            candidate_transport: target("candidate"),
-            artifact_transports: vec![ResourceArtifactTransport {
-                relative_path: "artifacts".into(),
-                absolute_path: "/vault/artifacts".into(),
-            }],
+            baseline: target("baseline"),
+            candidate: target("candidate"),
+            strongest_baseline_id: "baseline".into(),
+            evaluator_arguments: arguments,
+            artifact_directory: "/vault/artifacts".into(),
         }
     }
 
@@ -1075,31 +517,6 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
         panic!("detached worker did not publish its pid");
-    }
-
-    #[test]
-    fn immutable_resource_comparison_rejects_oversized_existing_file_before_allocation() {
-        let directory = tempfile::tempdir().unwrap();
-        let root = directory.path().canonicalize().unwrap();
-        let path = root.join("oversized.json");
-        let file = File::create(&path).unwrap();
-        file.set_len(1_025).unwrap();
-        drop(file);
-
-        let error = stable_file_bytes(&path, 1_024, "resource fixture")
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("1024-byte limit"), "{error}");
-    }
-
-    #[test]
-    fn evaluator_arguments_are_part_of_the_semantic_request_identity() {
-        let first = request(vec!["--mode=a".into()]);
-        let second = request(vec!["--mode=b".into()]);
-        assert_ne!(
-            json_sha256_identity(&first.semantic).unwrap(),
-            json_sha256_identity(&second.semantic).unwrap()
-        );
     }
 
     #[test]
@@ -1359,56 +776,5 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("traverses symlink"), "{error}");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn artifact_scope_rejects_traversal_absolute_and_symlink_paths() {
-        use std::os::unix::fs::symlink;
-
-        let temporary = tempfile::tempdir().unwrap();
-        let vault = temporary.path().canonicalize().unwrap();
-        fs::create_dir(vault.join("approved")).unwrap();
-        fs::write(vault.join("outside"), b"outside").unwrap();
-        for path in [PathBuf::from("../outside"), vault.join("outside")] {
-            let error =
-                validate_exact_artifact_scope(&exact_resume(path), &vault, &["approved".into()])
-                    .unwrap_err()
-                    .to_string();
-            assert!(
-                error.contains("relative") || error.contains("must not contain"),
-                "{error}"
-            );
-        }
-        symlink(vault.join("outside"), vault.join("approved/link")).unwrap();
-        let error = validate_exact_artifact_scope(
-            &exact_resume("approved/link"),
-            &vault,
-            &["approved".into()],
-        )
-        .unwrap_err()
-        .to_string();
-        assert!(
-            error.contains("symlink") || error.contains("traverses"),
-            "{error}"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn immutable_publication_rejects_a_preexisting_symlink() {
-        use std::os::unix::fs::symlink;
-
-        let temporary = tempfile::tempdir().unwrap();
-        let root = temporary.path().canonicalize().unwrap();
-        let victim = root.join("victim");
-        fs::write(&victim, b"victim").unwrap();
-        let target = root.join("sha256-evidence.json");
-        symlink(&victim, &target).unwrap();
-        let error = publish_immutable(&target, b"evidence")
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("non-symlink"), "{error}");
-        assert_eq!(fs::read(victim).unwrap(), b"victim");
     }
 }
