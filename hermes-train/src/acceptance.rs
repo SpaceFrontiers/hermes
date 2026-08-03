@@ -10,7 +10,8 @@ use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+
+use crate::artifact_io::{sha256_identity, validate_sha256_hex, validate_sha256_identity};
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -159,6 +160,7 @@ pub struct ResourceComparison {
 pub const RESOURCE_COMPARISON_VERSION: u32 = 2;
 pub const ACCEPTANCE_POLICY_VERSION: u32 = 2;
 pub const RESOURCE_EXECUTION_PROTOCOL_VERSION: u32 = 2;
+const MAX_ACCEPTANCE_PAIRED_SEEDS: usize = 64;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -198,10 +200,9 @@ impl ResourceExecutionReceipt {
             ("baseline target", self.baseline_target_sha256.as_str()),
             ("candidate target", self.candidate_target_sha256.as_str()),
         ] {
-            validate_prefixed_sha256(value).map_err(|error| anyhow::anyhow!("{name}: {error}"))?;
+            validate_sha256_identity(value, name)?;
         }
-        validate_sha256(&self.policy_sha256)
-            .map_err(|error| anyhow::anyhow!("resource policy: {error}"))?;
+        validate_sha256_hex(&self.policy_sha256, "resource policy")?;
         ensure!(
             self.evaluator_arguments.len() <= 64
                 && self
@@ -351,8 +352,7 @@ pub struct KernelParityEvidence {
 
 impl KernelParityEvidence {
     fn validate(&self, name: &str) -> Result<()> {
-        validate_sha256(&self.fixture_sha256)
-            .map_err(|error| anyhow::anyhow!("{name} fixture: {error}"))?;
+        validate_sha256_hex(&self.fixture_sha256, &format!("{name} fixture"))?;
         ensure!(
             !self.samples.is_empty(),
             "{name} parity evaluated no values"
@@ -397,11 +397,8 @@ pub struct ExactResumeArtifact {
 
 impl ExactResumeArtifact {
     fn validate(&self, name: &str) -> Result<()> {
-        ensure!(
-            !self.path.as_os_str().is_empty(),
-            "{name} artifact path is empty"
-        );
-        validate_sha256(&self.sha256).map_err(|error| anyhow::anyhow!("{name}: {error}"))
+        validate_safe_relative_path(&self.path, &format!("{name} artifact path"))?;
+        validate_sha256_hex(&self.sha256, name)
     }
 }
 
@@ -436,6 +433,10 @@ impl ExactResumeEvidence {
             self.interruption_step > 0,
             "resume evidence must interrupt after at least one step"
         );
+        ensure!(
+            self.resumed_from_step == self.interruption_step,
+            "resumed step must equal the interrupted checkpoint step"
+        );
         Ok(())
     }
 }
@@ -460,14 +461,15 @@ impl ResourceComparison {
             !self.strongest_baseline_id.trim().is_empty(),
             "strongest_baseline_id is empty"
         );
-        validate_sha256(&self.benchmark_run_sha256)
-            .map_err(|error| anyhow::anyhow!("benchmark run: {error}"))?;
+        validate_sha256_hex(&self.benchmark_run_sha256, "benchmark run")?;
         ensure!(
             !self.measurement_evaluator_id.trim().is_empty(),
             "resource measurement evaluator id is empty"
         );
-        validate_prefixed_sha256(&self.measurement_evaluator_version)
-            .map_err(|error| anyhow::anyhow!("resource measurement evaluator: {error}"))?;
+        validate_sha256_identity(
+            &self.measurement_evaluator_version,
+            "resource measurement evaluator",
+        )?;
         ensure!(
             !self.wake_trials.is_empty(),
             "resource evidence has no wake trials"
@@ -544,7 +546,7 @@ impl ResourceComparison {
                 resumed_from_step: exact.resumed_from_step,
             },
         })?;
-        Ok(format!("sha256:{:x}", Sha256::digest(bytes)))
+        Ok(sha256_identity(&bytes))
     }
 
     pub(crate) fn derived_measurements(&self) -> Result<DerivedResourceMeasurements> {
@@ -623,13 +625,62 @@ impl ResourceComparison {
             .map(|observation| observation.stored_bytes)
             .min()
             .expect("resource validation requires capacity observations");
+        let baseline_wake_tokens_per_second = baseline_tokens as f64 / baseline_elapsed;
+        let candidate_wake_tokens_per_second = candidate_tokens as f64 / candidate_elapsed;
+        let baseline_wake_p95_ms = nearest_rank_p95(&mut baseline_latencies);
+        let candidate_wake_p95_ms = nearest_rank_p95(&mut candidate_latencies);
+        let throughput_log_ratios = self
+            .wake_trials
+            .iter()
+            // Paired trials are required to process the same token workload,
+            // so the throughput ratio is exactly baseline/candidate elapsed
+            // time. Avoiding an unnecessary u64-to-f64 token conversion also
+            // preserves precision for very large workloads.
+            .map(|trial| trial.baseline.elapsed_seconds.ln() - trial.candidate.elapsed_seconds.ln())
+            .collect::<Vec<_>>();
+        let latency_log_ratios = self
+            .wake_trials
+            .iter()
+            .map(|trial| {
+                let mut baseline = trial.baseline.request_latency_ms.clone();
+                let mut candidate = trial.candidate.request_latency_ms.clone();
+                nearest_rank_p95(&mut candidate).ln() - nearest_rank_p95(&mut baseline).ln()
+            })
+            .collect::<Vec<_>>();
+        // A single trial yields an unbounded interval, which would otherwise
+        // surface downstream as an opaque overflow rather than the actual
+        // problem. The policy floor is checked separately and is never lower.
+        ensure!(
+            self.wake_trials.len() >= 2,
+            "wake performance needs at least 2 paired trials to form a confidence interval, got {}",
+            self.wake_trials.len()
+        );
+        let (_, throughput_log_lower_95, _) = paired_interval_95(&throughput_log_ratios)?;
+        let (_, _, latency_log_upper_95) = paired_interval_95(&latency_log_ratios)?;
+        let wake_throughput_ratio_lower_95 = throughput_log_lower_95.exp();
+        let wake_latency_ratio_upper_95 = latency_log_upper_95.exp();
+        ensure!(
+            [
+                baseline_wake_tokens_per_second,
+                candidate_wake_tokens_per_second,
+                baseline_wake_p95_ms,
+                candidate_wake_p95_ms,
+                wake_throughput_ratio_lower_95,
+                wake_latency_ratio_upper_95,
+            ]
+            .iter()
+            .all(|measurement| measurement.is_finite() && *measurement > 0.0),
+            "derived wake measurements overflowed or underflowed"
+        );
         Ok(DerivedResourceMeasurements {
             wake_trials: self.wake_trials.len(),
             wake_latency_samples: baseline_latencies.len(),
-            baseline_wake_tokens_per_second: baseline_tokens as f64 / baseline_elapsed,
-            candidate_wake_tokens_per_second: candidate_tokens as f64 / candidate_elapsed,
-            baseline_wake_p95_ms: nearest_rank_p95(&mut baseline_latencies),
-            candidate_wake_p95_ms: nearest_rank_p95(&mut candidate_latencies),
+            baseline_wake_tokens_per_second,
+            candidate_wake_tokens_per_second,
+            baseline_wake_p95_ms,
+            candidate_wake_p95_ms,
+            wake_throughput_ratio_lower_95,
+            wake_latency_ratio_upper_95,
             initial_routed_active_parameters: initial.routed_active_parameters,
             initial_stored_parameters: initial.stored_parameters,
             initial_stored_bytes: initial.stored_bytes,
@@ -652,6 +703,13 @@ pub(crate) struct DerivedResourceMeasurements {
     pub candidate_wake_tokens_per_second: f64,
     pub baseline_wake_p95_ms: f64,
     pub candidate_wake_p95_ms: f64,
+    /// Lower endpoint of a paired, trial-level 95% interval over log
+    /// throughput ratios. Trial-level inference avoids treating requests from
+    /// one run as independent replicates.
+    pub wake_throughput_ratio_lower_95: f64,
+    /// Upper endpoint of the analogous paired interval over per-trial p95
+    /// latency ratios.
+    pub wake_latency_ratio_upper_95: f64,
     pub initial_routed_active_parameters: u64,
     pub initial_stored_parameters: u64,
     pub initial_stored_bytes: u64,
@@ -675,8 +733,7 @@ pub struct KernelParityPolicy {
 
 impl KernelParityPolicy {
     fn validate(&self, name: &str) -> Result<()> {
-        validate_sha256(&self.fixture_sha256)
-            .map_err(|error| anyhow::anyhow!("{name} fixture: {error}"))?;
+        validate_sha256_hex(&self.fixture_sha256, &format!("{name} fixture"))?;
         ensure!(
             self.minimum_samples > 0,
             "{name} policy requires no parity samples"
@@ -753,8 +810,8 @@ impl AcceptancePolicy {
             self.version
         );
         ensure!(
-            self.minimum_paired_seeds >= 3,
-            "promotion requires at least three paired seeds"
+            (3..=MAX_ACCEPTANCE_PAIRED_SEEDS).contains(&self.minimum_paired_seeds),
+            "promotion requires between 3 and {MAX_ACCEPTANCE_PAIRED_SEEDS} paired seeds"
         );
         ensure!(
             self.maximum_anchor_regression.is_finite() && self.maximum_anchor_regression >= 0.0,
@@ -772,11 +829,10 @@ impl AcceptancePolicy {
             !self.resource_evaluator_id.trim().is_empty(),
             "resource evaluator id is empty"
         );
-        validate_prefixed_sha256(&self.resource_evaluator_version)
-            .map_err(|error| anyhow::anyhow!("resource evaluator: {error}"))?;
+        validate_sha256_identity(&self.resource_evaluator_version, "resource evaluator")?;
         ensure!(
-            self.minimum_wake_trials > 0 && self.minimum_wake_latency_samples > 0,
-            "wake measurement minima must be positive"
+            self.minimum_wake_trials >= 3 && self.minimum_wake_latency_samples >= 3,
+            "wake performance gates require at least three trials and latency samples"
         );
         ensure!(
             self.minimum_wake_throughput_ratio.is_finite()
@@ -983,8 +1039,9 @@ pub(crate) fn evaluate_with_verified_context(
             .get(case.id.as_str())
             .ok_or_else(|| anyhow::anyhow!("missing acceptance result `{}`", case.id))?;
         ensure!(
-            result.pairs.len() >= policy.minimum_paired_seeds,
-            "acceptance case `{}` has {} paired seeds; need {}",
+            (policy.minimum_paired_seeds..=MAX_ACCEPTANCE_PAIRED_SEEDS)
+                .contains(&result.pairs.len()),
+            "acceptance case `{}` has {} paired seeds; need {}..={MAX_ACCEPTANCE_PAIRED_SEEDS}",
             case.id,
             result.pairs.len(),
             policy.minimum_paired_seeds
@@ -1031,20 +1088,29 @@ pub(crate) fn evaluate_with_verified_context(
             .iter()
             .map(|pair| pair.candidate - pair.baseline)
             .collect::<Vec<_>>();
-        let (mean_delta, lower_confidence_bound) = paired_lower_95(&deltas);
-        let allowed_anchor_regression = case.stable_anchor.then(|| {
-            policy
-                .maximum_anchor_regression
-                .max(sample_standard_deviation(
-                    &result
-                        .pairs
-                        .iter()
-                        .map(|pair| pair.baseline)
-                        .collect::<Vec<_>>(),
-                ))
-        });
+        ensure!(
+            deltas.iter().all(|delta| delta.is_finite()),
+            "acceptance case `{}` metric deltas overflowed",
+            case.id
+        );
+        ensure_representable_metrics(
+            &case.id,
+            &result
+                .pairs
+                .iter()
+                .flat_map(|pair| [pair.baseline, pair.candidate])
+                .collect::<Vec<_>>(),
+        )?;
+        let (mean_delta, lower_confidence_bound) = paired_lower_95(&deltas)?;
+        // The tolerance comes from the addressed policy alone. Widening it by a
+        // spread computed from the submitted pairs would let evidence choose its
+        // own tolerance; paired-sample noise is already handled conservatively by
+        // gating on the lower confidence bound rather than the mean.
+        let allowed_anchor_regression = case
+            .stable_anchor
+            .then_some(policy.maximum_anchor_regression);
         let passed = if case.stable_anchor {
-            mean_delta >= -allowed_anchor_regression.unwrap()
+            lower_confidence_bound >= -allowed_anchor_regression.unwrap()
         } else {
             lower_confidence_bound > 0.0
         };
@@ -1065,6 +1131,13 @@ pub(crate) fn evaluate_with_verified_context(
     let throughput_ratio = measurements.candidate_wake_tokens_per_second
         / measurements.baseline_wake_tokens_per_second;
     let latency_ratio = measurements.candidate_wake_p95_ms / measurements.baseline_wake_p95_ms;
+    ensure!(
+        throughput_ratio.is_finite()
+            && throughput_ratio > 0.0
+            && latency_ratio.is_finite()
+            && latency_ratio > 0.0,
+        "wake performance ratios overflowed or underflowed"
+    );
     let grouped_mm_errors = resources.grouped_mm_parity.maximum_errors();
     let pytorch_errors = resources.pytorch_parity.maximum_errors();
     let resource_gates = BTreeMap::from([
@@ -1126,11 +1199,14 @@ pub(crate) fn evaluate_with_verified_context(
         ),
         (
             "wake_throughput".into(),
-            throughput_ratio >= policy.minimum_wake_throughput_ratio,
+            throughput_ratio >= policy.minimum_wake_throughput_ratio
+                && measurements.wake_throughput_ratio_lower_95
+                    >= policy.minimum_wake_throughput_ratio,
         ),
         (
             "wake_latency".into(),
-            latency_ratio <= policy.maximum_wake_latency_ratio,
+            latency_ratio <= policy.maximum_wake_latency_ratio
+                && measurements.wake_latency_ratio_upper_95 <= policy.maximum_wake_latency_ratio,
         ),
     ]);
     let accepted = cases.iter().all(|case| case.passed)
@@ -1147,56 +1223,71 @@ pub(crate) fn evaluate_with_verified_context(
     })
 }
 
-fn validate_sha256(value: &str) -> Result<()> {
+fn nearest_rank_p95(values: &mut [f64]) -> f64 {
+    let rank = (95 * values.len()).div_ceil(100);
+    let index = rank.saturating_sub(1);
+    let (_, value, _) = values.select_nth_unstable_by(index, f64::total_cmp);
+    *value
+}
+
+/// Reject raw metrics whose magnitudes cannot be aggregated, so extreme but
+/// individually finite scores fail closed instead of gating on a delta that
+/// happens to cancel.
+fn ensure_representable_metrics(case_id: &str, values: &[f64]) -> Result<()> {
+    let mean = values.iter().sum::<f64>() / values.len() as f64;
     ensure!(
-        value.len() == 64
-            && value
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
-        "SHA-256 must contain exactly 64 lowercase hexadecimal characters"
+        mean.is_finite(),
+        "acceptance case `{case_id}` metric mean overflowed"
+    );
+    let dispersion = values
+        .iter()
+        .map(|value| (value - mean).powi(2))
+        .sum::<f64>();
+    ensure!(
+        dispersion.is_finite(),
+        "acceptance case `{case_id}` metric variance overflowed"
     );
     Ok(())
 }
 
-fn validate_prefixed_sha256(value: &str) -> Result<()> {
-    let digest = value
-        .strip_prefix("sha256:")
-        .ok_or_else(|| anyhow::anyhow!("identity must use the `sha256:<hex>` form"))?;
-    validate_sha256(digest)
+fn paired_lower_95(deltas: &[f64]) -> Result<(f64, f64)> {
+    let (mean, lower, _) = paired_interval_95(deltas)?;
+    Ok((mean, lower))
 }
 
-fn nearest_rank_p95(values: &mut [f64]) -> f64 {
-    values.sort_by(f64::total_cmp);
-    let rank = (95 * values.len()).div_ceil(100);
-    values[rank.saturating_sub(1)]
-}
-
-fn sample_standard_deviation(values: &[f64]) -> f64 {
-    if values.len() < 2 {
-        return 0.0;
+fn paired_interval_95(values: &[f64]) -> Result<(f64, f64, f64)> {
+    ensure!(!values.is_empty(), "paired confidence interval is empty");
+    ensure!(
+        values.iter().all(|value| value.is_finite()),
+        "paired confidence interval contains a non-finite delta"
+    );
+    let count = values.len();
+    let mean = values.iter().sum::<f64>() / count as f64;
+    ensure!(
+        mean.is_finite(),
+        "paired confidence-interval mean overflowed"
+    );
+    if count == 1 {
+        return Ok((mean, f64::NEG_INFINITY, f64::INFINITY));
     }
-    let mean = values.iter().sum::<f64>() / values.len() as f64;
-    (values
+    let variance = values
         .iter()
         .map(|value| (value - mean).powi(2))
         .sum::<f64>()
-        / (values.len() - 1) as f64)
-        .sqrt()
-}
-
-fn paired_lower_95(deltas: &[f64]) -> (f64, f64) {
-    let count = deltas.len();
-    let mean = deltas.iter().sum::<f64>() / count as f64;
-    if count == 1 {
-        return (mean, f64::NEG_INFINITY);
-    }
-    let variance = deltas
-        .iter()
-        .map(|delta| (delta - mean).powi(2))
-        .sum::<f64>()
         / (count - 1) as f64;
+    ensure!(
+        variance.is_finite() && variance >= 0.0,
+        "paired confidence-interval variance overflowed"
+    );
     let standard_error = (variance / count as f64).sqrt();
-    (mean, mean - t_critical_95(count - 1) * standard_error)
+    let half_width = t_critical_95(count - 1) * standard_error;
+    let lower = mean - half_width;
+    let upper = mean + half_width;
+    ensure!(
+        standard_error.is_finite() && lower.is_finite() && upper.is_finite(),
+        "paired confidence interval overflowed"
+    );
+    Ok((mean, lower, upper))
 }
 
 /// Two-sided 95% Student-t critical values; the lower bound therefore uses
@@ -1207,12 +1298,27 @@ fn t_critical_95(df: usize) -> f64 {
         2.145, 2.131, 2.120, 2.110, 2.101, 2.093, 2.086, 2.080, 2.074, 2.069, 2.064, 2.060, 2.056,
         2.052, 2.048, 2.045, 2.042,
     ];
-    TABLE.get(df.saturating_sub(1)).copied().unwrap_or(1.96)
+    // The normal 1.96 limit is approached only asymptotically. Jumping from
+    // t(30)=2.042 straight to 1.96 at df=31 makes the interval spuriously
+    // narrower exactly when another paired seed is added. Keep the last
+    // tabulated value for larger samples: it is monotone and conservative,
+    // while avoiding a statistical dependency in the promotion boundary.
+    TABLE
+        .get(df.saturating_sub(1))
+        .copied()
+        .unwrap_or(*TABLE.last().expect("Student-t table is non-empty"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn paired_interval_does_not_narrow_discontinuously_after_t_table() {
+        assert_eq!(t_critical_95(30), 2.042);
+        assert_eq!(t_critical_95(31), 2.042);
+        assert_eq!(t_critical_95(10_000), 2.042);
+    }
 
     fn suite() -> AcceptanceSuite {
         AcceptanceSuite {
@@ -1419,6 +1525,198 @@ mod tests {
     }
 
     #[test]
+    fn stable_anchor_tolerance_ignores_the_spread_of_submitted_baselines() {
+        let results = vec![
+            CaseResult {
+                case_id: "quality".into(),
+                pairs: [1, 2, 3]
+                    .into_iter()
+                    .map(|seed| PairedRun {
+                        seed,
+                        baseline: 0.4,
+                        candidate: 0.5,
+                    })
+                    .collect(),
+            },
+            CaseResult {
+                case_id: "retention".into(),
+                // Widely spread baselines with a candidate that is consistently
+                // worse by 0.15 — far beyond the 0.01 policy tolerance.
+                pairs: [0.6, 0.8, 1.0]
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, baseline)| PairedRun {
+                        seed: (index + 1) as u64,
+                        baseline,
+                        candidate: baseline - 0.15,
+                    })
+                    .collect(),
+            },
+        ];
+        let resources = resources();
+        let report = evaluate_with_verified_context(
+            &suite(),
+            &results,
+            &resources,
+            &policy(),
+            &verified_context(&resources),
+        )
+        .unwrap();
+
+        assert!(!report.sealed.passed);
+        assert!(!report.accepted);
+    }
+
+    #[test]
+    fn stable_anchor_uses_its_confidence_bound_not_only_the_mean() {
+        let results = vec![
+            CaseResult {
+                case_id: "quality".into(),
+                pairs: [1, 2, 3]
+                    .into_iter()
+                    .map(|seed| PairedRun {
+                        seed,
+                        baseline: 0.4,
+                        candidate: 0.5,
+                    })
+                    .collect(),
+            },
+            CaseResult {
+                case_id: "retention".into(),
+                pairs: [0.01, 0.01, -0.015]
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, delta)| PairedRun {
+                        seed: (index + 1) as u64,
+                        baseline: 0.8,
+                        candidate: 0.8 + delta,
+                    })
+                    .collect(),
+            },
+        ];
+        let resources = resources();
+        let report = evaluate_with_verified_context(
+            &suite(),
+            &results,
+            &resources,
+            &policy(),
+            &verified_context(&resources),
+        )
+        .unwrap();
+
+        assert!(!report.sealed.passed);
+        assert!(!report.accepted);
+    }
+
+    #[test]
+    fn finite_samples_with_overflowing_statistics_fail_closed() {
+        let quality = CaseResult {
+            case_id: "quality".into(),
+            pairs: [1, 2, 3]
+                .into_iter()
+                .map(|seed| PairedRun {
+                    seed,
+                    baseline: 0.0,
+                    candidate: 1.0,
+                })
+                .collect(),
+        };
+        let retention = CaseResult {
+            case_id: "retention".into(),
+            pairs: [1, 2, 3]
+                .into_iter()
+                .map(|seed| PairedRun {
+                    seed,
+                    baseline: f64::MAX,
+                    candidate: f64::MAX,
+                })
+                .collect(),
+        };
+        let resources = resources();
+        let error = evaluate_with_verified_context(
+            &suite(),
+            &[quality, retention],
+            &resources,
+            &policy(),
+            &verified_context(&resources),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("mean overflowed"), "{error}");
+
+        let overflowed_delta = CaseResult {
+            case_id: "quality".into(),
+            pairs: [1, 2, 3]
+                .into_iter()
+                .map(|seed| PairedRun {
+                    seed,
+                    baseline: -f64::MAX,
+                    candidate: f64::MAX,
+                })
+                .collect(),
+        };
+        let stable = CaseResult {
+            case_id: "retention".into(),
+            pairs: [1, 2, 3]
+                .into_iter()
+                .map(|seed| PairedRun {
+                    seed,
+                    baseline: 1.0,
+                    candidate: 1.0,
+                })
+                .collect(),
+        };
+        let error = evaluate_with_verified_context(
+            &suite(),
+            &[overflowed_delta, stable],
+            &resources,
+            &policy(),
+            &verified_context(&resources),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("metric deltas overflowed"), "{error}");
+    }
+
+    #[test]
+    fn finite_wake_measurements_with_nonfinite_ratios_fail_closed() {
+        let results = suite()
+            .cases
+            .iter()
+            .map(|case| CaseResult {
+                case_id: case.id.clone(),
+                pairs: [1, 2, 3]
+                    .into_iter()
+                    .map(|seed| PairedRun {
+                        seed,
+                        baseline: 0.5,
+                        candidate: if case.stable_anchor { 0.5 } else { 0.6 },
+                    })
+                    .collect(),
+            })
+            .collect::<Vec<_>>();
+        let mut resources = resources();
+        for trial in &mut resources.wake_trials {
+            trial.baseline.tokens = 1;
+            trial.baseline.elapsed_seconds = 1e289;
+            trial.candidate.tokens = 1;
+            trial.candidate.elapsed_seconds = 1e-20;
+        }
+        reseal(&mut resources);
+
+        let error = evaluate_with_verified_context(
+            &suite(),
+            &results,
+            &resources,
+            &policy(),
+            &verified_context(&resources),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("overflowed or underflowed"), "{error}");
+    }
+
+    #[test]
     fn active_compute_growth_rejects_candidate() {
         let mut resources = resources();
         resources
@@ -1582,6 +1880,24 @@ mod tests {
     }
 
     #[test]
+    fn wake_confidence_policy_requires_three_independent_trials() {
+        let mut trial_policy = policy();
+        trial_policy.minimum_wake_trials = 2;
+        let error = trial_policy.validate().unwrap_err().to_string();
+        assert!(error.contains("at least three trials"), "{error}");
+
+        let mut latency_policy = policy();
+        latency_policy.minimum_wake_latency_samples = 2;
+        let error = latency_policy.validate().unwrap_err().to_string();
+        assert!(error.contains("latency samples"), "{error}");
+
+        let mut unbounded_seed_policy = policy();
+        unbounded_seed_policy.minimum_paired_seeds = MAX_ACCEPTANCE_PAIRED_SEEDS + 1;
+        let error = unbounded_seed_policy.validate().unwrap_err().to_string();
+        assert!(error.contains("paired seeds"), "{error}");
+    }
+
+    #[test]
     fn raw_json_inputs_can_never_promote() {
         let results = suite()
             .cases
@@ -1644,6 +1960,14 @@ mod tests {
         let mut exact = resources().exact_resume;
         exact.validate().unwrap();
         exact.resumed_metrics.path = PathBuf::new();
+        assert!(exact.validate().is_err());
+
+        let mut exact = resources().exact_resume;
+        exact.resumed_from_step += 1;
+        assert!(exact.validate().is_err());
+
+        let mut exact = resources().exact_resume;
+        exact.resumed_metrics.path = "../outside/metrics.jsonl".into();
         assert!(exact.validate().is_err());
     }
 
@@ -1736,6 +2060,69 @@ mod tests {
         .unwrap();
         assert!(!report.resource_gates["wake_throughput"]);
         assert!(!report.resource_gates["wake_latency"]);
+    }
+
+    #[test]
+    fn wake_performance_requires_paired_trial_confidence() {
+        let mut resources = resources();
+        for (trial, (elapsed, latency)) in
+            resources
+                .wake_trials
+                .iter_mut()
+                .zip([(9.0, 9.0), (9.0, 9.0), (13.0, 10.4)])
+        {
+            trial.candidate.elapsed_seconds = elapsed;
+            trial.candidate.request_latency_ms = vec![latency];
+        }
+        reseal(&mut resources);
+        let results = suite()
+            .cases
+            .iter()
+            .map(|case| CaseResult {
+                case_id: case.id.clone(),
+                pairs: [1, 2, 3]
+                    .into_iter()
+                    .map(|seed| PairedRun {
+                        seed,
+                        baseline: 0.0,
+                        candidate: 1.0,
+                    })
+                    .collect(),
+            })
+            .collect::<Vec<_>>();
+        let measurements = resources.derived_measurements().unwrap();
+        assert!(
+            measurements.candidate_wake_tokens_per_second
+                / measurements.baseline_wake_tokens_per_second
+                >= policy().minimum_wake_throughput_ratio
+        );
+        assert!(
+            measurements.candidate_wake_p95_ms / measurements.baseline_wake_p95_ms
+                <= policy().maximum_wake_latency_ratio
+        );
+
+        let report = evaluate_with_verified_context(
+            &suite(),
+            &results,
+            &resources,
+            &policy(),
+            &verified_context(&resources),
+        )
+        .unwrap();
+        assert!(!report.resource_gates["wake_throughput"]);
+        assert!(!report.resource_gates["wake_latency"]);
+        assert!(!report.accepted);
+    }
+
+    #[test]
+    fn derived_wake_measurements_reject_finite_arithmetic_overflow() {
+        let mut resources = resources();
+        for trial in &mut resources.wake_trials {
+            trial.baseline.elapsed_seconds = f64::MIN_POSITIVE;
+        }
+        reseal(&mut resources);
+        let error = resources.derived_measurements().unwrap_err().to_string();
+        assert!(error.contains("derived wake measurements"), "{error}");
     }
 
     #[test]

@@ -67,6 +67,69 @@ hermes-train train \
   --output checkpoint
 ```
 
+For the schedule- and capacity-matched no-sleep ablation in the stock wake
+trainer, replace `periodic_sleep` on every wake phase with the same typed
+`memory_update_mode` object and omit the sleep-runtime flags:
+
+```json
+{
+  "memory_update_mode": {
+    "type": "wake_only",
+    "schedule": {
+      "clock": "optimizer_steps",
+      "terminal_consolidation": "distill_into_base_v1",
+      "tiers": [
+        { "id": "fast", "update_period": 100, "reserve_slots": 2 },
+        { "id": "medium", "update_period": 400, "reserve_slots": 4 },
+        { "id": "slow", "update_period": 3200, "reserve_slots": 8 }
+      ]
+    },
+    "tier_optimizer": {
+      "learning_rate": 0.0003,
+      "beta_1": 0.9,
+      "beta_2": 0.95,
+      "epsilon": 1e-8,
+      "weight_decay": 0.1
+    }
+  }
+}
+```
+
+`wake_only` retains each tier's independent clock and pending gradients and
+applies due base updates fastest-to-slowest. It performs no consolidation,
+transfer, reserve activation/reset, or Dreaming. Checkpoints bind the exact
+mode, schedule, optimizer settings, clocks, moments, and pending accumulators.
+The native DPO, forward-KL, and GRPO executor rejects `memory_update_mode`
+instead of silently applying its ordinary optimizer; for memory-model tier
+scheduling, those phases currently support `periodic_sleep` only.
+The stock trainer accepts either `[fast, slow]` or `[fast, medium, slow]` so its
+typed tier metrics remain unambiguous. Memory training currently requires the
+memory hierarchy in every model layer; mixed memory/ordinary-FFN layer
+topologies are rejected explicitly.
+
+Profile the complete tier wake step—not only model forward/backward—with the
+harness-less `wake_tier_step` benchmark. It emits interleaved raw non-boundary
+and boundary timings for at least three paired seeds, including gradient
+partitioning, tier accumulation/commit, and the wake-only update path:
+
+```bash
+cargo bench -p hermes-train --bench wake_tier_step --features cuda -- \
+  --model hermes-mal/well-known/retriever_300m_moe_sleep.mal \
+  --batch-size 4 --sequence-length 1024 --periods 100,400,3200 \
+  --non-due-clock 99 --due-clock 100 --require-cuda \
+  --output wake-tier-step-cuda.json
+```
+
+The report records that each paired case starts from a fresh tier bank. This
+keeps the compared model, gradients, and optimizer state byte-identical and
+profiles the cold first-boundary path; use the separate `memory_reserve`
+benchmark's matched static-model gate for the steady-state 5% wake-overhead
+acceptance decision.
+
+Runs without the CUDA plus `training-fusion` stack are labelled smoke-only in
+the JSON and are not CUDA acceptance evidence. The embedded compact model is
+intended only for quick local smoke runs.
+
 Create the runtime's `workflow_signature` without touching checkpoint or
 runtime state. Use every training-semantic option from the eventual invocation;
 the output path itself is not part of the signature:
@@ -172,6 +235,14 @@ worker hash, and metric run id. Optimization/mutation results must be new
 immutable checkpoint URIs and assessment cannot change weights. The native
 promotion gate releases only the exact accepted current candidate.
 
+All pinned phase, benchmark, and resource workers run with an empty inherited
+environment and `/` as their working directory. A script worker must therefore
+name its interpreter directly with an absolute shebang such as `#!/bin/sh` or
+`#!/opt/hermes/venv/bin/python`; `#!/usr/bin/env ...` and other `env`-interpreter
+shebangs are rejected. Worker subprocess paths must likewise be absolute or be
+resolved internally by a self-contained binary—the host never injects an
+ambient `PATH`.
+
 If a worker yields, invoke the same command with `--resume` and without either
 initial-checkpoint option. The runtime verifies the workflow, worker digest,
 metric run id, and committed metric prefix before continuing. The concrete
@@ -189,6 +260,16 @@ is accepted only when the trainer supplies an authenticated
 idempotent boundary hook. Trainable policy adapters report a monotonic exact
 model-token counter; the executor samples it around each deterministic update
 instead of estimating token usage from padded sequence geometry.
+
+Forward-KL accepts causal-LM and supervised-generation task examples, including
+instruction tuning, and applies the task's explicit prompt/target structure.
+Every local frozen teacher or reference uses the same canonical
+`sha256:<64 lowercase hex>` identity as runtime checkpoints; alternate digest
+spellings are rejected rather than normalized. Revision-pinned remote models
+derive that canonical runtime identity from the adapter, immutable revision,
+and adapter parameters, so equal revision labels from different providers or
+model repositories cannot alias one another. Context factories should use
+`FrozenModelSpec::immutable_identity()` as their exact expected value.
 
 The complete education recipe combines periodic sleep with phase kinds outside
 the wake trainer and therefore uses the public embedded host in `native_host`.
@@ -361,9 +442,11 @@ Sleep schedules, Knowledge Seeding, semantic/edit imitation with GRPO,
 retention transactions, dream selection by model-loss gradient alignment,
 isolated frozen-model LM-head LoRA trials (paper geometry rank 64 / alpha 128),
 and ReSTEM updates have an in-process tensor implementation. Each built-in
-trial derives final-normalized hidden features once, trains only `[rank,
-hidden]` and `[rank, vocabulary]` adapter tensors, and adds their delta to the
-frozen base projection. Its content-addressed receipt binds the adapter to the
+trial supervises only the generated continuation, derives its final-normalized
+hidden features once, caches the immutable evaluation features across trials,
+and trains only `[rank, hidden]` and `[rank, vocabulary]` adapter tensors with
+batched device GEMMs. It adds their delta to the frozen base projection. Its
+content-addressed receipt binds the adapter to the
 immutable base checkpoint and exact model-parameter digest, logical
 output-projection target, exact shapes, candidate, and evaluator. The stock
 runtime provides model-owned rollout generation, a frozen
@@ -385,8 +468,10 @@ gradient-accumulation window is discarded for every scope. One global norm and
 clip covers wake and tier gradients before a completed optimizer window is
 committed.
 
-Dream generation adds exactly one deterministic-random expert per token from
-outside each persistent FFN MoE's ordinary top-k. Reserve-memory routers remain
+Dream generation prefills each wake prefix once and then uses the ordinary KV
+or recurrent inference state for linear-time single-token decoding. It adds
+exactly one deterministic-random expert per token from outside each persistent
+FFN MoE's ordinary top-k. Reserve-memory routers remain
 ordinary top-1 from the initial zero fallback onward. Their capacity-width
 projection is fixed; dormant learned rows stay off graph behind parameter-free
 zero columns, and activation replaces columns without growing router work.
@@ -517,7 +602,11 @@ fixed by the runner rather than inferred from filenames.
 First produce each immutable run with the content-pinned evaluator. `PATH=HASH`
 arguments use raw 64-character SHA-256 digests; the evaluator identity includes
 the `sha256:` prefix and must exactly equal `evaluator_version` in the run
-config.
+config. `evaluator_arguments` in that same config is the exact UTF-8 argument
+vector: repeat `--evaluator-arg` with identical values when launching the run.
+The host clears the inherited environment and runs the evaluator from `/`, so
+the pinned evaluator must be self-contained and may not depend on ambient
+shell, working-directory, or secret state.
 
 ```bash
 hermes-train run-benchmark \

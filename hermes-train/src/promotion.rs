@@ -6,18 +6,21 @@
 //! deterministic immutable decision. A rejected decision is retained for
 //! audit but can never produce a [`PhaseProduct::Release`].
 
-use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, ensure};
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 
 use crate::acceptance::{AcceptancePolicy, PromotionReport};
+#[cfg(test)]
+use crate::artifact_io::sha256_hex;
+use crate::artifact_io::{
+    atomic_write_new, json_sha256_identity, read_regular_bounded, sha256_identity,
+};
 use crate::benchmark::{
-    AblationId, BenchmarkTarget, ModelRepresentationIdentity, VerifiedBenchmarkRun,
-    VerifiedResourceComparison, evaluate_verified_promotion,
+    AblationId, ModelRepresentationIdentity, VerifiedBenchmarkRun, VerifiedResourceComparison,
+    evaluate_verified_promotion,
 };
 use crate::runtime::{
     ImmutableArtifact, ImmutableModelCheckpoint, PhaseExecutionRequest, PhaseExecutionResult,
@@ -26,6 +29,7 @@ use crate::runtime::{
 use crate::workflow::{PhaseKind, PromotionConfig, PromotionEvidenceRef};
 
 pub const PROMOTION_DECISION_VERSION: u32 = 2;
+const MAX_PROMOTION_JSON_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Complete auditable authorization record. The acceptance report is nested
 /// beside the exact checkpoint and every immutable input identity so the
@@ -116,14 +120,6 @@ fn evaluate_and_publish(
         comparisons.push(VerifiedBenchmarkRun::load(&run.path, run.raw_sha256())?);
     }
 
-    // Benchmark runs pin both checkpoint manifests and trainer-produced
-    // training evidence. Re-verify those files at promotion time rather than
-    // relying only on the earlier benchmark invocation.
-    for run in &comparisons {
-        verify_target(&run.run.metadata.baseline, &run.path)?;
-        verify_target(&run.run.metadata.candidate, &run.path)?;
-    }
-
     let benchmark_candidate = &selected.run.metadata.candidate;
     let runtime_digest = candidate
         .sha256()
@@ -148,7 +144,7 @@ fn evaluate_and_publish(
         &policy,
         config.policy.raw_sha256(),
     )?;
-    let config_sha256 = canonical_sha256(config)?;
+    let config_sha256 = json_sha256_identity(config)?;
     let decision = VerifiedPromotionDecision {
         version: PROMOTION_DECISION_VERSION,
         phase_index: request.phase_index,
@@ -174,7 +170,7 @@ fn evaluate_and_publish(
         report,
     };
     let bytes = decision_bytes(&decision)?;
-    let decision_sha256 = format!("sha256:{:x}", Sha256::digest(&bytes));
+    let decision_sha256 = sha256_identity(&bytes);
     let directory = prepare_artifact_directory(&config.artifact_directory)?;
     let path = directory.join(format!(
         "sha256-{}.json",
@@ -182,25 +178,13 @@ fn evaluate_and_publish(
             .strip_prefix("sha256:")
             .expect("locally constructed digest")
     ));
-    publish_idempotent(&path, &bytes)?;
+    atomic_write_new(&path, &bytes)?;
     let uri = path
         .to_str()
         .context("promotion decision path is not valid UTF-8")?
         .to_owned();
     let artifact = ImmutableArtifact::new(uri, decision_sha256)?;
     Ok((decision, artifact))
-}
-
-fn verify_target(target: &BenchmarkTarget, run_source: &Path) -> Result<()> {
-    let mut resolved = target.clone();
-    resolved.resolve_paths(run_source);
-    resolved.verify().map(|_| ()).with_context(|| {
-        format!(
-            "failed to verify benchmark target `{}` referenced by {}",
-            resolved.id,
-            run_source.display()
-        )
-    })
 }
 
 fn verify_evidence_ref(reference: &PromotionEvidenceRef, label: &str) -> Result<()> {
@@ -218,9 +202,9 @@ fn read_addressed_json<T: serde::de::DeserializeOwned>(
     reference: &PromotionEvidenceRef,
     label: &str,
 ) -> Result<T> {
-    let bytes = fs::read(&reference.path)
+    let bytes = read_regular_bounded(&reference.path, MAX_PROMOTION_JSON_BYTES, label)
         .with_context(|| format!("failed to read {label} {}", reference.path.display()))?;
-    let actual = format!("sha256:{:x}", Sha256::digest(&bytes));
+    let actual = sha256_identity(&bytes);
     ensure!(
         actual == reference.sha256,
         "{label} hash mismatch for {}: expected {}, got {}",
@@ -230,13 +214,6 @@ fn read_addressed_json<T: serde::de::DeserializeOwned>(
     );
     serde_json::from_slice(&bytes)
         .with_context(|| format!("invalid {label} JSON in {}", reference.path.display()))
-}
-
-fn canonical_sha256<T: Serialize>(value: &T) -> Result<String> {
-    Ok(format!(
-        "sha256:{:x}",
-        Sha256::digest(serde_json::to_vec(value)?)
-    ))
 }
 
 fn decision_bytes(decision: &VerifiedPromotionDecision) -> Result<Vec<u8>> {
@@ -338,86 +315,6 @@ fn prepare_artifact_directory(path: &Path) -> Result<PathBuf> {
     Ok(directory)
 }
 
-fn publish_idempotent(path: &Path, expected: &[u8]) -> Result<()> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) => {
-            ensure!(
-                metadata.file_type().is_file() && !metadata.file_type().is_symlink(),
-                "promotion decision {} must be a regular non-symlink file",
-                path.display()
-            );
-            ensure!(
-                fs::read(path)? == expected,
-                "existing promotion decision {} does not contain the derived bytes",
-                path.display()
-            );
-            return Ok(());
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => {
-            return Err(error)
-                .with_context(|| format!("inspect promotion decision {}", path.display()));
-        }
-    }
-
-    let parent = path
-        .parent()
-        .context("promotion decision path has no parent")?;
-    let file_name = path
-        .file_name()
-        .context("promotion decision path has no file name")?;
-    for attempt in 0..100_u32 {
-        let temporary = parent.join(format!(
-            ".{}.{}.{}.tmp",
-            file_name.to_string_lossy(),
-            std::process::id(),
-            attempt
-        ));
-        let mut file = match OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary)
-        {
-            Ok(file) => file,
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(error) => {
-                return Err(error).context("create promotion decision temporary file");
-            }
-        };
-        let publication = (|| -> Result<()> {
-            file.write_all(expected)?;
-            file.sync_all()?;
-            match fs::hard_link(&temporary, path) {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                    let metadata = fs::symlink_metadata(path)?;
-                    ensure!(
-                        metadata.file_type().is_file() && !metadata.file_type().is_symlink(),
-                        "concurrent promotion decision is not a regular file"
-                    );
-                    ensure!(
-                        fs::read(path)? == expected,
-                        "concurrent promotion decision contains different bytes"
-                    );
-                }
-                Err(error) => return Err(error).context("publish promotion decision"),
-            }
-            fs::remove_file(&temporary)?;
-            File::open(parent)?.sync_all()?;
-            Ok(())
-        })();
-        if publication.is_err() {
-            drop(file);
-            let _ = fs::remove_file(&temporary);
-        }
-        return publication;
-    }
-    bail!(
-        "failed to allocate a promotion decision temporary file beside {}",
-        path.display()
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -431,17 +328,18 @@ mod tests {
     use crate::benchmark::{
         BENCHMARK_MANIFEST_VERSION, BenchmarkArtifact, BenchmarkEvaluator, BenchmarkRun,
         BenchmarkRunConfig, BenchmarkRunner, BenchmarkSpec, BenchmarkSuiteManifest,
-        EvaluationMeasurement, EvaluationRequest, MetricDirection, TargetRole, TrainingEvidence,
-        VerifiedBenchmarkSuite, required_catalog,
+        BenchmarkTarget, EvaluationMeasurement, EvaluationRequest, MetricDirection, TargetRole,
+        TrainingEvidence, VerifiedBenchmarkSuite, required_catalog,
     };
     use crate::runtime::{
         ExecutorRegistry, RuntimeBoundary, RuntimeCheckpoint, RuntimeStatus, WorkflowRunState,
         run_next_phase,
     };
     use crate::workflow::{ResolvedWorkflow, WorkflowV2};
+    use anyhow::bail;
 
     fn raw_sha256(bytes: &[u8]) -> String {
-        format!("{:x}", Sha256::digest(bytes))
+        sha256_hex(bytes)
     }
 
     fn write_json<T: Serialize>(path: &Path, value: &T) -> String {
@@ -456,7 +354,13 @@ mod tests {
         let output = root.join(id);
         let staging = output.join("generations").join("staging");
         fs::create_dir_all(&staging).unwrap();
-        let raw_weights = vec![0_u8; 100 * 4];
+        let salt = id.bytes().enumerate().fold(0_u64, |sum, (index, byte)| {
+            sum.wrapping_add((index as u64 + 1).wrapping_mul(u64::from(byte)))
+        }) as f32;
+        let raw_weights = (0..100)
+            .map(|index| ((index as f32 + salt) * 0.03125).sin())
+            .flat_map(f32::to_le_bytes)
+            .collect::<Vec<_>>();
         let view = TensorView::new(Dtype::F32, vec![100], &raw_weights).unwrap();
         let weights = safetensors::tensor::serialize([("weight", view)], None).unwrap();
         let weights_sha256 = raw_sha256(&weights);
@@ -805,6 +709,7 @@ mod tests {
                     evaluator_version:
                         "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
                             .into(),
+                    evaluator_arguments: Vec::new(),
                     paired_seeds: vec![11, 22, 33],
                     order_seed: 7,
                     gpu_hours_per_evaluation: 0.01,

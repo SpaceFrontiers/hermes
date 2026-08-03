@@ -11,8 +11,8 @@
 //! expose sealed results only as an aggregate gate.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, File};
-use std::io::Read;
+use std::fs;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result, ensure};
@@ -24,11 +24,18 @@ use crate::acceptance::{
     CaseResult, ExactResumeArtifact, ExactResumeEvidence, PairedRun, PromotionReport,
     ResourceComparison, SuiteVisibility, VerifiedPromotionContext, evaluate_with_verified_context,
 };
-use crate::metrics::metric_log_digests_from_bytes;
-use crate::qat_candidate::open_qat_candidate;
+use crate::artifact_io::{
+    StableIdentity, hash_open_file, open_regular, sha256_hex, validate_sha256_hex,
+    validate_sha256_identity,
+};
+use crate::metrics::metric_log_digests;
+use crate::qat_candidate::open_qat_candidate_addressed;
 
 pub const BENCHMARK_MANIFEST_VERSION: u32 = 2;
 pub const MINIMUM_PAIRED_SEEDS: usize = 3;
+pub const MAXIMUM_PAIRED_SEEDS: usize = 64;
+const MAX_BENCHMARK_JSON_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_SAFETENSORS_HEADER_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Whether a catalog entry gates current promotion or belongs to a later
 /// language/long-context sweep from the sleep paper reproduction plan.
@@ -299,7 +306,7 @@ impl BenchmarkSuiteManifest {
                 "benchmark case `{}` has an empty artifact path",
                 case.id
             );
-            validate_sha256(&case.artifact.sha256)
+            validate_sha256_hex(&case.artifact.sha256, "benchmark artifact")
                 .with_context(|| format!("invalid artifact hash for `{}`", case.id))?;
         }
         Ok(())
@@ -319,14 +326,18 @@ pub struct VerifiedBenchmarkSuite {
     pub manifest: BenchmarkSuiteManifest,
     pub manifest_path: PathBuf,
     pub manifest_sha256: String,
+    manifest_bytes: Vec<u8>,
+    manifest_identity: StableIdentity,
     artifacts: BTreeMap<String, VerifiedArtifact>,
+    artifact_identities: BTreeMap<String, StableIdentity>,
 }
 
 impl VerifiedBenchmarkSuite {
     pub fn load(path: impl AsRef<Path>, expected_sha256: &str) -> Result<Self> {
-        validate_sha256(expected_sha256).context("invalid expected manifest hash")?;
-        let path = path.as_ref();
-        let bytes = read_regular_file(path, "benchmark manifest")?;
+        validate_sha256_hex(expected_sha256, "expected benchmark manifest")
+            .context("invalid expected manifest hash")?;
+        let path = checked_artifact_path(path.as_ref(), "benchmark manifest")?;
+        let (bytes, manifest_identity) = read_json_file_with_identity(&path, "benchmark manifest")?;
         let actual_sha256 = sha256_hex(&bytes);
         ensure!(
             actual_sha256.eq_ignore_ascii_case(expected_sha256),
@@ -341,17 +352,17 @@ impl VerifiedBenchmarkSuite {
 
         let base = path.parent().unwrap_or_else(|| Path::new("."));
         let mut artifacts = BTreeMap::new();
+        let mut artifact_identities = BTreeMap::new();
         for case in &manifest.cases {
             let artifact_path = if case.artifact.path.is_absolute() {
                 case.artifact.path.clone()
             } else {
                 base.join(&case.artifact.path)
             };
-            let artifact_bytes = read_regular_file(
+            let (artifact_bytes, actual, identity) = hash_file_with_identity(
                 &artifact_path,
                 &format!("artifact for benchmark `{}`", case.id),
             )?;
-            let actual = sha256_hex(&artifact_bytes);
             ensure!(
                 actual.eq_ignore_ascii_case(&case.artifact.sha256),
                 "artifact hash mismatch for benchmark `{}`: expected {}, got {}",
@@ -364,15 +375,19 @@ impl VerifiedBenchmarkSuite {
                 VerifiedArtifact {
                     path: artifact_path,
                     sha256: actual,
-                    bytes: artifact_bytes.len() as u64,
+                    bytes: artifact_bytes,
                 },
             );
+            artifact_identities.insert(case.id.clone(), identity);
         }
         Ok(Self {
             manifest,
             manifest_path: path.to_path_buf(),
             manifest_sha256: actual_sha256,
+            manifest_bytes: bytes,
+            manifest_identity,
             artifacts,
+            artifact_identities,
         })
     }
 
@@ -383,21 +398,38 @@ impl VerifiedBenchmarkSuite {
     /// Re-check files immediately before an expensive run, closing the gap
     /// between suite loading and evaluator access.
     pub fn verify_contents(&self) -> Result<()> {
-        let manifest_bytes = read_regular_file(&self.manifest_path, "benchmark manifest")?;
-        let actual_manifest = sha256_hex(&manifest_bytes);
+        ensure_path_identity(
+            &self.manifest_path,
+            &self.manifest_identity,
+            "benchmark manifest",
+        )?;
+        let actual_manifest = sha256_hex(&self.manifest_bytes);
         ensure!(
             actual_manifest == self.manifest_sha256,
-            "benchmark manifest changed after verification: {}",
-            self.manifest_path.display()
+            "in-memory benchmark manifest differs from its verified bytes"
+        );
+        let manifest: BenchmarkSuiteManifest = serde_json::from_slice(&self.manifest_bytes)
+            .context("verified benchmark manifest bytes became invalid")?;
+        ensure!(
+            manifest == self.manifest,
+            "in-memory benchmark manifest differs from its content-addressed artifact"
         );
         for (case_id, artifact) in &self.artifacts {
-            let bytes = read_regular_file(
+            let identity = self
+                .artifact_identities
+                .get(case_id)
+                .context("verified benchmark artifact has no pinned identity")?;
+            ensure_path_identity(
+                &artifact.path,
+                identity,
+                &format!("artifact for benchmark `{case_id}`"),
+            )?;
+            let (bytes, actual) = hash_file(
                 &artifact.path,
                 &format!("artifact for benchmark `{case_id}`"),
             )?;
-            let actual = sha256_hex(&bytes);
             ensure!(
-                actual == artifact.sha256 && bytes.len() as u64 == artifact.bytes,
+                actual == artifact.sha256 && bytes == artifact.bytes,
                 "artifact for benchmark `{case_id}` changed after verification"
             );
         }
@@ -417,16 +449,12 @@ pub fn validate_catalog_coverage(
         visibilities.insert(suite.manifest.visibility);
         for case in &suite.manifest.cases {
             let key = (case.catalog_id(), suite.manifest.visibility);
-            if let Some(previous) = cases.insert(key, case) {
-                ensure!(
-                    previous.family == case.family,
-                    "catalog id `{}` is assigned conflicting {:?} families {:?} and {:?}",
-                    case.catalog_id(),
-                    suite.manifest.visibility,
-                    previous.family,
-                    case.family
-                );
-            }
+            ensure!(
+                cases.insert(key, case).is_none(),
+                "benchmark catalog repeats {:?} entry `{}`",
+                suite.manifest.visibility,
+                case.catalog_id()
+            );
         }
     }
     ensure!(
@@ -500,7 +528,7 @@ impl TrainingAccounting {
             "training accounting routes more parameters than it stores"
         );
         ensure!(self.weights_bytes > 0, "training accounting has no weights");
-        validate_sha256(&self.weights_sha256)
+        validate_sha256_hex(&self.weights_sha256, "training-accounting model weights")
             .context("invalid model-weights hash in training accounting")?;
         Ok(())
     }
@@ -536,9 +564,12 @@ impl TrainingEvidence {
             "unsupported training-evidence version {}",
             self.version
         );
-        validate_sha256(&self.checkpoint_manifest_sha256)
-            .context("invalid checkpoint hash in training evidence")?;
-        validate_sha256(&self.accounting_sha256)
+        validate_sha256_hex(
+            &self.checkpoint_manifest_sha256,
+            "training-evidence checkpoint manifest",
+        )
+        .context("invalid checkpoint hash in training evidence")?;
+        validate_sha256_hex(&self.accounting_sha256, "training-evidence accounting")
             .context("invalid accounting hash in training evidence")?;
         ensure!(
             self.training_gpu_hours.is_finite() && self.training_gpu_hours > 0.0,
@@ -556,7 +587,7 @@ impl TrainingEvidence {
             self.stored_bytes > 0,
             "training evidence has no stored bytes"
         );
-        validate_sha256(&self.weights_sha256)
+        validate_sha256_hex(&self.weights_sha256, "training-evidence model weights")
             .context("invalid model-weights hash in training evidence")?;
         Ok(())
     }
@@ -695,10 +726,16 @@ impl BenchmarkTarget {
             "benchmark target `{}` routes more parameters than it stores",
             self.id
         );
-        validate_sha256(&self.checkpoint_manifest_sha256)
-            .with_context(|| format!("invalid checkpoint hash for `{}`", self.id))?;
-        validate_sha256(&self.training_evidence_sha256)
-            .with_context(|| format!("invalid training evidence hash for `{}`", self.id))?;
+        validate_sha256_hex(
+            &self.checkpoint_manifest_sha256,
+            "benchmark target checkpoint manifest",
+        )
+        .with_context(|| format!("invalid checkpoint hash for `{}`", self.id))?;
+        validate_sha256_hex(
+            &self.training_evidence_sha256,
+            "benchmark target training evidence",
+        )
+        .with_context(|| format!("invalid training evidence hash for `{}`", self.id))?;
         ensure!(
             self.training_gpu_hours.is_finite() && self.training_gpu_hours > 0.0,
             "benchmark target `{}` has invalid measured training GPU hours",
@@ -719,7 +756,7 @@ impl BenchmarkTarget {
                 "HQUANT benchmark target `{}` has no candidate manifest",
                 self.id
             );
-            validate_prefixed_sha256(candidate_manifest_sha256)
+            validate_sha256_identity(candidate_manifest_sha256, "HQUANT candidate manifest")
                 .with_context(|| format!("invalid HQUANT candidate hash for `{}`", self.id))?;
         }
         Ok(())
@@ -727,7 +764,7 @@ impl BenchmarkTarget {
 
     pub fn verify(&self) -> Result<VerifiedModelRepresentation> {
         self.validate_identity()?;
-        let manifest_bytes = read_regular_file(
+        let manifest_bytes = read_json_file(
             &self.checkpoint_manifest,
             &format!("checkpoint manifest for `{}`", self.id),
         )?;
@@ -761,7 +798,7 @@ impl BenchmarkTarget {
             .with_context(|| format!("invalid checkpoint manifest for `{}`", self.id))?;
         validate_checkpoint_manifest(&manifest, &self.id)?;
 
-        let evidence_bytes = read_regular_file(
+        let evidence_bytes = read_json_file(
             &self.training_evidence,
             &format!("training evidence for `{}`", self.id),
         )?;
@@ -799,7 +836,7 @@ impl BenchmarkTarget {
         );
 
         let accounting_entry = manifest_file(&manifest, TRAINING_ACCOUNTING_FILE, &self.id)?;
-        let accounting_bytes = read_manifest_file(
+        let accounting_bytes = read_manifest_json(
             generation,
             accounting_entry,
             &format!("training accounting for `{}`", self.id),
@@ -815,16 +852,13 @@ impl BenchmarkTarget {
         accounting.validate()?;
 
         let weights_entry = manifest_file(&manifest, CHECKPOINT_WEIGHTS_FILE, &self.id)?;
-        let weights = read_manifest_file(
+        let (weights_bytes, weights_sha256, actual_parameters) = verify_safetensor_manifest_file(
             generation,
             weights_entry,
             &format!("model weights for `{}`", self.id),
         )?;
-        let weights_sha256 = sha256_hex(&weights);
-        let actual_parameters = safetensor_parameter_count(&weights)
-            .with_context(|| format!("invalid model weights for `{}`", self.id))?;
         ensure!(
-            accounting.weights_bytes == weights.len() as u64
+            accounting.weights_bytes == weights_bytes
                 && accounting
                     .weights_sha256
                     .eq_ignore_ascii_case(&weights_sha256)
@@ -874,9 +908,11 @@ impl BenchmarkTarget {
                 let candidate_root = candidate_manifest
                     .parent()
                     .context("HQUANT candidate manifest has no candidate directory")?;
-                let publication = open_qat_candidate(candidate_root).with_context(|| {
-                    format!("invalid sealed HQUANT candidate for `{}`", self.id)
-                })?;
+                let publication =
+                    open_qat_candidate_addressed(candidate_root, candidate_manifest_sha256)
+                        .with_context(|| {
+                            format!("invalid sealed HQUANT candidate for `{}`", self.id)
+                        })?;
                 ensure!(
                     publication.candidate_manifest_path == *candidate_manifest
                         && publication.candidate_manifest_sha256 == *candidate_manifest_sha256,
@@ -932,7 +968,7 @@ fn validate_checkpoint_manifest(manifest: &CheckpointManifest, target: &str) -> 
     for file in &manifest.files {
         validate_manifest_relative_path(&file.path)?;
         ensure!(file.bytes > 0, "checkpoint file `{}` is empty", file.path);
-        validate_sha256(&file.sha256)
+        validate_sha256_hex(&file.sha256, "checkpoint manifest member")
             .with_context(|| format!("invalid hash for checkpoint file `{}`", file.path))?;
         ensure!(
             paths.insert(file.path.as_str()),
@@ -978,13 +1014,13 @@ fn manifest_file<'a>(
     Ok(matches[0])
 }
 
-fn read_manifest_file(
+fn read_manifest_json(
     generation: &Path,
     entry: &CheckpointManifestFile,
     label: &str,
 ) -> Result<Vec<u8>> {
     let path = generation.join(&entry.path);
-    let bytes = read_regular_file(&path, label)?;
+    let bytes = read_json_file(&path, label)?;
     ensure!(
         bytes.len() as u64 == entry.bytes && sha256_hex(&bytes).eq_ignore_ascii_case(&entry.sha256),
         "{label} does not match the checkpoint manifest"
@@ -992,31 +1028,77 @@ fn read_manifest_file(
     Ok(bytes)
 }
 
-fn safetensor_parameter_count(bytes: &[u8]) -> Result<u64> {
-    let tensors = safetensors::SafeTensors::deserialize(bytes)?;
-    let mut total = 0_u64;
-    for (_, tensor) in tensors.tensors() {
-        let elements = tensor
-            .shape()
-            .iter()
-            .try_fold(1_u64, |product, dimension| {
-                product
-                    .checked_mul(
-                        (*dimension)
-                            .try_into()
-                            .context("tensor dimension exceeds u64")?,
-                    )
-                    .context("tensor element count overflows u64")
-            })?;
-        total = total
+fn verify_safetensor_manifest_file(
+    generation: &Path,
+    entry: &CheckpointManifestFile,
+    label: &str,
+) -> Result<(u64, String, u64)> {
+    let path = generation.join(&entry.path);
+    let (mut file, identity) = open_regular(&path, label)?;
+    let file_bytes = file.metadata()?.len();
+    ensure!(
+        file_bytes == entry.bytes,
+        "{label} byte length does not match the checkpoint manifest"
+    );
+    let (_, digest, _) = hash_open_file(&mut file, None, label)?;
+    ensure!(
+        digest.eq_ignore_ascii_case(&entry.sha256),
+        "{label} hash does not match the checkpoint manifest"
+    );
+    file.seek(SeekFrom::Start(0))?;
+
+    let mut encoded_header_bytes = [0_u8; 8];
+    file.read_exact(&mut encoded_header_bytes)
+        .with_context(|| format!("{label} has a truncated safetensors header"))?;
+    let header_bytes = u64::from_le_bytes(encoded_header_bytes);
+    ensure!(
+        header_bytes <= MAX_SAFETENSORS_HEADER_BYTES,
+        "{label} safetensors header exceeds its {MAX_SAFETENSORS_HEADER_BYTES}-byte limit"
+    );
+    let header_len = usize::try_from(header_bytes)
+        .with_context(|| format!("{label} safetensors header exceeds this address space"))?;
+    let mut header = Vec::new();
+    header
+        .try_reserve_exact(header_len)
+        .with_context(|| format!("reserving {label} safetensors header"))?;
+    header.resize(header_len, 0);
+    file.read_exact(&mut header)
+        .with_context(|| format!("{label} has a truncated safetensors header"))?;
+    let metadata: safetensors::tensor::Metadata = serde_json::from_slice(&header)
+        .with_context(|| format!("invalid safetensors metadata in {label}"))?;
+    let expected_file_bytes = 8_u64
+        .checked_add(header_bytes)
+        .and_then(|bytes| {
+            u64::try_from(metadata.data_len())
+                .ok()
+                .and_then(|data| bytes.checked_add(data))
+        })
+        .context("safetensors file length overflows u64")?;
+    ensure!(
+        expected_file_bytes == file_bytes,
+        "{label} safetensors metadata does not cover the exact file"
+    );
+
+    let mut parameters = 0_u64;
+    for tensor in metadata.tensors().into_values() {
+        let elements = tensor.shape.iter().try_fold(1_u64, |product, dimension| {
+            product
+                .checked_mul(u64::try_from(*dimension).context("tensor dimension exceeds u64")?)
+                .context("tensor element count overflows u64")
+        })?;
+        parameters = parameters
             .checked_add(elements)
             .context("model parameter count overflows u64")?;
     }
-    ensure!(total > 0, "model weights contain no tensors");
-    Ok(total)
+    ensure!(parameters > 0, "model weights contain no tensors");
+    ensure!(
+        StableIdentity::from_metadata(&file.metadata()?) == identity,
+        "{label} changed while its safetensors header was read"
+    );
+    Ok((file_bytes, digest, parameters))
 }
 
-fn read_regular_file(path: &Path, label: &str) -> Result<Vec<u8>> {
+fn checked_artifact_path(path: &Path, label: &str) -> Result<PathBuf> {
     let absolute;
     let path = if path.is_absolute() {
         path
@@ -1035,56 +1117,71 @@ fn read_regular_file(path: &Path, label: &str) -> Result<Vec<u8>> {
             parent.display()
         );
     }
-    let before = fs::symlink_metadata(path)
+    let metadata = fs::symlink_metadata(path)
         .with_context(|| format!("failed to inspect {label} at {}", path.display()))?;
     ensure!(
-        before.is_file() && !before.file_type().is_symlink(),
+        metadata.is_file() && !metadata.file_type().is_symlink(),
         "{label} must be a regular non-symlink file"
     );
-    let mut file = File::open(path)
-        .with_context(|| format!("failed to open {label} at {}", path.display()))?;
-    let opened = file
-        .metadata()
-        .with_context(|| format!("failed to inspect opened {label} at {}", path.display()))?;
-    ensure!(opened.is_file(), "{label} must open as a regular file");
+    Ok(path.to_owned())
+}
 
-    // Compare the lstat identity before and after open with fstat on the
-    // actual handle. This rejects a regular-file -> symlink/other-file swap in
-    // the check/open gap while retaining a stable handle for the read itself.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        ensure!(
-            before.dev() == opened.dev() && before.ino() == opened.ino(),
-            "{label} changed while it was opened"
-        );
-    }
-    let after = fs::symlink_metadata(path)
-        .with_context(|| format!("failed to re-inspect {label} at {}", path.display()))?;
-    ensure!(
-        after.is_file() && !after.file_type().is_symlink(),
-        "{label} became a symlink or non-file while it was opened"
-    );
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        ensure!(
-            after.dev() == opened.dev() && after.ino() == opened.ino(),
-            "{label} changed while it was opened"
-        );
-    }
+fn read_json_file(path: &Path, label: &str) -> Result<Vec<u8>> {
+    read_json_file_with_identity(path, label).map(|(bytes, _)| bytes)
+}
 
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)
-        .with_context(|| format!("failed to read {label} at {}", path.display()))?;
-    let final_metadata = file
-        .metadata()
-        .with_context(|| format!("failed to inspect read {label} at {}", path.display()))?;
+fn read_json_file_with_identity(path: &Path, label: &str) -> Result<(Vec<u8>, StableIdentity)> {
+    let path = checked_artifact_path(path, label)?;
+    let (mut file, identity) = open_regular(&path, label)?;
+    let (_, _, bytes) = hash_open_file(&mut file, Some(MAX_BENCHMARK_JSON_BYTES), label)?;
+    ensure_path_identity(&path, &identity, label)?;
+    Ok((
+        bytes.context("bounded benchmark JSON read did not capture bytes")?,
+        identity,
+    ))
+}
+
+fn hash_file(path: &Path, label: &str) -> Result<(u64, String)> {
+    hash_file_with_identity(path, label).map(|(bytes, sha256, _)| (bytes, sha256))
+}
+
+fn hash_file_with_identity(path: &Path, label: &str) -> Result<(u64, String, StableIdentity)> {
+    let path = checked_artifact_path(path, label)?;
+    let (mut file, identity) = open_regular(&path, label)?;
+    let (bytes, digest, _) = hash_open_file(&mut file, None, label)
+        .with_context(|| format!("failed to hash {label} at {}", path.display()))?;
+    ensure_path_identity(&path, &identity, label)?;
+    Ok((bytes, digest, identity))
+}
+
+fn ensure_path_identity(path: &Path, expected: &StableIdentity, label: &str) -> Result<()> {
+    let metadata = fs::symlink_metadata(path)
+        .with_context(|| format!("failed to reinspect {label} at {}", path.display()))?;
     ensure!(
-        final_metadata.len() == bytes.len() as u64,
-        "{label} changed length while it was read"
+        metadata.is_file() && !metadata.file_type().is_symlink(),
+        "{label} must remain a regular non-symlink file: {}",
+        path.display()
     );
-    Ok(bytes)
+    ensure!(
+        StableIdentity::from_metadata(&metadata) == *expected,
+        "{label} changed after verification: {}",
+        path.display()
+    );
+    Ok(())
+}
+
+const MAX_BENCHMARK_EVALUATOR_ARGUMENTS: usize = 64;
+const MAX_BENCHMARK_EVALUATOR_ARGUMENT_BYTES: usize = 4_096;
+
+pub(crate) fn validate_benchmark_evaluator_arguments(arguments: &[String]) -> Result<()> {
+    ensure!(
+        arguments.len() <= MAX_BENCHMARK_EVALUATOR_ARGUMENTS
+            && arguments.iter().all(|argument| {
+                argument.len() <= MAX_BENCHMARK_EVALUATOR_ARGUMENT_BYTES && !argument.contains('\0')
+            }),
+        "benchmark evaluator arguments exceed protocol limits"
+    );
+    Ok(())
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -1092,6 +1189,10 @@ fn read_regular_file(path: &Path, label: &str) -> Result<Vec<u8>> {
 pub struct BenchmarkRunConfig {
     pub evaluator_id: String,
     pub evaluator_version: String,
+    /// Exact UTF-8 argument vector passed to the pinned evaluator. Keeping it
+    /// in the content-addressed run configuration prevents two materially
+    /// different harness invocations from sharing one evaluator identity.
+    pub evaluator_arguments: Vec<String>,
     /// Strictly increasing order; the order itself is part of run identity.
     pub paired_seeds: Vec<u64>,
     /// Controls example ordering inside every evaluator.  A case-specific seed
@@ -1109,9 +1210,12 @@ impl BenchmarkRunConfig {
             !self.evaluator_id.trim().is_empty() && !self.evaluator_version.trim().is_empty(),
             "benchmark evaluator id and version are required"
         );
+        validate_sha256_identity(&self.evaluator_version, "benchmark evaluator version")
+            .context("benchmark evaluator_version is not a pinned executable identity")?;
+        validate_benchmark_evaluator_arguments(&self.evaluator_arguments)?;
         ensure!(
-            self.paired_seeds.len() >= MINIMUM_PAIRED_SEEDS,
-            "benchmarks require at least {MINIMUM_PAIRED_SEEDS} paired seeds"
+            (MINIMUM_PAIRED_SEEDS..=MAXIMUM_PAIRED_SEEDS).contains(&self.paired_seeds.len()),
+            "benchmarks require between {MINIMUM_PAIRED_SEEDS} and {MAXIMUM_PAIRED_SEEDS} paired seeds"
         );
         ensure!(
             self.paired_seeds.windows(2).all(|pair| pair[0] < pair[1]),
@@ -1137,6 +1241,7 @@ pub enum TargetRole {
 /// `max_gpu_hours`. `target` supplies training lineage and resource identity;
 /// it is not permission to substitute the checkpoint's FP weights for an
 /// HQUANT `model`.
+#[derive(Clone, Copy)]
 pub struct EvaluationRequest<'a> {
     pub suite_id: &'a str,
     pub visibility: SuiteVisibility,
@@ -1227,6 +1332,7 @@ pub struct RawCaseResult {
 pub struct BenchmarkRunMetadata {
     pub evaluator_id: String,
     pub evaluator_version: String,
+    pub evaluator_arguments: Vec<String>,
     pub paired_seeds: Vec<u64>,
     pub order_seed: u64,
     pub fixed_case_order: Vec<String>,
@@ -1320,9 +1426,16 @@ impl BenchmarkRun {
                 && !self.metadata.evaluator_version.trim().is_empty(),
             "benchmark run has no evaluator identity"
         );
+        validate_sha256_identity(
+            &self.metadata.evaluator_version,
+            "benchmark run evaluator version",
+        )
+        .context("benchmark run evaluator_version is not a pinned executable identity")?;
+        validate_benchmark_evaluator_arguments(&self.metadata.evaluator_arguments)?;
         ensure!(
-            self.metadata.paired_seeds.len() >= MINIMUM_PAIRED_SEEDS,
-            "benchmark run requires at least {MINIMUM_PAIRED_SEEDS} paired seeds"
+            (MINIMUM_PAIRED_SEEDS..=MAXIMUM_PAIRED_SEEDS)
+                .contains(&self.metadata.paired_seeds.len()),
+            "benchmark run requires between {MINIMUM_PAIRED_SEEDS} and {MAXIMUM_PAIRED_SEEDS} paired seeds"
         );
         ensure!(
             self.metadata
@@ -1364,7 +1477,7 @@ impl BenchmarkRun {
                 !suite_id.trim().is_empty(),
                 "empty suite id in run metadata"
             );
-            validate_sha256(digest)
+            validate_sha256_hex(digest, "benchmark suite manifest")
                 .with_context(|| format!("invalid manifest hash for suite `{suite_id}`"))?;
         }
 
@@ -1451,6 +1564,8 @@ pub struct VerifiedBenchmarkRun {
     pub(crate) run: BenchmarkRun,
     pub(crate) path: PathBuf,
     pub(crate) sha256: String,
+    bytes: Vec<u8>,
+    identity: StableIdentity,
 }
 
 impl VerifiedBenchmarkRun {
@@ -1467,9 +1582,10 @@ impl VerifiedBenchmarkRun {
     }
 
     pub fn load(path: impl AsRef<Path>, expected_sha256: &str) -> Result<Self> {
-        validate_sha256(expected_sha256).context("invalid expected benchmark run hash")?;
-        let path = path.as_ref();
-        let bytes = read_regular_file(path, "benchmark run")?;
+        validate_sha256_hex(expected_sha256, "expected benchmark run")
+            .context("invalid expected benchmark run hash")?;
+        let path = checked_artifact_path(path.as_ref(), "benchmark run")?;
+        let (bytes, identity) = read_json_file_with_identity(&path, "benchmark run")?;
         let actual = sha256_hex(&bytes);
         ensure!(
             actual.eq_ignore_ascii_case(expected_sha256),
@@ -1485,23 +1601,29 @@ impl VerifiedBenchmarkRun {
             run,
             path: path.to_path_buf(),
             sha256: actual,
+            bytes,
+            identity,
         })
     }
 
-    pub fn verify_contents(&self) -> Result<()> {
-        let bytes = read_regular_file(&self.path, "benchmark run")?;
+    fn verify_run_contents(&self) -> Result<()> {
+        ensure_path_identity(&self.path, &self.identity, "benchmark run")?;
         ensure!(
-            sha256_hex(&bytes) == self.sha256,
-            "benchmark run changed after verification: {}",
-            self.path.display()
+            sha256_hex(&self.bytes) == self.sha256,
+            "in-memory benchmark run differs from its verified bytes"
         );
-        let disk_run: BenchmarkRun = serde_json::from_slice(&bytes)
+        let disk_run: BenchmarkRun = serde_json::from_slice(&self.bytes)
             .with_context(|| format!("invalid benchmark run {}", self.path.display()))?;
         disk_run.validate()?;
         ensure!(
             serde_json::to_vec(&disk_run)? == serde_json::to_vec(&self.run)?,
             "in-memory benchmark run differs from its content-addressed artifact"
         );
+        Ok(())
+    }
+
+    pub fn verify_contents(&self) -> Result<()> {
+        self.verify_run_contents()?;
         self.run.metadata.baseline.verify()?;
         self.run.metadata.candidate.verify()?;
         Ok(())
@@ -1514,6 +1636,8 @@ pub struct VerifiedResourceComparison {
     pub(crate) comparison: ResourceComparison,
     pub(crate) path: PathBuf,
     pub(crate) sha256: String,
+    bytes: Vec<u8>,
+    identity: StableIdentity,
     exact_resume_verified: bool,
 }
 
@@ -1531,9 +1655,10 @@ impl VerifiedResourceComparison {
     }
 
     pub fn load(path: impl AsRef<Path>, expected_sha256: &str) -> Result<Self> {
-        validate_sha256(expected_sha256).context("invalid expected resource evidence hash")?;
-        let path = path.as_ref();
-        let bytes = read_regular_file(path, "resource evidence")?;
+        validate_sha256_hex(expected_sha256, "expected resource evidence")
+            .context("invalid expected resource evidence hash")?;
+        let path = checked_artifact_path(path.as_ref(), "resource evidence")?;
+        let (bytes, identity) = read_json_file_with_identity(&path, "resource evidence")?;
         let actual = sha256_hex(&bytes);
         ensure!(
             actual.eq_ignore_ascii_case(expected_sha256),
@@ -1545,23 +1670,24 @@ impl VerifiedResourceComparison {
         let comparison: ResourceComparison = serde_json::from_slice(&bytes)
             .with_context(|| format!("invalid resource evidence {}", path.display()))?;
         comparison.validate()?;
-        verify_resource_comparison_artifacts(&comparison, path)?;
+        verify_resource_comparison_artifacts(&comparison, &path)?;
         Ok(Self {
             comparison,
             path: path.to_path_buf(),
             sha256: actual,
+            bytes,
+            identity,
             exact_resume_verified: true,
         })
     }
 
     pub fn verify_contents(&self) -> Result<()> {
-        let bytes = read_regular_file(&self.path, "resource evidence")?;
+        ensure_path_identity(&self.path, &self.identity, "resource evidence")?;
         ensure!(
-            sha256_hex(&bytes) == self.sha256,
-            "resource evidence changed after verification: {}",
-            self.path.display()
+            sha256_hex(&self.bytes) == self.sha256,
+            "in-memory resource evidence differs from its verified bytes"
         );
-        let disk_comparison: ResourceComparison = serde_json::from_slice(&bytes)
+        let disk_comparison: ResourceComparison = serde_json::from_slice(&self.bytes)
             .with_context(|| format!("invalid resource evidence {}", self.path.display()))?;
         disk_comparison.validate()?;
         ensure!(
@@ -1602,8 +1728,8 @@ fn resolve_exact_resume_paths(evidence: &mut ExactResumeEvidence, source: &Path)
     }
 }
 
-fn read_exact_artifact(artifact: &ExactResumeArtifact, label: &str) -> Result<Vec<u8>> {
-    let bytes = read_regular_file(&artifact.path, label)?;
+fn read_exact_json(artifact: &ExactResumeArtifact, label: &str) -> Result<Vec<u8>> {
+    let bytes = read_json_file(&artifact.path, label)?;
     let actual = sha256_hex(&bytes);
     ensure!(
         actual.eq_ignore_ascii_case(&artifact.sha256),
@@ -1622,7 +1748,7 @@ fn verify_checkpoint_artifact(
             == Some("generation-manifest.json"),
         "{label} must address generation-manifest.json"
     );
-    let bytes = read_exact_artifact(artifact, label)?;
+    let bytes = read_exact_json(artifact, label)?;
     let manifest: CheckpointManifest =
         serde_json::from_slice(&bytes).with_context(|| format!("invalid {label}"))?;
     validate_checkpoint_manifest(&manifest, label)?;
@@ -1636,7 +1762,13 @@ fn verify_checkpoint_artifact(
         "{label} generation directory does not match its manifest hash"
     );
     for file in &manifest.files {
-        read_manifest_file(generation, file, &format!("{label} file `{}`", file.path))?;
+        let path = generation.join(&file.path);
+        let (bytes, sha256) = hash_file(&path, &format!("{label} file `{}`", file.path))?;
+        ensure!(
+            bytes == file.bytes && sha256.eq_ignore_ascii_case(&file.sha256),
+            "{label} file `{}` does not match the checkpoint manifest",
+            file.path
+        );
     }
     Ok(manifest)
 }
@@ -1675,13 +1807,23 @@ fn verify_exact_resume_artifacts(evidence: &ExactResumeEvidence) -> Result<()> {
         "interrupted and uninterrupted runs did not reach byte-identical final state"
     );
 
-    let uninterrupted_metrics = read_exact_artifact(
-        &evidence.uninterrupted_metrics,
+    let uninterrupted_path = checked_artifact_path(
+        &evidence.uninterrupted_metrics.path,
         "uninterrupted metric journal",
     )?;
-    let resumed_metrics = read_exact_artifact(&evidence.resumed_metrics, "resumed metric journal")?;
-    let uninterrupted_digest = metric_log_digests_from_bytes(&uninterrupted_metrics, None)?;
-    let resumed_digest = metric_log_digests_from_bytes(&resumed_metrics, None)?;
+    let resumed_path =
+        checked_artifact_path(&evidence.resumed_metrics.path, "resumed metric journal")?;
+    let uninterrupted_digest = metric_log_digests(&uninterrupted_path, None)?;
+    let resumed_digest = metric_log_digests(&resumed_path, None)?;
+    ensure!(
+        uninterrupted_digest
+            .raw_sha256
+            .eq_ignore_ascii_case(&evidence.uninterrupted_metrics.sha256)
+            && resumed_digest
+                .raw_sha256
+                .eq_ignore_ascii_case(&evidence.resumed_metrics.sha256),
+        "exact-resume metric journal hash mismatch"
+    );
     ensure!(
         uninterrupted_digest.last_global_step == Some(uninterrupted.global_step as u64)
             && resumed_digest.last_global_step == Some(resumed.global_step as u64),
@@ -1749,6 +1891,7 @@ pub fn evaluate_verified_promotion(
         comparison_runs,
         policy,
         policy_sha256,
+        &strongest_baseline_id,
         comparison,
         resources.path(),
     )?;
@@ -1781,7 +1924,7 @@ pub(crate) fn verified_resource_benchmark_context(
     selected_run: &VerifiedBenchmarkRun,
     comparison_runs: &[VerifiedBenchmarkRun],
 ) -> Result<String> {
-    selected_run.verify_contents()?;
+    selected_run.verify_run_contents()?;
     selected_run.run.validate()?;
     validate_run_catalog_coverage(&selected_run.run, false)?;
     let selected_occurrences = comparison_runs
@@ -1792,7 +1935,18 @@ pub(crate) fn verified_resource_benchmark_context(
         selected_occurrences == 1,
         "the selected benchmark run must occur exactly once in the comparison set"
     );
-    validate_comparison_set(comparison_runs)?;
+    let mut verified_targets = Vec::new();
+    verify_target_once(
+        &selected_run.run.metadata.baseline,
+        &selected_run.path,
+        &mut verified_targets,
+    )?;
+    verify_target_once(
+        &selected_run.run.metadata.candidate,
+        &selected_run.path,
+        &mut verified_targets,
+    )?;
+    validate_comparison_set(comparison_runs, &mut verified_targets)?;
     derive_strongest_baseline(comparison_runs)
 }
 
@@ -1831,7 +1985,32 @@ fn validate_run_catalog_coverage(run: &BenchmarkRun, include_later_sweeps: bool)
     Ok(())
 }
 
-fn validate_comparison_set(runs: &[VerifiedBenchmarkRun]) -> Result<()> {
+fn verify_target_once(
+    target: &BenchmarkTarget,
+    source: &Path,
+    verified_targets: &mut Vec<BenchmarkTarget>,
+) -> Result<()> {
+    // Resolve on a clone so the run stays byte-identical to its
+    // content-addressed artifact while verification reads the artifacts the
+    // run actually declared, never paths relative to the process directory.
+    let mut target = target.clone();
+    target.resolve_paths(source);
+    // The fixed ablation matrix deliberately reuses one candidate in every
+    // run. Its weights may be many gigabytes, so authenticate identical target
+    // transports once per comparison instead of re-reading them for each
+    // ablation. Distinct paths or resource claims remain distinct targets.
+    if verified_targets.contains(&target) {
+        return Ok(());
+    }
+    target.verify()?;
+    verified_targets.push(target);
+    Ok(())
+}
+
+fn validate_comparison_set(
+    runs: &[VerifiedBenchmarkRun],
+    verified_targets: &mut Vec<BenchmarkTarget>,
+) -> Result<()> {
     ensure!(
         runs.len() == AblationId::ALL.len(),
         "promotion comparison set must contain all {} fixed ablations",
@@ -1840,8 +2019,11 @@ fn validate_comparison_set(runs: &[VerifiedBenchmarkRun]) -> Result<()> {
     let reference = runs.first().context("promotion comparison set is empty")?;
     let mut ablations = BTreeSet::new();
     let mut baseline_ids = BTreeSet::new();
+    let mut baseline_checkpoints = BTreeSet::new();
     for run in runs {
-        run.verify_contents()?;
+        run.verify_run_contents()?;
+        verify_target_once(&run.run.metadata.baseline, &run.path, verified_targets)?;
+        verify_target_once(&run.run.metadata.candidate, &run.path, verified_targets)?;
         run.run.validate()?;
         validate_run_catalog_coverage(&run.run, false)?;
         let ablation = run
@@ -1857,6 +2039,17 @@ fn validate_comparison_set(runs: &[VerifiedBenchmarkRun]) -> Result<()> {
         ensure!(
             baseline_ids.insert(run.run.metadata.baseline.id.as_str()),
             "comparison set repeats baseline `{}`",
+            run.run.metadata.baseline.id
+        );
+        ensure!(
+            baseline_checkpoints.insert(
+                run.run
+                    .metadata
+                    .baseline
+                    .checkpoint_manifest_sha256
+                    .to_ascii_lowercase()
+            ),
+            "comparison baselines `{}` and another ablation reuse the same checkpoint",
             run.run.metadata.baseline.id
         );
         ensure!(
@@ -1881,6 +2074,7 @@ fn validate_comparison_compatibility(reference: &BenchmarkRun, run: &BenchmarkRu
     ensure!(
         left.evaluator_id == right.evaluator_id
             && left.evaluator_version == right.evaluator_version
+            && left.evaluator_arguments == right.evaluator_arguments
             && left.paired_seeds == right.paired_seeds
             && left.order_seed == right.order_seed
             && left.fixed_case_order == right.fixed_case_order
@@ -1893,7 +2087,7 @@ fn validate_comparison_compatibility(reference: &BenchmarkRun, run: &BenchmarkRu
                 right.gpu_hour_budget_per_target
             )
             && left.suite_manifest_sha256 == right.suite_manifest_sha256,
-        "comparison baseline `{}` was not evaluated with the fixed evaluator, order, suites, seeds, and compute budget",
+        "comparison baseline `{}` was not evaluated with the fixed evaluator invocation, order, suites, seeds, and compute budget",
         right.baseline.id
     );
     ensure!(
@@ -1922,9 +2116,7 @@ fn validate_comparison_compatibility(reference: &BenchmarkRun, run: &BenchmarkRu
             ensure!(
                 expected_pair.seed == actual_pair.seed
                     && expected_pair.example_order_seed == actual_pair.example_order_seed
-                    && expected_pair.candidate.score.to_bits()
-                        == actual_pair.candidate.score.to_bits()
-                    && expected_pair.candidate.examples == actual_pair.candidate.examples,
+                    && same_measurement(&expected_pair.candidate, &actual_pair.candidate),
                 "candidate measurement is not deterministic for `{}` seed {}",
                 expected.case_id,
                 expected_pair.seed
@@ -1932,6 +2124,19 @@ fn validate_comparison_compatibility(reference: &BenchmarkRun, run: &BenchmarkRu
         }
     }
     Ok(())
+}
+
+fn same_measurement(left: &EvaluationMeasurement, right: &EvaluationMeasurement) -> bool {
+    left.score.to_bits() == right.score.to_bits()
+        && left.gpu_hours.to_bits() == right.gpu_hours.to_bits()
+        && left.examples == right.examples
+        && left.metrics.len() == right.metrics.len()
+        && left.metrics.iter().all(|(name, value)| {
+            right
+                .metrics
+                .get(name)
+                .is_some_and(|other| value.to_bits() == other.to_bits())
+        })
 }
 
 fn same_target_identity(left: &BenchmarkTarget, right: &BenchmarkTarget) -> bool {
@@ -2078,23 +2283,39 @@ impl BenchmarkRunner {
                     pair_ordinal,
                     max_gpu_hours: self.config.gpu_hours_per_evaluation,
                 };
-                let baseline_measurement =
-                    evaluator.evaluate(&baseline_request).with_context(|| {
-                        format!("baseline evaluation failed for `{}` seed {seed}", case.id)
-                    })?;
-                baseline_measurement.validate(&case.id, self.config.gpu_hours_per_evaluation)?;
-
                 let candidate_request = EvaluationRequest {
                     target: candidate,
                     model: &candidate_model,
                     role: TargetRole::Candidate,
                     ..baseline_request
                 };
-                let candidate_measurement =
-                    evaluator.evaluate(&candidate_request).with_context(|| {
+                // Alternate pair order to counterbalance persistent-worker
+                // warm-cache, thermal, and allocator effects. Both requests
+                // retain the same pair ordinal, model seed, example order,
+                // and hard budget; only which role executes first changes.
+                let (baseline_measurement, candidate_measurement) = if pair_ordinal
+                    .is_multiple_of(2)
+                {
+                    let baseline = evaluator.evaluate(&baseline_request).with_context(|| {
+                        format!("baseline evaluation failed for `{}` seed {seed}", case.id)
+                    })?;
+                    baseline.validate(&case.id, self.config.gpu_hours_per_evaluation)?;
+                    let candidate = evaluator.evaluate(&candidate_request).with_context(|| {
                         format!("candidate evaluation failed for `{}` seed {seed}", case.id)
                     })?;
-                candidate_measurement.validate(&case.id, self.config.gpu_hours_per_evaluation)?;
+                    candidate.validate(&case.id, self.config.gpu_hours_per_evaluation)?;
+                    (baseline, candidate)
+                } else {
+                    let candidate = evaluator.evaluate(&candidate_request).with_context(|| {
+                        format!("candidate evaluation failed for `{}` seed {seed}", case.id)
+                    })?;
+                    candidate.validate(&case.id, self.config.gpu_hours_per_evaluation)?;
+                    let baseline = evaluator.evaluate(&baseline_request).with_context(|| {
+                        format!("baseline evaluation failed for `{}` seed {seed}", case.id)
+                    })?;
+                    baseline.validate(&case.id, self.config.gpu_hours_per_evaluation)?;
+                    (baseline, candidate)
+                };
 
                 pairs.push(RawPairedResult {
                     seed,
@@ -2117,11 +2338,23 @@ impl BenchmarkRunner {
             });
         }
 
+        // Evaluators receive paths and may run for hours. Re-authenticate all
+        // externally readable inputs before accepting their measurements so a
+        // replacement or in-place mutation during the run cannot become
+        // durable benchmark evidence. Target verification is intentionally
+        // repeated because it also binds sealed accounting to actual weights.
+        for suite in suites {
+            suite.verify_contents()?;
+        }
+        baseline.verify()?;
+        candidate.verify()?;
+
         let evaluation_count = raw_cases.len() * self.config.paired_seeds.len();
         let run = BenchmarkRun {
             metadata: BenchmarkRunMetadata {
                 evaluator_id: self.config.evaluator_id.clone(),
                 evaluator_version: self.config.evaluator_version.clone(),
+                evaluator_arguments: self.config.evaluator_arguments.clone(),
                 paired_seeds: self.config.paired_seeds.clone(),
                 order_seed: self.config.order_seed,
                 fixed_case_order,
@@ -2156,41 +2389,13 @@ fn same_f64(left: f64, right: f64) -> bool {
     (left - right).abs() <= f64::EPSILON * left.abs().max(right.abs()).max(1.0) * 8.0
 }
 
-fn validate_sha256(value: &str) -> Result<()> {
-    ensure!(
-        value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()),
-        "SHA-256 must contain exactly 64 hexadecimal characters"
-    );
-    Ok(())
-}
-
-fn validate_prefixed_sha256(value: &str) -> Result<()> {
-    let digest = value
-        .strip_prefix("sha256:")
-        .context("SHA-256 identity must use sha256:<64 lowercase hex>")?;
-    ensure!(
-        digest.len() == 64
-            && digest
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
-        "SHA-256 identity must use sha256:<64 lowercase hex>"
-    );
-    Ok(())
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    let mut output = String::with_capacity(64);
-    for byte in digest {
-        use std::fmt::Write as _;
-        write!(&mut output, "{byte:02x}").expect("writing to a String cannot fail");
-    }
-    output
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn evaluator_sha256() -> String {
+        format!("sha256:{}", "e".repeat(64))
+    }
 
     struct MockEvaluator {
         calls: Vec<(String, u64, u64, TargetRole)>,
@@ -2258,7 +2463,9 @@ mod tests {
         let output = root.join(id);
         let staging = output.join("generations").join("staging");
         fs::create_dir_all(&staging).unwrap();
-        let salt = id.bytes().fold(0_u64, |sum, byte| sum + u64::from(byte)) as f32;
+        let salt = id.bytes().enumerate().fold(0_u64, |sum, (index, byte)| {
+            sum.wrapping_add((index as u64 + 1).wrapping_mul(u64::from(byte)))
+        }) as f32;
         let raw_weights = (0..parameters)
             .map(|index| ((index as f32 + salt) * 0.03125).sin())
             .flat_map(f32::to_le_bytes)
@@ -2752,7 +2959,8 @@ mod tests {
         let runner = BenchmarkRunner {
             config: BenchmarkRunConfig {
                 evaluator_id: "mock".into(),
-                evaluator_version: "1".into(),
+                evaluator_version: evaluator_sha256(),
+                evaluator_arguments: vec!["--profile=fixed".into()],
                 paired_seeds: vec![11, 22, 33],
                 order_seed: 7,
                 gpu_hours_per_evaluation: 0.25,
@@ -2768,15 +2976,26 @@ mod tests {
             run.metadata.fixed_case_order,
             ["public-score", "sealed-loss"]
         );
+        assert_eq!(run.metadata.evaluator_arguments, ["--profile=fixed"]);
         assert!(run.capacity_matched());
         assert_eq!(run.metadata.gpu_hour_budget_per_target, 1.5);
+        let mut differently_invoked = run.clone();
+        differently_invoked
+            .metadata
+            .evaluator_arguments
+            .push("--different".into());
+        assert!(validate_comparison_compatibility(&run, &differently_invoked).is_err());
         assert_eq!(evaluator.calls.len(), 12);
-        for calls in evaluator.calls.chunks_exact(2) {
+        for (pair_ordinal, calls) in evaluator.calls.chunks_exact(2).enumerate() {
             assert_eq!(calls[0].0, calls[1].0);
             assert_eq!(calls[0].1, calls[1].1);
             assert_eq!(calls[0].2, calls[1].2);
-            assert_eq!(calls[0].3, TargetRole::Baseline);
-            assert_eq!(calls[1].3, TargetRole::Candidate);
+            let expected_roles = if pair_ordinal.is_multiple_of(2) {
+                [TargetRole::Baseline, TargetRole::Candidate]
+            } else {
+                [TargetRole::Candidate, TargetRole::Baseline]
+            };
+            assert_eq!([calls[0].3, calls[1].3], expected_roles);
         }
 
         let (suite, results) = run.acceptance_inputs();
@@ -2788,6 +3007,77 @@ mod tests {
                 assert!((pair.candidate - pair.baseline - 0.1).abs() < 1e-12);
             }
         }
+    }
+
+    #[test]
+    fn runner_rejects_input_mutation_during_evaluation() {
+        struct MutatingEvaluator {
+            path: PathBuf,
+            mutated: bool,
+        }
+
+        impl BenchmarkEvaluator for MutatingEvaluator {
+            fn evaluate(
+                &mut self,
+                request: &EvaluationRequest<'_>,
+            ) -> Result<EvaluationMeasurement> {
+                if !self.mutated {
+                    fs::write(&self.path, b"tampered during evaluation\n")?;
+                    self.mutated = true;
+                }
+                Ok(EvaluationMeasurement {
+                    score: 0.5,
+                    gpu_hours: request.max_gpu_hours / 2.0,
+                    examples: 1,
+                    metrics: BTreeMap::new(),
+                })
+            }
+        }
+
+        let temporary = tempfile::tempdir().unwrap();
+        let suite = write_suite(
+            temporary.path(),
+            "public",
+            SuiteVisibility::Public,
+            "quality",
+            MetricDirection::Maximize,
+        );
+        let artifact = suite.artifact("quality").unwrap().path.clone();
+        let baseline = target(temporary.path(), "baseline", 100);
+        let candidate = target(temporary.path(), "candidate", 100);
+        let mut evaluator = MutatingEvaluator {
+            path: artifact,
+            mutated: false,
+        };
+        let error = BenchmarkRunner {
+            config: BenchmarkRunConfig {
+                evaluator_id: "mock".into(),
+                evaluator_version: evaluator_sha256(),
+                evaluator_arguments: Vec::new(),
+                paired_seeds: vec![1, 2, 3],
+                order_seed: 7,
+                gpu_hours_per_evaluation: 0.25,
+                ablation: None,
+            },
+        }
+        .run(&[suite], &baseline, &candidate, &mut evaluator)
+        .unwrap_err();
+        let error = format!("{error:#}");
+        assert!(error.contains("changed after verification"), "{error}");
+    }
+
+    #[test]
+    fn benchmark_json_is_bounded_before_deserialization() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join("oversized-run.json");
+        let file = fs::File::create(&path).unwrap();
+        file.set_len(MAX_BENCHMARK_JSON_BYTES + 1).unwrap();
+        drop(file);
+
+        let error = VerifiedBenchmarkRun::load(&path, &"0".repeat(64))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("byte limit"), "{error}");
     }
 
     #[test]
@@ -2953,8 +3243,11 @@ mod tests {
             unreachable!()
         };
         *candidate_manifest_sha256 = format!("sha256:{}", "0".repeat(64));
-        let error = wrong_hash.verify().unwrap_err().to_string();
-        assert!(error.contains("manifest identity mismatch"), "{error}");
+        let error = wrong_hash.verify().unwrap_err();
+        assert!(
+            format!("{error:#}").contains("receipt identity mismatch"),
+            "{error:#}"
+        );
 
         let mut wrong_storage = attach_hquant_candidate(
             temporary.path(),
@@ -3043,7 +3336,8 @@ mod tests {
         let runner = BenchmarkRunner {
             config: BenchmarkRunConfig {
                 evaluator_id: "hquant-backend".into(),
-                evaluator_version: "1".into(),
+                evaluator_version: evaluator_sha256(),
+                evaluator_arguments: Vec::new(),
                 paired_seeds: vec![1, 2, 3],
                 order_seed: 9,
                 gpu_hours_per_evaluation: 0.25,
@@ -3116,7 +3410,8 @@ mod tests {
         let run = BenchmarkRunner {
             config: BenchmarkRunConfig {
                 evaluator_id: "fixed".into(),
-                evaluator_version: "sha256:evaluator".into(),
+                evaluator_version: evaluator_sha256(),
+                evaluator_arguments: Vec::new(),
                 paired_seeds: vec![1, 2, 3],
                 order_seed: 7,
                 gpu_hours_per_evaluation: 0.25,
@@ -3235,7 +3530,8 @@ mod tests {
     fn runner_rejects_fewer_than_three_or_reordered_seeds() {
         let config = BenchmarkRunConfig {
             evaluator_id: "mock".into(),
-            evaluator_version: "1".into(),
+            evaluator_version: evaluator_sha256(),
+            evaluator_arguments: Vec::new(),
             paired_seeds: vec![2, 1, 3],
             order_seed: 0,
             gpu_hours_per_evaluation: 1.0,
@@ -3247,6 +3543,32 @@ mod tests {
             paired_seeds: vec![1, 2],
             ..config
         };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn benchmark_configuration_bounds_and_binds_evaluator_arguments() {
+        let mut config = BenchmarkRunConfig {
+            evaluator_id: "mock".into(),
+            evaluator_version: evaluator_sha256(),
+            evaluator_arguments: vec!["--profile=h100".into()],
+            paired_seeds: vec![1, 2, 3],
+            order_seed: 0,
+            gpu_hours_per_evaluation: 1.0,
+            ablation: None,
+        };
+        config.validate().unwrap();
+
+        config.evaluator_arguments = vec!["x".repeat(4_097)];
+        assert!(config.validate().is_err());
+        config.evaluator_arguments = vec!["x\0y".into()];
+        assert!(config.validate().is_err());
+        config.evaluator_arguments.clear();
+        config.evaluator_version = "latest".into();
+        assert!(config.validate().is_err());
+
+        config.evaluator_version = evaluator_sha256();
+        config.paired_seeds = (0..=MAXIMUM_PAIRED_SEEDS as u64).collect();
         assert!(config.validate().is_err());
     }
 
@@ -3301,7 +3623,8 @@ mod tests {
             let runner = BenchmarkRunner {
                 config: BenchmarkRunConfig {
                     evaluator_id: "fixed-evaluator".into(),
-                    evaluator_version: "sha256:evaluator".into(),
+                    evaluator_version: evaluator_sha256(),
+                    evaluator_arguments: Vec::new(),
                     paired_seeds: vec![11, 22, 33],
                     order_seed: 7,
                     gpu_hours_per_evaluation: 0.25,
@@ -3362,6 +3685,19 @@ mod tests {
         assert!(!serialized.contains("sealed-arc_dreaming"));
         assert!(!serialized.contains("sealed-pretraining_causal"));
 
+        let mut duplicate_baseline_run = runs[1].run.clone();
+        let distinct_label = duplicate_baseline_run.metadata.baseline.id.clone();
+        duplicate_baseline_run.metadata.baseline = runs[0].run.metadata.baseline.clone();
+        duplicate_baseline_run.metadata.baseline.id = distinct_label;
+        duplicate_baseline_run.validate().unwrap();
+        let duplicate_baseline = write_run(temporary.path(), 99, &duplicate_baseline_run);
+        let mut duplicate_matrix = runs.clone();
+        duplicate_matrix[1] = duplicate_baseline;
+        let error = verified_resource_benchmark_context(selected, &duplicate_matrix)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("reuse the same checkpoint"), "{error}");
+
         let mut in_memory_resources = resources.clone();
         in_memory_resources.comparison.wake_trials[0]
             .candidate
@@ -3393,6 +3729,69 @@ mod tests {
     }
 
     #[test]
+    fn comparison_matrix_requires_the_same_candidate_acceptance_measurement() {
+        let temporary = tempfile::tempdir().unwrap();
+        let public =
+            write_catalog_suite(temporary.path(), "public-catalog", SuiteVisibility::Public);
+        let sealed =
+            write_catalog_suite(temporary.path(), "sealed-catalog", SuiteVisibility::Sealed);
+        let candidate = target(temporary.path(), "candidate", 100);
+        let make_run =
+            |baseline_id: &str, ablation: AblationId, evaluator: &mut RankingEvaluator| {
+                BenchmarkRunner {
+                    config: BenchmarkRunConfig {
+                        evaluator_id: "fixed-evaluator".into(),
+                        evaluator_version: evaluator_sha256(),
+                        evaluator_arguments: Vec::new(),
+                        paired_seeds: vec![11, 22, 33],
+                        order_seed: 7,
+                        gpu_hours_per_evaluation: 0.25,
+                        ablation: Some(ablation),
+                    },
+                }
+                .run(
+                    &[public.clone(), sealed.clone()],
+                    &target(temporary.path(), baseline_id, 100),
+                    &candidate,
+                    evaluator,
+                )
+                .unwrap()
+            };
+        let reference = make_run("baseline-01", AblationId::WakeOnly, &mut RankingEvaluator);
+        let unchanged = make_run(
+            "baseline-02",
+            AblationId::StaticReplay,
+            &mut RankingEvaluator,
+        );
+        let mut changed = unchanged.clone();
+        changed.cases[0].pairs[0].candidate.gpu_hours /= 2.0;
+        changed.validate().unwrap();
+        let error = validate_comparison_compatibility(&reference, &changed)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("candidate measurement"), "{error}");
+
+        changed = unchanged.clone();
+        changed.cases[0].pairs[0]
+            .candidate
+            .metrics
+            .insert("timing_jitter".into(), 1.0);
+        changed.validate().unwrap();
+        let error = validate_comparison_compatibility(&reference, &changed)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("candidate measurement"), "{error}");
+
+        changed = unchanged;
+        changed.cases[0].pairs[0].candidate.score += 0.01;
+        changed.validate().unwrap();
+        let error = validate_comparison_compatibility(&reference, &changed)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("candidate measurement"), "{error}");
+    }
+
+    #[test]
     fn coverage_requires_each_public_and_sealed_catalog_case() {
         let temporary = tempfile::tempdir().unwrap();
         let public =
@@ -3404,6 +3803,23 @@ mod tests {
         let mut incomplete = sealed;
         incomplete.manifest.cases.pop();
         assert!(validate_catalog_coverage(&[public, incomplete], false).is_err());
+    }
+
+    #[test]
+    fn coverage_rejects_duplicate_catalog_entries_before_evaluation() {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut public =
+            write_catalog_suite(temporary.path(), "public-catalog", SuiteVisibility::Public);
+        let sealed =
+            write_catalog_suite(temporary.path(), "sealed-catalog", SuiteVisibility::Sealed);
+        let mut duplicate = public.manifest.cases[0].clone();
+        duplicate.id.push_str("-duplicate");
+        public.manifest.cases.push(duplicate);
+
+        let error = validate_catalog_coverage(&[public, sealed], false)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("repeats"), "{error}");
     }
 
     #[test]

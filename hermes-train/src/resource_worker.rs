@@ -7,17 +7,20 @@
 
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
-use std::io::{BufRead, BufReader, Read, Write};
+#[cfg(test)]
+use std::io::{BufRead, BufReader};
+use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc;
-use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+
+use crate::artifact_io::{
+    json_sha256_identity, sha256_hex, validate_sha256_hex, validate_sha256_identity,
+};
 
 use crate::acceptance::{
     AcceptancePolicy, CapacityObservation, ExactResumeArtifact, ExactResumeEvidence,
@@ -28,6 +31,12 @@ use crate::benchmark::{
     BenchmarkTarget, ModelRepresentationIdentity, VerifiedBenchmarkRun, VerifiedResourceComparison,
     verified_resource_benchmark_context, verify_resource_comparison_artifacts,
 };
+#[cfg(unix)]
+use crate::pinned_executable::PinnedExecutable;
+#[cfg(test)]
+use crate::pinned_executable::file_sha256 as pinned_file_sha256;
+#[cfg(unix)]
+use crate::protocol_process::{ProtocolRead, SupervisedProcess};
 const MAX_RESOURCE_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
 const DEFAULT_RESOURCE_EVALUATOR_TIMEOUT: Duration = Duration::from_secs(3_600);
 static TEMPORARY_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -176,6 +185,10 @@ impl ExternalResourceEvaluator {
             !timeout.is_zero(),
             "resource evaluator timeout must be positive"
         );
+        ensure!(
+            Instant::now().checked_add(timeout).is_some(),
+            "resource evaluator timeout is too large for the monotonic clock"
+        );
         self.timeout = timeout;
         Ok(self)
     }
@@ -188,22 +201,33 @@ impl ExternalResourceEvaluator {
         &self.arguments
     }
 
-    pub fn verify_identity(&self) -> Result<()> {
-        validate_prefixed_sha256(&self.expected_sha256, "resource evaluator")?;
+    fn validate_path_identity(&self) -> Result<()> {
+        validate_sha256_identity(&self.expected_sha256, "resource evaluator")?;
         let resolved =
             validate_real_path(&self.executable, RealPathKind::File, "resource evaluator")?;
         ensure!(
             resolved == self.executable,
             "resource evaluator path identity changed"
         );
-        ensure!(
-            stable_file_sha256(&self.executable, "resource evaluator")? == self.expected_sha256,
-            "resource evaluator {} does not match its pinned SHA-256",
-            self.executable.display()
-        );
         Ok(())
     }
 
+    #[cfg(unix)]
+    pub fn verify_identity(&self) -> Result<()> {
+        self.validate_path_identity()?;
+        PinnedExecutable::verify(
+            &self.executable,
+            &self.expected_sha256,
+            "resource evaluator",
+        )
+    }
+
+    #[cfg(not(unix))]
+    pub fn verify_identity(&self) -> Result<()> {
+        bail!("external resource evaluators require a Unix process host")
+    }
+
+    #[cfg(unix)]
     fn execute(&self, request: &ResourceWorkerRequest) -> Result<ResourceWorkerResponse> {
         let mut bytes = serde_json::to_vec(request)?;
         ensure!(
@@ -211,10 +235,18 @@ impl ExternalResourceEvaluator {
             "resource evaluator request exceeds {MAX_RESOURCE_MESSAGE_BYTES} bytes"
         );
         bytes.push(b'\n');
-        // Revalidate immediately before spawning. This also walks every path
-        // ancestor, so an executable reached through a symlink is rejected.
-        self.verify_identity()?;
-        let mut command = Command::new(&self.executable);
+        // Walk every path ancestor immediately before opening the executable,
+        // then hash that opened generation and execute a private
+        // materialization of its exact bytes. Replacing the configured path
+        // after this point cannot change the program selected for exec.
+        self.validate_path_identity()?;
+        let executable = PinnedExecutable::open(
+            &self.executable,
+            &self.expected_sha256,
+            "resource evaluator",
+            "resource-evaluator",
+        )?;
+        let mut command = executable.command();
         command
             .args(&self.arguments)
             .env_clear()
@@ -235,151 +267,73 @@ impl ExternalResourceEvaluator {
                 self.executable.display()
             )
         })?;
-        let mut child = ChildGuard::new(child);
-        let mut input = child
-            .child_mut()
-            .stdin
-            .take()
-            .context("resource evaluator stdin is unavailable")?;
-        let stdout = child
-            .child_mut()
-            .stdout
-            .take()
-            .context("resource evaluator stdout is unavailable")?;
-        let (write_tx, write_rx) = mpsc::sync_channel(1);
-        let writer = thread::spawn(move || {
-            let result = input.write_all(&bytes).and_then(|()| input.flush());
-            let _ = write_tx.send(result);
-        });
-        let (read_tx, read_rx) = mpsc::sync_channel(1);
-        let reader = thread::spawn(move || {
-            let _ = read_tx.send(read_resource_response(stdout));
-        });
-        let deadline = Instant::now() + self.timeout;
-        let mut write_finished = false;
+        let mut child = SupervisedProcess::new(
+            child,
+            executable.into_staged(),
+            "resource evaluator",
+            MAX_RESOURCE_MESSAGE_BYTES,
+        )?;
+        let deadline = Instant::now()
+            .checked_add(self.timeout)
+            .context("resource evaluator timeout exceeds the monotonic clock")?;
+        let mut written = 0_usize;
         let mut response = None;
-        let mut read_finished = false;
         loop {
-            if !write_finished {
-                match write_rx.try_recv() {
-                    Ok(Ok(())) => write_finished = true,
-                    Ok(Err(error)) => {
-                        child.terminate();
-                        let _ = writer.join();
-                        let _ = reader.join();
-                        return Err(error).context("writing resource evaluator request");
-                    }
-                    Err(mpsc::TryRecvError::Disconnected) => {
-                        child.terminate();
-                        let _ = writer.join();
-                        let _ = reader.join();
-                        bail!("resource evaluator request writer panicked");
-                    }
-                    Err(mpsc::TryRecvError::Empty) => {}
-                }
+            child.write_available(&bytes, &mut written)?;
+            if written == bytes.len() {
+                child.close_input();
             }
-            if !read_finished {
-                match read_rx.try_recv() {
-                    Ok(Err(error)) => {
-                        child.terminate();
-                        let _ = writer.join();
-                        let _ = reader.join();
-                        return Err(error);
-                    }
-                    Err(mpsc::TryRecvError::Disconnected) => {
-                        child.terminate();
-                        let _ = writer.join();
-                        let _ = reader.join();
-                        bail!("resource evaluator response reader panicked");
-                    }
-                    Ok(Ok(value)) => {
-                        response = Some(value);
-                        read_finished = true;
-                    }
-                    Err(mpsc::TryRecvError::Empty) => {}
-                }
-            }
-            let status = match child.try_wait() {
-                Ok(status) => status,
-                Err(error) => {
-                    child.terminate();
-                    let _ = writer.join();
-                    let _ = reader.join();
-                    return Err(error).context("waiting for resource evaluator");
-                }
-            };
-            if let Some(status) = status {
-                let _ = writer.join();
-                let _ = reader.join();
-                let response = match response {
-                    Some(response) => response,
-                    None => read_rx
-                        .recv()
-                        .context("resource evaluator response reader stopped")??,
-                };
+            drain_resource_output(&mut child, &mut response)?;
+            if let Some(status) = child.try_wait()? {
+                // Leader exit is a protocol boundary even if a descendant has
+                // escaped the worker group with setsid() and retained stdout.
+                // Drain every byte already committed by the leader, then close
+                // our nonblocking pipes instead of joining an EOF waiter.
+                child.terminate_process_group();
+                drain_resource_output(&mut child, &mut response)?;
+                child.finish_output_at_leader_exit()?;
+                ensure!(
+                    written == bytes.len(),
+                    "resource evaluator exited before consuming its complete request"
+                );
                 ensure!(
                     status.success(),
                     "resource evaluator exited with status {status}"
                 );
-                return Ok(response);
+                return response.context("resource evaluator exited before responding");
             }
             if Instant::now() >= deadline {
-                child.terminate();
-                let _ = writer.join();
-                let _ = reader.join();
                 bail!(
                     "resource evaluator exceeded its {:?} execution timeout",
                     self.timeout
                 );
             }
-            thread::sleep(Duration::from_millis(5));
+            child.wait_for_activity(written < bytes.len(), deadline)?;
         }
+    }
+
+    #[cfg(not(unix))]
+    fn execute(&self, _request: &ResourceWorkerRequest) -> Result<ResourceWorkerResponse> {
+        bail!("external resource evaluators require a Unix process host")
     }
 }
 
-struct ChildGuard {
-    child: Child,
-    reaped: bool,
-}
-
-impl ChildGuard {
-    fn new(child: Child) -> Self {
-        Self {
-            child,
-            reaped: false,
-        }
-    }
-
-    fn child_mut(&mut self) -> &mut Child {
-        &mut self.child
-    }
-
-    fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
-        let status = self.child.try_wait()?;
-        if status.is_some() {
-            self.reaped = true;
-        }
-        Ok(status)
-    }
-
-    fn terminate(&mut self) {
-        if !self.reaped {
-            #[cfg(unix)]
-            // The worker owns a fresh process group. Kill descendants too so
-            // none can retain stdout and strand the bounded reader thread.
-            unsafe {
-                libc::kill(-(self.child.id() as i32), libc::SIGKILL);
+#[cfg(unix)]
+fn drain_resource_output(
+    child: &mut SupervisedProcess,
+    response: &mut Option<ResourceWorkerResponse>,
+) -> Result<()> {
+    loop {
+        match child.read_line()? {
+            ProtocolRead::Line(line) => {
+                ensure!(
+                    response.is_none(),
+                    "resource evaluator emitted output after its response"
+                );
+                *response = Some(parse_resource_response(&line)?);
             }
-            let _ = self.child.kill();
-            let _ = self.child.wait();
-            self.reaped = true;
+            ProtocolRead::Pending | ProtocolRead::Eof => return Ok(()),
         }
-    }
-}
-
-impl Drop for ChildGuard {
-    fn drop(&mut self) {
-        self.terminate();
     }
 }
 
@@ -455,39 +409,23 @@ fn validate_real_path(path: &Path, kind: RealPathKind, label: &str) -> Result<Pa
     Ok(normalized)
 }
 
-fn stable_file_sha256(path: &Path, label: &str) -> Result<String> {
-    validate_real_path(path, RealPathKind::File, label)?;
-    let before = fs::symlink_metadata(path)?;
-    let file = File::open(path).with_context(|| format!("opening {label} {}", path.display()))?;
-    let opened = file.metadata()?;
-    ensure_same_file(&before, &opened, label)?;
-    let mut reader = BufReader::new(file);
-    let mut hasher = Sha256::new();
-    let mut buffer = [0_u8; 1024 * 1024];
-    loop {
-        let count = reader.read(&mut buffer)?;
-        if count == 0 {
-            break;
-        }
-        hasher.update(&buffer[..count]);
-    }
-    let after = fs::symlink_metadata(path)?;
-    ensure!(
-        after.file_type().is_file() && !after.file_type().is_symlink(),
-        "{label} became a symlink or non-file while hashing"
-    );
-    ensure_same_file(&after, &opened, label)?;
-    Ok(format!("sha256:{:x}", hasher.finalize()))
-}
-
-fn stable_file_bytes(path: &Path, label: &str) -> Result<Vec<u8>> {
+fn stable_file_bytes(path: &Path, maximum_bytes: u64, label: &str) -> Result<Vec<u8>> {
     validate_real_path(path, RealPathKind::File, label)?;
     let before = fs::symlink_metadata(path)?;
     let mut file =
         File::open(path).with_context(|| format!("opening {label} {}", path.display()))?;
     let opened = file.metadata()?;
     ensure_same_file(&before, &opened, label)?;
+    ensure!(
+        opened.len() <= maximum_bytes,
+        "{label} exceeds its {maximum_bytes}-byte limit"
+    );
+    let capacity = usize::try_from(opened.len())
+        .with_context(|| format!("{label} exceeds this process address space"))?;
     let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(capacity)
+        .with_context(|| format!("reserving bounded buffer for {label}"))?;
     file.read_to_end(&mut bytes)?;
     let after = fs::symlink_metadata(path)?;
     ensure!(
@@ -532,7 +470,7 @@ pub fn run_resource_benchmark(
     output_directory: &Path,
 ) -> Result<ResourceEvidencePublication> {
     policy.validate()?;
-    validate_raw_sha256(policy_sha256, "resource policy")?;
+    validate_sha256_hex(policy_sha256, "resource policy")?;
     ensure!(
         evaluator.expected_sha256() == policy.resource_evaluator_version,
         "pinned resource evaluator differs from acceptance policy"
@@ -549,7 +487,7 @@ pub fn run_resource_benchmark(
         evaluator.arguments().to_vec(),
         relative_roots,
     )?;
-    let request_sha256 = canonical_sha256(&semantic)?;
+    let request_sha256 = json_sha256_identity(&semantic)?;
     let request = ResourceWorkerRequest {
         version: RESOURCE_EXECUTION_PROTOCOL_VERSION,
         semantic: semantic.clone(),
@@ -560,14 +498,14 @@ pub fn run_resource_benchmark(
     let response = evaluator.execute(&request)?;
     validate_response_artifact_scope(&response, &vault, &semantic.artifact_roots)?;
 
-    let baseline_target_sha256 = canonical_sha256(&semantic.baseline)?;
-    let candidate_target_sha256 = canonical_sha256(&semantic.candidate)?;
+    let baseline_target_sha256 = json_sha256_identity(&semantic.baseline)?;
+    let candidate_target_sha256 = json_sha256_identity(&semantic.candidate)?;
     let mut comparison = ResourceComparison {
         version: RESOURCE_COMPARISON_VERSION,
         baseline_id: semantic.baseline.id.clone(),
         candidate_id: semantic.candidate.id.clone(),
         benchmark_run_sha256: semantic.selected_benchmark_run_sha256.clone(),
-        strongest_baseline_id,
+        strongest_baseline_id: strongest_baseline_id.clone(),
         measurement_evaluator_id: semantic.policy.evaluator_id.clone(),
         measurement_evaluator_version: evaluator.expected_sha256().to_owned(),
         wake_trials: response.wake_trials,
@@ -604,6 +542,7 @@ pub fn run_resource_benchmark(
         comparison_runs,
         policy,
         policy_sha256,
+        &strongest_baseline_id,
         &comparison,
         &target,
     )?;
@@ -616,10 +555,10 @@ pub fn run_resource_benchmark(
         comparison_runs,
         policy,
         policy_sha256,
+        &strongest_baseline_id,
         verified.comparison(),
         verified.path(),
     )?;
-    verified.verify_contents()?;
     Ok(ResourceEvidencePublication {
         path: target,
         sha256: digest,
@@ -631,11 +570,12 @@ pub(crate) fn validate_execution_receipt(
     comparison_runs: &[VerifiedBenchmarkRun],
     policy: &AcceptancePolicy,
     policy_sha256: &str,
+    strongest_baseline_id: &str,
     comparison: &ResourceComparison,
     source_path: &Path,
 ) -> Result<()> {
     policy.validate()?;
-    validate_raw_sha256(policy_sha256, "resource policy")?;
+    validate_sha256_hex(policy_sha256, "resource policy")?;
     ensure!(
         comparison
             .execution
@@ -647,24 +587,23 @@ pub(crate) fn validate_execution_receipt(
         comparison.execution.evaluator_sha256 == policy.resource_evaluator_version,
         "resource execution receipt names another evaluator"
     );
-    let strongest_baseline_id = verified_resource_benchmark_context(selected_run, comparison_runs)?;
     let semantic = semantic_request(
         selected_run,
         comparison_runs,
         policy,
         policy_sha256,
-        &strongest_baseline_id,
+        strongest_baseline_id,
         comparison.execution.evaluator_arguments.clone(),
         comparison.execution.approved_artifact_roots.clone(),
     )?;
     ensure!(
-        comparison.execution.request_sha256 == canonical_sha256(&semantic)?,
+        comparison.execution.request_sha256 == json_sha256_identity(&semantic)?,
         "resource execution request receipt does not match the verified experiment"
     );
     ensure!(
-        comparison.execution.baseline_target_sha256 == canonical_sha256(&semantic.baseline)?
+        comparison.execution.baseline_target_sha256 == json_sha256_identity(&semantic.baseline)?
             && comparison.execution.candidate_target_sha256
-                == canonical_sha256(&semantic.candidate)?,
+                == json_sha256_identity(&semantic.candidate)?,
         "resource execution receipt addresses different benchmark targets"
     );
     ensure!(
@@ -696,7 +635,7 @@ pub(crate) fn derive_execution_receipt(
     comparison: &ResourceComparison,
 ) -> Result<ResourceExecutionReceipt> {
     policy.validate()?;
-    validate_raw_sha256(policy_sha256, "resource policy")?;
+    validate_sha256_hex(policy_sha256, "resource policy")?;
     let strongest_baseline_id = verified_resource_benchmark_context(selected_run, comparison_runs)?;
     let semantic = semantic_request(
         selected_run,
@@ -710,10 +649,10 @@ pub(crate) fn derive_execution_receipt(
     Ok(ResourceExecutionReceipt {
         protocol_version: RESOURCE_EXECUTION_PROTOCOL_VERSION,
         evaluator_sha256: policy.resource_evaluator_version.clone(),
-        request_sha256: canonical_sha256(&semantic)?,
+        request_sha256: json_sha256_identity(&semantic)?,
         observations_sha256: comparison.observations_sha256()?,
-        baseline_target_sha256: canonical_sha256(&semantic.baseline)?,
-        candidate_target_sha256: canonical_sha256(&semantic.candidate)?,
+        baseline_target_sha256: json_sha256_identity(&semantic.baseline)?,
+        candidate_target_sha256: json_sha256_identity(&semantic.candidate)?,
         policy_sha256: policy_sha256.to_owned(),
         evaluator_arguments,
         approved_artifact_roots: artifact_roots,
@@ -901,6 +840,7 @@ fn validate_safe_relative(path: &Path, name: &str) -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 fn read_resource_response(stdout: impl Read) -> Result<ResourceWorkerResponse> {
     let mut reader = BufReader::new(stdout);
     let line =
@@ -909,8 +849,12 @@ fn read_resource_response(stdout: impl Read) -> Result<ResourceWorkerResponse> {
         read_bounded_line(&mut reader)?.is_none(),
         "resource evaluator emitted output after its response"
     );
-    let response: ResourceWorkerResponse = serde_json::from_slice(&line)
-        .context("resource evaluator emitted invalid protocol JSON")?;
+    parse_resource_response(&line)
+}
+
+fn parse_resource_response(line: &[u8]) -> Result<ResourceWorkerResponse> {
+    let response: ResourceWorkerResponse =
+        serde_json::from_slice(line).context("resource evaluator emitted invalid protocol JSON")?;
     ensure!(
         response.version == RESOURCE_EXECUTION_PROTOCOL_VERSION,
         "unsupported resource evaluator response version {}",
@@ -919,6 +863,7 @@ fn read_resource_response(stdout: impl Read) -> Result<ResourceWorkerResponse> {
     Ok(response)
 }
 
+#[cfg(test)]
 fn read_bounded_line(reader: &mut impl BufRead) -> Result<Option<Vec<u8>>> {
     let mut line = Vec::new();
     loop {
@@ -952,43 +897,9 @@ fn pretty_json_bytes<T: Serialize>(value: &T) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-fn canonical_sha256<T: Serialize>(value: &T) -> Result<String> {
-    Ok(format!(
-        "sha256:{:x}",
-        Sha256::digest(serde_json::to_vec(value)?)
-    ))
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
-}
-
-fn validate_prefixed_sha256(value: &str, name: &str) -> Result<()> {
-    let digest = value
-        .strip_prefix("sha256:")
-        .with_context(|| format!("{name} must use `sha256:<64 lowercase hex>`"))?;
-    ensure!(
-        digest.len() == 64
-            && digest
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
-        "{name} must use `sha256:<64 lowercase hex>`"
-    );
-    Ok(())
-}
-
-fn validate_raw_sha256(value: &str, name: &str) -> Result<()> {
-    ensure!(
-        value.len() == 64
-            && value
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
-        "{name} must use 64 lowercase hexadecimal characters"
-    );
-    Ok(())
-}
-
 fn publish_immutable(path: &Path, bytes: &[u8]) -> Result<()> {
+    let expected_bytes =
+        u64::try_from(bytes.len()).context("resource evidence length exceeds u64")?;
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let verified_parent = validate_real_path(
         parent,
@@ -1006,7 +917,8 @@ fn publish_immutable(path: &Path, bytes: &[u8]) -> Result<()> {
                 "content-addressed resource evidence must be a regular non-symlink file"
             );
             ensure!(
-                stable_file_bytes(path, "content-addressed resource evidence")? == bytes,
+                stable_file_bytes(path, expected_bytes, "content-addressed resource evidence",)?
+                    == bytes,
                 "content-addressed resource evidence already exists with different bytes"
             );
             return Ok(());
@@ -1031,13 +943,15 @@ fn publish_immutable(path: &Path, bytes: &[u8]) -> Result<()> {
         match fs::hard_link(&temporary, path) {
             Ok(()) => {
                 ensure!(
-                    stable_file_bytes(path, "published resource evidence")? == bytes,
+                    stable_file_bytes(path, expected_bytes, "published resource evidence")?
+                        == bytes,
                     "published resource evidence changed during publication"
                 );
             }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                 ensure!(
-                    stable_file_bytes(path, "concurrent resource evidence")? == bytes,
+                    stable_file_bytes(path, expected_bytes, "concurrent resource evidence")?
+                        == bytes,
                     "resource evidence publication race produced different bytes"
                 );
             }
@@ -1181,13 +1095,58 @@ mod tests {
         path
     }
 
+    #[cfg(unix)]
+    fn python_with_setsid() -> PathBuf {
+        [
+            "/usr/bin/python3",
+            "/usr/local/bin/python3",
+            "/opt/homebrew/bin/python3",
+        ]
+        .into_iter()
+        .map(PathBuf::from)
+        .find(|path| path.is_file())
+        .expect("setsid worker tests require an absolute Python 3 interpreter")
+    }
+
+    #[cfg(unix)]
+    fn kill_detached_pid(path: &Path) {
+        for _ in 0..100 {
+            if let Ok(value) = fs::read_to_string(path)
+                && let Ok(pid) = value.trim().parse::<i32>()
+            {
+                // SAFETY: the test helper wrote its own positive process ID.
+                unsafe {
+                    libc::kill(pid, libc::SIGKILL);
+                }
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("detached worker did not publish its pid");
+    }
+
+    #[test]
+    fn immutable_resource_comparison_rejects_oversized_existing_file_before_allocation() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().canonicalize().unwrap();
+        let path = root.join("oversized.json");
+        let file = File::create(&path).unwrap();
+        file.set_len(1_025).unwrap();
+        drop(file);
+
+        let error = stable_file_bytes(&path, 1_024, "resource fixture")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("1024-byte limit"), "{error}");
+    }
+
     #[test]
     fn evaluator_arguments_are_part_of_the_semantic_request_identity() {
         let first = request(vec!["--mode=a".into()]);
         let second = request(vec!["--mode=b".into()]);
         assert_ne!(
-            canonical_sha256(&first.semantic).unwrap(),
-            canonical_sha256(&second.semantic).unwrap()
+            json_sha256_identity(&first.semantic).unwrap(),
+            json_sha256_identity(&second.semantic).unwrap()
         );
     }
 
@@ -1205,6 +1164,22 @@ mod tests {
         assert!(error.contains("exceeds"), "{error}");
     }
 
+    #[test]
+    fn evaluator_rejects_a_timeout_outside_the_monotonic_clock_range() {
+        let evaluator = ExternalResourceEvaluator {
+            executable: PathBuf::from("unused-test-worker"),
+            arguments: Vec::new(),
+            expected_sha256: format!("sha256:{}", "0".repeat(64)),
+            timeout: DEFAULT_RESOURCE_EVALUATOR_TIMEOUT,
+        };
+
+        let error = evaluator
+            .with_timeout(Duration::MAX)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("monotonic clock"), "{error}");
+    }
+
     #[cfg(unix)]
     #[test]
     fn hanging_evaluator_is_killed_at_the_bound() {
@@ -1215,7 +1190,7 @@ mod tests {
             "hang.sh",
             "#!/bin/sh\nIFS= read -r request\n/bin/sleep 30\n",
         );
-        let digest = stable_file_sha256(&worker, "test worker").unwrap();
+        let digest = pinned_file_sha256(&worker).unwrap();
         let evaluator = ExternalResourceEvaluator::new(&worker, Vec::new(), digest)
             .unwrap()
             .with_timeout(Duration::from_millis(100))
@@ -1227,6 +1202,93 @@ mod tests {
             .to_string();
         assert!(error.contains("timeout"), "{error}");
         assert!(started.elapsed() < Duration::from_secs(3));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn timeout_is_bounded_when_setsid_descendant_retains_protocol_pipes() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().canonicalize().unwrap();
+        let detached_pid = root.join("detached.pid");
+        let worker = executable(
+            &root,
+            "setsid-timeout.sh",
+            concat!(
+                "#!/bin/sh\n",
+                "IFS= read -r request\n",
+                "test -n \"$request\"\n",
+                "\"$1\" -c 'import os,sys,time; os.setsid(); f=open(sys.argv[1],\"w\"); f.write(str(os.getpid())); f.flush(); os.fsync(f.fileno()); time.sleep(30)' \"$2\" &\n",
+                "while [ ! -s \"$2\" ]; do /bin/sleep 0.01; done\n",
+                "/bin/sleep 30\n"
+            ),
+        );
+        let digest = pinned_file_sha256(&worker).unwrap();
+        let evaluator = ExternalResourceEvaluator::new(
+            &worker,
+            vec![
+                python_with_setsid().into_os_string(),
+                detached_pid.clone().into_os_string(),
+            ],
+            digest,
+        )
+        .unwrap()
+        .with_timeout(Duration::from_secs(3))
+        .unwrap();
+
+        let started = Instant::now();
+        let result = evaluator.execute(&request(Vec::new()));
+        let elapsed = started.elapsed();
+        kill_detached_pid(&detached_pid);
+        let error = result.unwrap_err().to_string();
+        assert!(error.contains("timeout"), "{error}");
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "setsid descendant delayed resource timeout for {elapsed:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn protocol_error_is_bounded_when_setsid_descendant_retains_stdout() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().canonicalize().unwrap();
+        let detached_pid = root.join("detached.pid");
+        let worker = executable(
+            &root,
+            "setsid-error.sh",
+            concat!(
+                "#!/bin/sh\n",
+                "IFS= read -r request\n",
+                "test -n \"$request\"\n",
+                "\"$1\" -c 'import os,sys,time; os.setsid(); f=open(sys.argv[1],\"w\"); f.write(str(os.getpid())); f.flush(); os.fsync(f.fileno()); time.sleep(30)' \"$2\" &\n",
+                "while [ ! -s \"$2\" ]; do /bin/sleep 0.01; done\n",
+                "printf '{not-json}\\n'\n",
+                "/bin/sleep 30\n"
+            ),
+        );
+        let digest = pinned_file_sha256(&worker).unwrap();
+        let evaluator = ExternalResourceEvaluator::new(
+            &worker,
+            vec![
+                python_with_setsid().into_os_string(),
+                detached_pid.clone().into_os_string(),
+            ],
+            digest,
+        )
+        .unwrap()
+        .with_timeout(Duration::from_secs(3))
+        .unwrap();
+
+        let started = Instant::now();
+        let result = evaluator.execute(&request(Vec::new()));
+        let elapsed = started.elapsed();
+        kill_detached_pid(&detached_pid);
+        let error = result.unwrap_err().to_string();
+        assert!(error.contains("invalid protocol JSON"), "{error}");
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "setsid descendant delayed resource protocol error for {elapsed:?}"
+        );
     }
 
     #[cfg(unix)]
@@ -1246,13 +1308,93 @@ mod tests {
                 response_path.display()
             ),
         );
-        let digest = stable_file_sha256(&worker, "test worker").unwrap();
+        let digest = pinned_file_sha256(&worker).unwrap();
         let evaluator = ExternalResourceEvaluator::new(&worker, Vec::new(), digest).unwrap();
         let error = evaluator
             .execute(&request(Vec::new()))
             .unwrap_err()
             .to_string();
         assert!(error.contains("after its response"), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn exited_evaluator_cannot_leave_a_descendant_holding_protocol_pipes() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().canonicalize().unwrap();
+        let response_path = root.join("response.jsonl");
+        let mut response_bytes = serde_json::to_vec(&response()).unwrap();
+        response_bytes.push(b'\n');
+        fs::write(&response_path, response_bytes).unwrap();
+        let worker = executable(
+            &root,
+            "orphan.sh",
+            &format!(
+                "#!/bin/sh\nIFS= read -r request\n/bin/cat '{}'\n/bin/sleep 30 &\nexit 0\n",
+                response_path.display()
+            ),
+        );
+        let digest = pinned_file_sha256(&worker).unwrap();
+        let evaluator = ExternalResourceEvaluator::new(&worker, Vec::new(), digest)
+            .unwrap()
+            // Leave enough scheduling margin when all process-lifecycle tests
+            // execute concurrently; the elapsed-time assertion still catches
+            // a descendant retaining the pipe for its 30-second lifetime.
+            .with_timeout(Duration::from_secs(3))
+            .unwrap();
+
+        let started = Instant::now();
+        evaluator.execute(&request(Vec::new())).unwrap();
+        assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn leader_exit_is_bounded_when_setsid_descendant_retains_stdout() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().canonicalize().unwrap();
+        let response_path = root.join("response.jsonl");
+        let detached_pid = root.join("detached.pid");
+        let mut response_bytes = serde_json::to_vec(&response()).unwrap();
+        response_bytes.push(b'\n');
+        fs::write(&response_path, response_bytes).unwrap();
+        let worker = executable(
+            &root,
+            "setsid-exit.sh",
+            &format!(
+                concat!(
+                    "#!/bin/sh\n",
+                    "IFS= read -r request\n",
+                    "test -n \"$request\"\n",
+                    "\"$1\" -c 'import os,sys,time; os.setsid(); f=open(sys.argv[1],\"w\"); f.write(str(os.getpid())); f.flush(); os.fsync(f.fileno()); time.sleep(30)' \"$2\" &\n",
+                    "while [ ! -s \"$2\" ]; do /bin/sleep 0.01; done\n",
+                    "/bin/cat '{}'\n"
+                ),
+                response_path.display()
+            ),
+        );
+        let digest = pinned_file_sha256(&worker).unwrap();
+        let evaluator = ExternalResourceEvaluator::new(
+            &worker,
+            vec![
+                python_with_setsid().into_os_string(),
+                detached_pid.clone().into_os_string(),
+            ],
+            digest,
+        )
+        .unwrap()
+        .with_timeout(Duration::from_secs(2))
+        .unwrap();
+
+        let started = Instant::now();
+        let result = evaluator.execute(&request(Vec::new()));
+        let elapsed = started.elapsed();
+        kill_detached_pid(&detached_pid);
+        result.unwrap();
+        assert!(
+            elapsed < Duration::from_secs(3),
+            "setsid descendant delayed resource leader exit for {elapsed:?}"
+        );
     }
 
     #[cfg(unix)]
@@ -1265,7 +1407,7 @@ mod tests {
         let real = root.join("real");
         fs::create_dir(&real).unwrap();
         let worker = executable(&real, "worker.sh", "#!/bin/sh\nexit 0\n");
-        let digest = stable_file_sha256(&worker, "test worker").unwrap();
+        let digest = pinned_file_sha256(&worker).unwrap();
         let direct = root.join("worker-link");
         symlink(&worker, &direct).unwrap();
         assert!(ExternalResourceEvaluator::new(&direct, Vec::new(), &digest).is_err());

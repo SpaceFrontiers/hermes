@@ -3,27 +3,37 @@
 //! Benchmark orchestration verifies suites and model manifests in-process. A
 //! long-lived local worker performs model-specific evaluation without making
 //! the benchmark framework depend on a particular generation or retrieval
-//! implementation. The executable is hashed before it starts, requests are
-//! strictly versioned, and every response is validated by `BenchmarkRunner`.
+//! implementation. The executable is opened and hashed before it starts,
+//! requests are strictly versioned, and every response is validated by
+//! `BenchmarkRunner`.
 
 use std::ffi::OsString;
-use std::fs::File;
-use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{Child, Stdio};
+use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, ensure};
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+
+use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use crate::acceptance::SuiteVisibility;
+use crate::artifact_io::validate_sha256_identity;
 use crate::benchmark::{
     BenchmarkEvaluator, BenchmarkSpec, BenchmarkTarget, EvaluationMeasurement, EvaluationRequest,
     TargetRole, VerifiedArtifact, VerifiedModelRepresentation,
+    validate_benchmark_evaluator_arguments,
 };
+use crate::pinned_executable::file_sha256 as pinned_file_sha256;
+#[cfg(unix)]
+use crate::pinned_executable::{PinnedExecutable, StagedExecutable};
+#[cfg(unix)]
+use crate::protocol_process::{ProtocolRead, SupervisedProcess};
 
 pub const BENCHMARK_WORKER_PROTOCOL_VERSION: u32 = 2;
-const MAX_RESPONSE_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
+const DEFAULT_BENCHMARK_EVALUATOR_TIMEOUT: Duration = Duration::from_secs(3_600);
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -50,10 +60,132 @@ struct BenchmarkWorkerResponse {
     measurement: EvaluationMeasurement,
 }
 
+#[cfg(unix)]
 struct RunningWorker {
-    child: Child,
-    input: Option<BufWriter<ChildStdin>>,
-    output: BufReader<ChildStdout>,
+    process: SupervisedProcess,
+}
+
+#[cfg(unix)]
+impl RunningWorker {
+    fn from_child(child: Child, executable: StagedExecutable) -> Result<Self> {
+        Ok(Self {
+            process: SupervisedProcess::new(
+                child,
+                executable,
+                "benchmark evaluator",
+                MAX_MESSAGE_BYTES,
+            )?,
+        })
+    }
+
+    fn exchange(&mut self, request: &[u8], timeout: Duration) -> Result<Vec<u8>> {
+        match self.process.read_line()? {
+            ProtocolRead::Line(_) => {
+                bail!("benchmark evaluator emitted an unsolicited response")
+            }
+            ProtocolRead::Eof => {
+                bail!("benchmark evaluator closed stdout before receiving a request")
+            }
+            ProtocolRead::Pending => ensure!(
+                !self.process.has_buffered_output(),
+                "benchmark evaluator emitted an unsolicited response"
+            ),
+        }
+        if let Some(status) = self.process.try_wait()? {
+            bail!("benchmark evaluator exited with status {status} before receiving a request");
+        }
+
+        let deadline = checked_deadline(timeout)?;
+        let mut written = 0_usize;
+        loop {
+            self.process.write_available(request, &mut written)?;
+            match self.process.read_line()? {
+                ProtocolRead::Line(line) => {
+                    ensure!(
+                        written == request.len(),
+                        "benchmark evaluator responded before consuming the complete request"
+                    );
+                    // Drain bytes that were queued with the response. A second
+                    // frame or partial frame is never assigned to the next
+                    // request on this persistent connection.
+                    match self.process.read_line()? {
+                        ProtocolRead::Line(_) => {
+                            bail!("benchmark evaluator emitted data after its response")
+                        }
+                        ProtocolRead::Pending => ensure!(
+                            !self.process.has_buffered_output(),
+                            "benchmark evaluator emitted data after its response"
+                        ),
+                        ProtocolRead::Eof => {}
+                    }
+                    return Ok(line);
+                }
+                ProtocolRead::Eof => match self.process.try_wait()? {
+                    Some(status) => {
+                        bail!("benchmark evaluator exited with status {status} before responding")
+                    }
+                    None => bail!("benchmark evaluator closed stdout before responding"),
+                },
+                ProtocolRead::Pending => {}
+            }
+            if let Some(status) = self.process.try_wait()? {
+                bail!("benchmark evaluator exited with status {status} before responding");
+            }
+            ensure_before_deadline(deadline, timeout)?;
+            self.process
+                .wait_for_activity(written < request.len(), deadline)?;
+        }
+    }
+
+    fn finish_protocol(&mut self, timeout: Duration) -> Result<()> {
+        self.process.close_input();
+        let deadline = checked_deadline(timeout)?;
+        loop {
+            match self.process.read_line()? {
+                ProtocolRead::Line(_) => {
+                    bail!("benchmark evaluator emitted an unsolicited response")
+                }
+                ProtocolRead::Pending => ensure!(
+                    !self.process.has_buffered_output(),
+                    "benchmark evaluator emitted an unsolicited response"
+                ),
+                ProtocolRead::Eof => {}
+            }
+            if let Some(status) = self.process.try_wait()? {
+                // A successful leader may leave a descendant holding stdout.
+                // The protocol grants no background-process lifetime, so reap
+                // the complete group before accepting the exit.
+                self.process.terminate_process_group();
+                ensure!(
+                    status.success(),
+                    "benchmark evaluator exited with status {status}"
+                );
+                return Ok(());
+            }
+            ensure_before_deadline(deadline, timeout)?;
+            self.process.wait_for_activity(false, deadline)?;
+        }
+    }
+
+    fn terminate(&mut self) {
+        self.process.terminate();
+    }
+}
+
+#[cfg(not(unix))]
+struct RunningWorker;
+
+#[cfg(not(unix))]
+impl RunningWorker {
+    fn exchange(&mut self, _: &[u8], _: Duration) -> Result<Vec<u8>> {
+        bail!("external benchmark evaluators require a Unix process host")
+    }
+
+    fn finish_protocol(&mut self, _: Duration) -> Result<()> {
+        bail!("external benchmark evaluators require a Unix process host")
+    }
+
+    fn terminate(&mut self) {}
 }
 
 /// Persistent evaluator process used for a complete paired benchmark run.
@@ -61,8 +193,9 @@ struct RunningWorker {
 /// artifact paths and immutable target metadata.
 pub struct ExternalBenchmarkEvaluator {
     executable: PathBuf,
-    arguments: Vec<OsString>,
+    arguments: Vec<String>,
     expected_sha256: String,
+    timeout: Duration,
     running: Option<RunningWorker>,
 }
 
@@ -72,108 +205,155 @@ impl ExternalBenchmarkEvaluator {
         arguments: Vec<OsString>,
         expected_sha256: impl Into<String>,
     ) -> Result<Self> {
+        let arguments = arguments
+            .into_iter()
+            .map(|argument| {
+                argument
+                    .into_string()
+                    .map_err(|_| anyhow::anyhow!("benchmark evaluator argument is not valid UTF-8"))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        validate_benchmark_evaluator_arguments(&arguments)?;
         let evaluator = Self {
             executable: executable.into(),
             arguments,
             expected_sha256: expected_sha256.into(),
+            timeout: DEFAULT_BENCHMARK_EVALUATOR_TIMEOUT,
             running: None,
         };
         evaluator.verify_identity()?;
         Ok(evaluator)
     }
 
+    /// Set the hard wall-clock bound for each request and for graceful worker
+    /// shutdown. A timeout always kills and reaps the entire worker process
+    /// group before returning.
+    pub fn with_timeout(mut self, timeout: Duration) -> Result<Self> {
+        ensure!(
+            !timeout.is_zero(),
+            "benchmark evaluator timeout must be positive"
+        );
+        checked_deadline(timeout)?;
+        self.timeout = timeout;
+        Ok(self)
+    }
+
     pub fn expected_sha256(&self) -> &str {
         &self.expected_sha256
     }
 
+    /// Canonical argument vector that is part of benchmark run identity.
+    pub fn arguments(&self) -> &[String] {
+        &self.arguments
+    }
+
+    #[cfg(unix)]
     pub fn verify_identity(&self) -> Result<()> {
-        validate_sha256(&self.expected_sha256)?;
-        let metadata = std::fs::symlink_metadata(&self.executable).with_context(|| {
-            format!(
-                "benchmark evaluator {} is unavailable",
-                self.executable.display()
-            )
-        })?;
-        ensure!(
-            metadata.file_type().is_file() && !metadata.file_type().is_symlink(),
-            "benchmark evaluator {} must be a regular non-symlink file",
-            self.executable.display()
-        );
-        ensure!(
-            file_sha256(&self.executable)? == self.expected_sha256,
-            "benchmark evaluator {} does not match its pinned SHA-256",
-            self.executable.display()
-        );
+        validate_sha256_identity(&self.expected_sha256, "benchmark evaluator identity")?;
+        PinnedExecutable::verify(
+            &self.executable,
+            &self.expected_sha256,
+            "benchmark evaluator",
+        )?;
         Ok(())
     }
 
+    #[cfg(not(unix))]
+    pub fn verify_identity(&self) -> Result<()> {
+        bail!("external benchmark evaluators require a Unix process host")
+    }
+
+    #[cfg(unix)]
     fn start(&mut self) -> Result<()> {
         if self.running.is_some() {
             return Ok(());
         }
-        self.verify_identity()?;
-        let mut child = Command::new(&self.executable)
+        // Hash the opened descriptor and execute a private materialization of
+        // those exact bytes. A pathname replacement after verification cannot
+        // change the bytes selected for exec.
+        let executable = PinnedExecutable::open(
+            &self.executable,
+            &self.expected_sha256,
+            "benchmark evaluator",
+            "benchmark-evaluator",
+        )?;
+        let mut command = executable.command();
+        command
             .args(&self.arguments)
+            .env_clear()
+            .current_dir("/")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
-            .spawn()
-            .with_context(|| {
-                format!(
-                    "failed to start benchmark evaluator {}",
-                    self.executable.display()
-                )
-            })?;
-        let input = child
-            .stdin
-            .take()
-            .context("benchmark evaluator stdin is unavailable")?;
-        let output = child
-            .stdout
-            .take()
-            .context("benchmark evaluator stdout is unavailable")?;
-        self.running = Some(RunningWorker {
-            child,
-            input: Some(BufWriter::new(input)),
-            output: BufReader::new(output),
-        });
+            .process_group(0);
+        let child = command.spawn().with_context(|| {
+            format!(
+                "failed to start benchmark evaluator {}",
+                self.executable.display()
+            )
+        })?;
+        // Keep the private executable path alive for the lifetime of the
+        // worker. Shebang interpreters may open it after `spawn` returns.
+        self.running = Some(RunningWorker::from_child(child, executable.into_staged())?);
         Ok(())
     }
 
-    /// Close the protocol cleanly and require a successful worker exit. This
-    /// must be called after `BenchmarkRunner::run`; `Drop` only provides
-    /// best-effort cleanup on an earlier error.
+    #[cfg(not(unix))]
+    fn start(&mut self) -> Result<()> {
+        bail!("external benchmark evaluators require a Unix process host")
+    }
+
+    /// Close the protocol cleanly and require a successful worker exit.
     pub fn finish(mut self) -> Result<()> {
         let Some(mut running) = self.running.take() else {
             return Ok(());
         };
-        if let Some(mut input) = running.input.take() {
-            input.flush()?;
-            drop(input);
+        running.finish_protocol(self.timeout)
+    }
+
+    fn evaluate_wire(
+        &mut self,
+        wire: &BenchmarkWorkerRequest<'_>,
+    ) -> Result<EvaluationMeasurement> {
+        let mut request = serde_json::to_vec(wire)?;
+        ensure!(
+            request.len() < MAX_MESSAGE_BYTES,
+            "benchmark evaluator request exceeds {MAX_MESSAGE_BYTES} bytes"
+        );
+        request.push(b'\n');
+        self.start()?;
+        let result = self
+            .running
+            .as_mut()
+            .expect("benchmark worker was started above")
+            .exchange(&request, self.timeout)
+            .and_then(|line| {
+                let response: BenchmarkWorkerResponse = serde_json::from_slice(&line)
+                    .context("benchmark evaluator emitted invalid protocol JSON")?;
+                ensure!(
+                    response.version == BENCHMARK_WORKER_PROTOCOL_VERSION,
+                    "unsupported benchmark evaluator response version {}",
+                    response.version
+                );
+                Ok(response.measurement)
+            });
+        if result.is_err() {
+            // A protocol failure poisons stream framing. Never reuse that
+            // process for another evaluation.
+            if let Some(mut running) = self.running.take() {
+                running.terminate();
+            }
         }
-        ensure!(
-            read_bounded_line(&mut running.output)?.is_none(),
-            "benchmark evaluator emitted an unsolicited response"
-        );
-        let status = running.child.wait()?;
-        ensure!(
-            status.success(),
-            "benchmark evaluator exited with status {status}"
-        );
-        Ok(())
+        result
     }
 }
 
 impl BenchmarkEvaluator for ExternalBenchmarkEvaluator {
     fn evaluate(&mut self, request: &EvaluationRequest<'_>) -> Result<EvaluationMeasurement> {
-        self.start()?;
-        let running = self
-            .running
-            .as_mut()
-            .expect("benchmark worker was started above");
+        let expected_sha256 = self.expected_sha256.clone();
         let wire = BenchmarkWorkerRequest {
             version: BENCHMARK_WORKER_PROTOCOL_VERSION,
-            evaluator_sha256: &self.expected_sha256,
+            evaluator_sha256: &expected_sha256,
             suite_id: request.suite_id,
             visibility: request.visibility,
             case: request.case,
@@ -186,90 +366,24 @@ impl BenchmarkEvaluator for ExternalBenchmarkEvaluator {
             pair_ordinal: request.pair_ordinal,
             max_gpu_hours: request.max_gpu_hours,
         };
-        let input = running
-            .input
-            .as_mut()
-            .context("benchmark evaluator input is closed")?;
-        serde_json::to_writer(&mut *input, &wire)?;
-        input.write_all(b"\n")?;
-        input.flush()?;
-
-        let line = read_bounded_line(&mut running.output)?
-            .context("benchmark evaluator exited before responding")?;
-        let response: BenchmarkWorkerResponse = serde_json::from_slice(&line)
-            .context("benchmark evaluator emitted invalid protocol JSON")?;
-        ensure!(
-            response.version == BENCHMARK_WORKER_PROTOCOL_VERSION,
-            "unsupported benchmark evaluator response version {}",
-            response.version
-        );
-        Ok(response.measurement)
-    }
-}
-
-impl Drop for ExternalBenchmarkEvaluator {
-    fn drop(&mut self) {
-        if let Some(running) = &mut self.running {
-            let _ = running.input.take();
-            let _ = running.child.kill();
-            let _ = running.child.wait();
-        }
+        self.evaluate_wire(&wire)
     }
 }
 
 pub fn file_sha256(path: &Path) -> Result<String> {
-    let mut input = BufReader::new(
-        File::open(path).with_context(|| format!("failed to hash {}", path.display()))?,
-    );
-    let mut hasher = Sha256::new();
-    let mut buffer = [0_u8; 1024 * 1024];
-    loop {
-        let read = input.read(&mut buffer)?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..read]);
-    }
-    Ok(format!("sha256:{:x}", hasher.finalize()))
+    pinned_file_sha256(path)
 }
 
-fn read_bounded_line(reader: &mut impl BufRead) -> Result<Option<Vec<u8>>> {
-    let mut line = Vec::new();
-    loop {
-        let available = reader.fill_buf()?;
-        if available.is_empty() {
-            ensure!(
-                line.is_empty(),
-                "benchmark evaluator response is unterminated"
-            );
-            return Ok(None);
-        }
-        let take = available
-            .iter()
-            .position(|byte| *byte == b'\n')
-            .map_or(available.len(), |position| position + 1);
-        ensure!(
-            line.len() as u64 + take as u64 <= MAX_RESPONSE_BYTES,
-            "benchmark evaluator response exceeds {MAX_RESPONSE_BYTES} bytes"
-        );
-        line.extend_from_slice(&available[..take]);
-        reader.consume(take);
-        if line.ends_with(b"\n") {
-            return Ok(Some(line));
-        }
-    }
+fn checked_deadline(timeout: Duration) -> Result<Instant> {
+    Instant::now()
+        .checked_add(timeout)
+        .context("benchmark evaluator timeout is too large for the monotonic clock")
 }
 
-fn validate_sha256(value: &str) -> Result<()> {
-    let digest = value
-        .strip_prefix("sha256:")
-        .context("evaluator identity must use `sha256:<64 lowercase hex>`")?;
+fn ensure_before_deadline(deadline: Instant, timeout: Duration) -> Result<()> {
     ensure!(
-        digest.len() == 64
-            && digest
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
-        "evaluator identity must use `sha256:<64 lowercase hex>`"
+        Instant::now() < deadline,
+        "benchmark evaluator exceeded its {timeout:?} execution timeout"
     );
     Ok(())
 }
@@ -277,37 +391,34 @@ fn validate_sha256(value: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::time::Instant;
 
     use super::*;
     use crate::acceptance::{BenchmarkFamily, SuiteVisibility};
     use crate::benchmark::{BenchmarkArtifact, BenchmarkSpec, MetricDirection, TargetRole};
 
     #[cfg(unix)]
-    #[test]
-    fn persistent_worker_receives_strict_requests_and_finishes() {
+    fn worker_script(directory: &Path, body: &str) -> PathBuf {
         use std::os::unix::fs::PermissionsExt;
 
-        let directory = tempfile::tempdir().unwrap();
-        let worker = directory.path().join("evaluator.sh");
-        std::fs::write(
-            &worker,
-            concat!(
-                "#!/bin/sh\n",
-                "while IFS= read -r request; do\n",
-                "  test -n \"$request\" || exit 7\n",
-                "  case \"$request\" in *'\"model\":{\"type\":\"full_precision\",'*) ;; *) exit 8 ;; esac\n",
-                "  printf '%s\\n' '{\"version\":2,\"measurement\":{\"score\":0.75,\"gpu_hours\":0.01,\"examples\":4}}'\n",
-                "done\n"
-            ),
-        )
-        .unwrap();
+        let worker = directory.join("evaluator.sh");
+        std::fs::write(&worker, format!("#!/bin/sh\n{body}")).unwrap();
         let mut permissions = std::fs::metadata(&worker).unwrap().permissions();
         permissions.set_mode(0o700);
         std::fs::set_permissions(&worker, permissions).unwrap();
-        let hash = file_sha256(&worker).unwrap();
-        let mut evaluator = ExternalBenchmarkEvaluator::new(&worker, Vec::new(), &hash).unwrap();
+        worker
+    }
+
+    fn fixture(
+        directory: &Path,
+    ) -> (
+        VerifiedArtifact,
+        BenchmarkSpec,
+        BenchmarkTarget,
+        VerifiedModelRepresentation,
+    ) {
         let artifact = VerifiedArtifact {
-            path: directory.path().join("fixture.jsonl"),
+            path: directory.join("fixture.jsonl"),
             sha256: "1".repeat(64),
             bytes: 1,
         };
@@ -326,9 +437,9 @@ mod tests {
         };
         let target = BenchmarkTarget {
             id: "candidate".into(),
-            checkpoint_manifest: directory.path().join("checkpoint.json"),
+            checkpoint_manifest: directory.join("checkpoint.json"),
             checkpoint_manifest_sha256: "2".repeat(64),
-            training_evidence: directory.path().join("training-evidence.json"),
+            training_evidence: directory.join("training-evidence.json"),
             training_evidence_sha256: "3".repeat(64),
             training_gpu_hours: 1.0,
             parameters: 10,
@@ -337,11 +448,19 @@ mod tests {
             representation: crate::benchmark::ModelRepresentationTarget::FullPrecision,
         };
         let model = VerifiedModelRepresentation::FullPrecision {
-            weights: directory.path().join("weights.safetensors"),
+            weights: directory.join("weights.safetensors"),
             weights_sha256: "4".repeat(64),
             stored_bytes: 100,
         };
-        let request = EvaluationRequest {
+        (artifact, case, target, model)
+    }
+
+    fn evaluate_once(
+        evaluator: &mut ExternalBenchmarkEvaluator,
+        directory: &Path,
+    ) -> Result<EvaluationMeasurement> {
+        let (artifact, case, target, model) = fixture(directory);
+        evaluator.evaluate(&EvaluationRequest {
             suite_id: "public",
             visibility: SuiteVisibility::Public,
             case: &case,
@@ -353,11 +472,198 @@ mod tests {
             example_order_seed: 9,
             pair_ordinal: 0,
             max_gpu_hours: 0.1,
-        };
-        let first = evaluator.evaluate(&request).unwrap();
-        let second = evaluator.evaluate(&request).unwrap();
+        })
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn persistent_worker_receives_strict_requests_and_finishes() {
+        let directory = tempfile::tempdir().unwrap();
+        let worker = worker_script(
+            directory.path(),
+            concat!(
+                "while IFS= read -r request; do\n",
+                "  test -n \"$request\" || exit 7\n",
+                "  case \"$request\" in *'\"model\":{\"type\":\"full_precision\",'*) ;; *) exit 8 ;; esac\n",
+                "  test \"$(pwd)\" = / || exit 9\n",
+                "  test -z \"${HOME+x}\" || exit 10\n",
+                "  test \"$1\" = '--profile=a b' || exit 11\n",
+                "  printf '%s\\n' '{\"version\":2,\"measurement\":{\"score\":0.75,\"gpu_hours\":0.01,\"examples\":4}}'\n",
+                "done\n"
+            ),
+        );
+        let hash = file_sha256(&worker).unwrap();
+        let mut evaluator =
+            ExternalBenchmarkEvaluator::new(&worker, vec![OsString::from("--profile=a b")], &hash)
+                .unwrap();
+        assert_eq!(evaluator.arguments(), ["--profile=a b"]);
+        let first = evaluate_once(&mut evaluator, directory.path()).unwrap();
+        let second = evaluate_once(&mut evaluator, directory.path()).unwrap();
         assert_eq!(first.score, 0.75);
         assert_eq!(second.examples, 4);
         evaluator.finish().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn response_timeout_terminates_the_worker() {
+        let directory = tempfile::tempdir().unwrap();
+        let worker = worker_script(directory.path(), "read -r request\n/bin/sleep 30\n");
+        let hash = file_sha256(&worker).unwrap();
+        let mut evaluator = ExternalBenchmarkEvaluator::new(&worker, Vec::new(), &hash)
+            .unwrap()
+            .with_timeout(Duration::from_millis(100))
+            .unwrap();
+        let started = Instant::now();
+        let error = evaluate_once(&mut evaluator, directory.path())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("execution timeout"), "{error}");
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(evaluator.running.is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn finish_kills_descendants_that_retain_protocol_pipes() {
+        let directory = tempfile::tempdir().unwrap();
+        let worker = worker_script(
+            directory.path(),
+            concat!(
+                "while IFS= read -r request; do\n",
+                "  printf '%s\\n' '{\"version\":2,\"measurement\":{\"score\":0.5,\"gpu_hours\":0.01,\"examples\":1}}'\n",
+                "done\n",
+                "/bin/sleep 30 &\n",
+                "exit 0\n"
+            ),
+        );
+        let hash = file_sha256(&worker).unwrap();
+        let mut evaluator = ExternalBenchmarkEvaluator::new(&worker, Vec::new(), &hash)
+            .unwrap()
+            // Process startup can contend with the other lifecycle tests;
+            // this remains far below the descendant's 30-second lifetime.
+            .with_timeout(Duration::from_secs(2))
+            .unwrap();
+        evaluate_once(&mut evaluator, directory.path()).unwrap();
+        let started = Instant::now();
+        evaluator.finish().unwrap();
+        assert!(started.elapsed() < Duration::from_secs(4));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn finish_timeout_terminates_a_worker_that_does_not_exit() {
+        let directory = tempfile::tempdir().unwrap();
+        let worker = worker_script(
+            directory.path(),
+            concat!(
+                "while IFS= read -r request; do\n",
+                "  printf '%s\\n' '{\"version\":2,\"measurement\":{\"score\":0.5,\"gpu_hours\":0.01,\"examples\":1}}'\n",
+                "done\n",
+                "/bin/sleep 30\n"
+            ),
+        );
+        let hash = file_sha256(&worker).unwrap();
+        let mut evaluator = ExternalBenchmarkEvaluator::new(&worker, Vec::new(), &hash)
+            .unwrap()
+            .with_timeout(Duration::from_secs(2))
+            .unwrap();
+        evaluate_once(&mut evaluator, directory.path()).unwrap();
+        let started = Instant::now();
+        let error = evaluator.finish().unwrap_err().to_string();
+        assert!(error.contains("execution timeout"), "{error}");
+        assert!(started.elapsed() < Duration::from_secs(4));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn malformed_response_poisoning_cleans_up_the_worker() {
+        let directory = tempfile::tempdir().unwrap();
+        let worker = worker_script(
+            directory.path(),
+            "read -r request\nprintf '%s\\n' '{not-json}'\n/bin/sleep 30\n",
+        );
+        let hash = file_sha256(&worker).unwrap();
+        let mut evaluator = ExternalBenchmarkEvaluator::new(&worker, Vec::new(), &hash)
+            .unwrap()
+            .with_timeout(Duration::from_secs(3))
+            .unwrap();
+        let error = evaluate_once(&mut evaluator, directory.path())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("invalid protocol JSON"), "{error}");
+        assert!(evaluator.running.is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn extra_response_is_rejected_and_worker_is_cleaned_up() {
+        let directory = tempfile::tempdir().unwrap();
+        let response =
+            "{\"version\":2,\"measurement\":{\"score\":0.5,\"gpu_hours\":0.01,\"examples\":1}}";
+        let worker = worker_script(
+            directory.path(),
+            &format!(
+                "read -r request\nprintf '%s\\n%s\\n' '{response}' '{response}'\n/bin/sleep 30\n"
+            ),
+        );
+        let hash = file_sha256(&worker).unwrap();
+        let mut evaluator = ExternalBenchmarkEvaluator::new(&worker, Vec::new(), &hash)
+            .unwrap()
+            .with_timeout(Duration::from_secs(3))
+            .unwrap();
+        let error = evaluate_once(&mut evaluator, directory.path())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("data after its response"), "{error}");
+        assert!(evaluator.running.is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn evaluator_arguments_are_canonical_and_bounded() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let worker = worker_script(directory.path(), "exit 0\n");
+        let hash = file_sha256(&worker).unwrap();
+
+        let error =
+            ExternalBenchmarkEvaluator::new(&worker, vec![OsString::from_vec(vec![0xff])], &hash)
+                .err()
+                .unwrap()
+                .to_string();
+        assert!(error.contains("not valid UTF-8"), "{error}");
+
+        let error =
+            ExternalBenchmarkEvaluator::new(&worker, vec![OsString::from("argument"); 65], &hash)
+                .err()
+                .unwrap()
+                .to_string();
+        assert!(error.contains("exceed protocol limits"), "{error}");
+
+        let error =
+            ExternalBenchmarkEvaluator::new(&worker, vec![OsString::from("contains\0nul")], &hash)
+                .err()
+                .unwrap()
+                .to_string();
+        assert!(error.contains("exceed protocol limits"), "{error}");
+    }
+
+    #[test]
+    fn timeout_must_be_positive() {
+        let directory = tempfile::tempdir().unwrap();
+        #[cfg(unix)]
+        {
+            let worker = worker_script(directory.path(), "exit 0\n");
+            let hash = file_sha256(&worker).unwrap();
+            let error = ExternalBenchmarkEvaluator::new(&worker, Vec::new(), &hash)
+                .unwrap()
+                .with_timeout(Duration::ZERO)
+                .err()
+                .unwrap()
+                .to_string();
+            assert!(error.contains("timeout must be positive"));
+        }
     }
 }
