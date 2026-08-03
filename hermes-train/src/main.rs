@@ -372,9 +372,6 @@ struct RunBenchmarkArgs {
     /// Local executable implementing benchmark-worker protocol v2.
     #[arg(long)]
     evaluator: PathBuf,
-    /// Exact evaluator identity as `sha256:<64 lowercase hex>`.
-    #[arg(long)]
-    evaluator_sha256: String,
     #[arg(long = "evaluator-arg", allow_hyphen_values = true)]
     evaluator_arguments: Vec<OsString>,
     /// Hard wall-clock limit for each request and graceful worker shutdown.
@@ -402,9 +399,6 @@ struct RunResourceBenchmarkArgs {
     /// Local executable implementing resource-worker protocol v2.
     #[arg(long)]
     evaluator: PathBuf,
-    /// Exact executable identity as `sha256:<64 lowercase hex>`.
-    #[arg(long)]
-    evaluator_sha256: String,
     /// Exact UTF-8 argument vector, bound into the execution receipt.
     #[arg(long = "evaluator-arg", allow_hyphen_values = true)]
     evaluator_arguments: Vec<OsString>,
@@ -458,9 +452,6 @@ struct RunWorkflowArgs {
     /// Local executable implementing the versioned phase-worker protocol.
     #[arg(long)]
     executor: PathBuf,
-    /// Exact content identity required before every worker launch.
-    #[arg(long)]
-    executor_sha256: String,
     #[arg(long = "executor-arg", allow_hyphen_values = true)]
     executor_arguments: Vec<OsString>,
     /// Hard wall-clock bound for each phase-worker process.
@@ -1800,12 +1791,8 @@ fn run_resource_benchmark_command(args: RunResourceBenchmarkArgs) -> Result<()> 
         )?);
     }
     let policy: AcceptancePolicy = read_addressed_json(&args.policy)?;
-    let evaluator = ExternalResourceEvaluator::new(
-        &args.evaluator,
-        args.evaluator_arguments,
-        &args.evaluator_sha256,
-    )?
-    .with_timeout(Duration::from_secs(args.evaluator_timeout_seconds))?;
+    let evaluator = ExternalResourceEvaluator::new(&args.evaluator, args.evaluator_arguments)?
+        .with_timeout(Duration::from_secs(args.evaluator_timeout_seconds))?;
     let publication = run_resource_benchmark(
         &selected,
         &comparisons,
@@ -1829,12 +1816,6 @@ fn run_benchmark_command(args: RunBenchmarkArgs) -> Result<()> {
         "benchmark evaluator timeout must be positive"
     );
     let config: BenchmarkRunConfig = read_addressed_json(&args.config)?;
-    ensure!(
-        config.evaluator_version == args.evaluator_sha256,
-        "benchmark config evaluator_version `{}` does not match pinned evaluator `{}`",
-        config.evaluator_version,
-        args.evaluator_sha256
-    );
     let suites = args
         .suites
         .iter()
@@ -1845,12 +1826,8 @@ fn run_benchmark_command(args: RunBenchmarkArgs) -> Result<()> {
     let mut candidate: BenchmarkTarget = read_addressed_json(&args.candidate)?;
     baseline.resolve_paths(&args.baseline.path);
     candidate.resolve_paths(&args.candidate.path);
-    let mut evaluator = ExternalBenchmarkEvaluator::new(
-        &args.evaluator,
-        args.evaluator_arguments,
-        &args.evaluator_sha256,
-    )?
-    .with_timeout(Duration::from_secs(args.evaluator_timeout_seconds))?;
+    let mut evaluator = ExternalBenchmarkEvaluator::new(&args.evaluator, args.evaluator_arguments)?
+        .with_timeout(Duration::from_secs(args.evaluator_timeout_seconds))?;
     ensure!(
         config.evaluator_arguments.as_slice() == evaluator.arguments(),
         "benchmark evaluator arguments do not match the content-addressed run config"
@@ -2012,12 +1989,8 @@ fn run_workflow_command(args: RunWorkflowArgs) -> Result<()> {
         "--sleep-runtime and --sleep-runtime-sha256 must be provided together"
     );
     validate_cli_native_sleep_selection(&workflow, args.sleep_runtime.is_some())?;
-    let executor = ExternalPhaseExecutor::new(
-        &args.executor,
-        args.executor_arguments,
-        &args.executor_sha256,
-    )?
-    .with_timeout(Duration::from_secs(args.executor_timeout_seconds))?;
+    let executor = ExternalPhaseExecutor::new(&args.executor, args.executor_arguments)?
+        .with_timeout(Duration::from_secs(args.executor_timeout_seconds))?;
     let dispatch_sha256 = run_workflow_dispatch_identity(
         &executor.execution_identity(),
         args.sleep_runtime_sha256.as_deref(),
@@ -2551,7 +2524,6 @@ mod tests {
         let selected = format!("selected.json={digest}");
         let comparison = format!("comparison.json={digest}");
         let policy = format!("policy.json={digest}");
-        let evaluator_sha256 = format!("sha256:{digest}");
         let cli = Cli::try_parse_from([
             "hermes-train",
             "run-resource-benchmark",
@@ -2563,8 +2535,6 @@ mod tests {
             &policy,
             "--evaluator",
             "./resource-worker",
-            "--evaluator-sha256",
-            &evaluator_sha256,
             "--evaluator-arg=--profile=h100",
             "--artifact-root",
             "exact/run-1",
@@ -2588,7 +2558,6 @@ mod tests {
         let sealed = format!("sealed.json={digest}");
         let baseline = format!("baseline.json={digest}");
         let candidate = format!("candidate.json={digest}");
-        let evaluator_hash = format!("sha256:{digest}");
         let cli = Cli::try_parse_from([
             "hermes-train",
             "run-benchmark",
@@ -2604,8 +2573,6 @@ mod tests {
             &candidate,
             "--evaluator",
             "./evaluator",
-            "--evaluator-sha256",
-            &evaluator_hash,
             "--output",
             "run-output.json",
         ])
@@ -2615,7 +2582,6 @@ mod tests {
         };
         assert_eq!(args.suites.len(), 2);
         assert_eq!(args.config.sha256, digest);
-        assert_eq!(args.evaluator_sha256, evaluator_hash);
         assert_eq!(args.evaluator_timeout_seconds, 3_600);
 
         assert!(
@@ -2632,8 +2598,6 @@ mod tests {
                 &candidate,
                 "--evaluator",
                 "./evaluator",
-                "--evaluator-sha256",
-                &format!("sha256:{digest}"),
                 "--output",
                 "run-output.json",
             ])
@@ -2643,7 +2607,6 @@ mod tests {
 
     #[test]
     fn workflow_metrics_require_a_run_id_and_parse_as_a_pair() {
-        let digest = format!("sha256:{}", "a".repeat(64));
         let cli = Cli::try_parse_from([
             "hermes-train",
             "run-workflow",
@@ -2651,8 +2614,6 @@ mod tests {
             "workflow.json",
             "--executor",
             "./worker",
-            "--executor-sha256",
-            &digest,
             "--metrics",
             "metrics.jsonl",
             "--run-id",
@@ -2673,8 +2634,6 @@ mod tests {
                 "workflow.json",
                 "--executor",
                 "./worker",
-                "--executor-sha256",
-                &digest,
                 "--metrics",
                 "metrics.jsonl",
             ])

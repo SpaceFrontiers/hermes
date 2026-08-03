@@ -1,4 +1,4 @@
-//! Strict, content-pinned execution bridge for promotion resource evidence.
+//! Strict execution bridge for promotion resource evidence.
 //!
 //! The worker receives verified model transports, but experiment identity is
 //! computed only from content hashes and policy/workload fields. Its response
@@ -11,16 +11,14 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader};
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
-use std::process::Stdio;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 
-use crate::artifact_io::{
-    json_sha256_identity, sha256_hex, validate_sha256_hex, validate_sha256_identity,
-};
+use crate::artifact_io::{json_sha256_identity, sha256_hex, validate_sha256_hex};
 
 use crate::acceptance::{
     AcceptancePolicy, CapacityObservation, ExactResumeArtifact, ExactResumeEvidence,
@@ -31,10 +29,6 @@ use crate::benchmark::{
     BenchmarkTarget, ModelRepresentationIdentity, VerifiedBenchmarkRun, VerifiedResourceComparison,
     verified_resource_benchmark_context, verify_resource_comparison_artifacts,
 };
-#[cfg(unix)]
-use crate::pinned_executable::PinnedExecutable;
-#[cfg(test)]
-use crate::pinned_executable::file_sha256 as pinned_file_sha256;
 #[cfg(unix)]
 use crate::protocol_process::{ProtocolRead, SupervisedProcess};
 const MAX_RESOURCE_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
@@ -144,16 +138,11 @@ pub struct ResourceEvidencePublication {
 pub struct ExternalResourceEvaluator {
     executable: PathBuf,
     arguments: Vec<String>,
-    expected_sha256: String,
     timeout: Duration,
 }
 
 impl ExternalResourceEvaluator {
-    pub fn new(
-        executable: impl Into<PathBuf>,
-        arguments: Vec<OsString>,
-        expected_sha256: impl Into<String>,
-    ) -> Result<Self> {
+    pub fn new(executable: impl Into<PathBuf>, arguments: Vec<OsString>) -> Result<Self> {
         let executable = executable.into();
         let arguments = arguments
             .into_iter()
@@ -170,14 +159,11 @@ impl ExternalResourceEvaluator {
                     .all(|argument| argument.len() <= 4096 && !argument.contains('\0')),
             "resource evaluator arguments exceed protocol limits"
         );
-        let evaluator = Self {
+        Ok(Self {
             executable: validate_real_path(&executable, RealPathKind::File, "resource evaluator")?,
             arguments,
-            expected_sha256: expected_sha256.into(),
             timeout: DEFAULT_RESOURCE_EVALUATOR_TIMEOUT,
-        };
-        evaluator.verify_identity()?;
-        Ok(evaluator)
+        })
     }
 
     pub fn with_timeout(mut self, timeout: Duration) -> Result<Self> {
@@ -193,16 +179,13 @@ impl ExternalResourceEvaluator {
         Ok(self)
     }
 
-    pub fn expected_sha256(&self) -> &str {
-        &self.expected_sha256
-    }
-
     pub fn arguments(&self) -> &[String] {
         &self.arguments
     }
 
+    /// Re-resolve the configured executable path and require that no ancestor
+    /// became a symlink or moved since construction.
     fn validate_path_identity(&self) -> Result<()> {
-        validate_sha256_identity(&self.expected_sha256, "resource evaluator")?;
         let resolved =
             validate_real_path(&self.executable, RealPathKind::File, "resource evaluator")?;
         ensure!(
@@ -213,21 +196,6 @@ impl ExternalResourceEvaluator {
     }
 
     #[cfg(unix)]
-    pub fn verify_identity(&self) -> Result<()> {
-        self.validate_path_identity()?;
-        PinnedExecutable::verify(
-            &self.executable,
-            &self.expected_sha256,
-            "resource evaluator",
-        )
-    }
-
-    #[cfg(not(unix))]
-    pub fn verify_identity(&self) -> Result<()> {
-        bail!("external resource evaluators require a Unix process host")
-    }
-
-    #[cfg(unix)]
     fn execute(&self, request: &ResourceWorkerRequest) -> Result<ResourceWorkerResponse> {
         let mut bytes = serde_json::to_vec(request)?;
         ensure!(
@@ -235,18 +203,10 @@ impl ExternalResourceEvaluator {
             "resource evaluator request exceeds {MAX_RESOURCE_MESSAGE_BYTES} bytes"
         );
         bytes.push(b'\n');
-        // Walk every path ancestor immediately before opening the executable,
-        // then hash that opened generation and execute a private
-        // materialization of its exact bytes. Replacing the configured path
-        // after this point cannot change the program selected for exec.
+        // Walk every path ancestor immediately before spawning so a symlinked
+        // or relocated evaluator path fails loudly instead of being executed.
         self.validate_path_identity()?;
-        let executable = PinnedExecutable::open(
-            &self.executable,
-            &self.expected_sha256,
-            "resource evaluator",
-            "resource-evaluator",
-        )?;
-        let mut command = executable.command();
+        let mut command = Command::new(&self.executable);
         command
             .args(&self.arguments)
             .env_clear()
@@ -267,12 +227,8 @@ impl ExternalResourceEvaluator {
                 self.executable.display()
             )
         })?;
-        let mut child = SupervisedProcess::new(
-            child,
-            executable.into_staged(),
-            "resource evaluator",
-            MAX_RESOURCE_MESSAGE_BYTES,
-        )?;
+        let mut child =
+            SupervisedProcess::new(child, "resource evaluator", MAX_RESOURCE_MESSAGE_BYTES)?;
         let deadline = Instant::now()
             .checked_add(self.timeout)
             .context("resource evaluator timeout exceeds the monotonic clock")?;
@@ -471,10 +427,6 @@ pub fn run_resource_benchmark(
 ) -> Result<ResourceEvidencePublication> {
     policy.validate()?;
     validate_sha256_hex(policy_sha256, "resource policy")?;
-    ensure!(
-        evaluator.expected_sha256() == policy.resource_evaluator_version,
-        "pinned resource evaluator differs from acceptance policy"
-    );
     let strongest_baseline_id = verified_resource_benchmark_context(selected_run, comparison_runs)?;
     let vault = prepare_existing_vault(output_directory)?;
     let (relative_roots, transports) = prepare_artifact_roots(&vault, artifact_roots)?;
@@ -507,7 +459,7 @@ pub fn run_resource_benchmark(
         benchmark_run_sha256: semantic.selected_benchmark_run_sha256.clone(),
         strongest_baseline_id: strongest_baseline_id.clone(),
         measurement_evaluator_id: semantic.policy.evaluator_id.clone(),
-        measurement_evaluator_version: evaluator.expected_sha256().to_owned(),
+        measurement_evaluator_version: policy.resource_evaluator_version.clone(),
         wake_trials: response.wake_trials,
         candidate_capacity: response.candidate_capacity,
         grouped_mm_parity: KernelParityEvidence {
@@ -521,7 +473,7 @@ pub fn run_resource_benchmark(
         exact_resume: response.exact_resume,
         execution: ResourceExecutionReceipt {
             protocol_version: RESOURCE_EXECUTION_PROTOCOL_VERSION,
-            evaluator_sha256: evaluator.expected_sha256().to_owned(),
+            evaluator_sha256: policy.resource_evaluator_version.clone(),
             request_sha256,
             observations_sha256: String::new(),
             baseline_target_sha256,
@@ -1169,7 +1121,6 @@ mod tests {
         let evaluator = ExternalResourceEvaluator {
             executable: PathBuf::from("unused-test-worker"),
             arguments: Vec::new(),
-            expected_sha256: format!("sha256:{}", "0".repeat(64)),
             timeout: DEFAULT_RESOURCE_EVALUATOR_TIMEOUT,
         };
 
@@ -1190,8 +1141,7 @@ mod tests {
             "hang.sh",
             "#!/bin/sh\nIFS= read -r request\n/bin/sleep 30\n",
         );
-        let digest = pinned_file_sha256(&worker).unwrap();
-        let evaluator = ExternalResourceEvaluator::new(&worker, Vec::new(), digest)
+        let evaluator = ExternalResourceEvaluator::new(&worker, Vec::new())
             .unwrap()
             .with_timeout(Duration::from_millis(100))
             .unwrap();
@@ -1222,14 +1172,12 @@ mod tests {
                 "/bin/sleep 30\n"
             ),
         );
-        let digest = pinned_file_sha256(&worker).unwrap();
         let evaluator = ExternalResourceEvaluator::new(
             &worker,
             vec![
                 python_with_setsid().into_os_string(),
                 detached_pid.clone().into_os_string(),
             ],
-            digest,
         )
         .unwrap()
         .with_timeout(Duration::from_secs(3))
@@ -1266,14 +1214,12 @@ mod tests {
                 "/bin/sleep 30\n"
             ),
         );
-        let digest = pinned_file_sha256(&worker).unwrap();
         let evaluator = ExternalResourceEvaluator::new(
             &worker,
             vec![
                 python_with_setsid().into_os_string(),
                 detached_pid.clone().into_os_string(),
             ],
-            digest,
         )
         .unwrap()
         .with_timeout(Duration::from_secs(3))
@@ -1308,8 +1254,7 @@ mod tests {
                 response_path.display()
             ),
         );
-        let digest = pinned_file_sha256(&worker).unwrap();
-        let evaluator = ExternalResourceEvaluator::new(&worker, Vec::new(), digest).unwrap();
+        let evaluator = ExternalResourceEvaluator::new(&worker, Vec::new()).unwrap();
         let error = evaluator
             .execute(&request(Vec::new()))
             .unwrap_err()
@@ -1334,8 +1279,7 @@ mod tests {
                 response_path.display()
             ),
         );
-        let digest = pinned_file_sha256(&worker).unwrap();
-        let evaluator = ExternalResourceEvaluator::new(&worker, Vec::new(), digest)
+        let evaluator = ExternalResourceEvaluator::new(&worker, Vec::new())
             .unwrap()
             // Leave enough scheduling margin when all process-lifecycle tests
             // execute concurrently; the elapsed-time assertion still catches
@@ -1373,14 +1317,12 @@ mod tests {
                 response_path.display()
             ),
         );
-        let digest = pinned_file_sha256(&worker).unwrap();
         let evaluator = ExternalResourceEvaluator::new(
             &worker,
             vec![
                 python_with_setsid().into_os_string(),
                 detached_pid.clone().into_os_string(),
             ],
-            digest,
         )
         .unwrap()
         .with_timeout(Duration::from_secs(2))
@@ -1407,17 +1349,15 @@ mod tests {
         let real = root.join("real");
         fs::create_dir(&real).unwrap();
         let worker = executable(&real, "worker.sh", "#!/bin/sh\nexit 0\n");
-        let digest = pinned_file_sha256(&worker).unwrap();
         let direct = root.join("worker-link");
         symlink(&worker, &direct).unwrap();
-        assert!(ExternalResourceEvaluator::new(&direct, Vec::new(), &digest).is_err());
+        assert!(ExternalResourceEvaluator::new(&direct, Vec::new()).is_err());
 
         let linked_parent = root.join("linked-parent");
         symlink(&real, &linked_parent).unwrap();
-        let error =
-            ExternalResourceEvaluator::new(linked_parent.join("worker.sh"), Vec::new(), digest)
-                .unwrap_err()
-                .to_string();
+        let error = ExternalResourceEvaluator::new(linked_parent.join("worker.sh"), Vec::new())
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("traverses symlink"), "{error}");
     }
 

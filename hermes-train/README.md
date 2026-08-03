@@ -198,7 +198,7 @@ uses the phase-neutral `candidates/education-sleep` store. Evaluation and
 promotion do not install wake hooks.
 
 For a backend that implements multiple phase algorithms, the stock lifecycle
-CLI uses one pinned JSONL executable for ordinary phases. Promotion is always
+CLI uses one JSONL executable for ordinary phases. Promotion is always
 executed by the trainer's built-in verified gate and is never delegated to that
 executable:
 
@@ -206,7 +206,6 @@ executable:
 hermes-train run-workflow \
   --workflow hermes-train/workflow.example.json \
   --executor /opt/hermes/bin/phase-worker \
-  --executor-sha256 "sha256:$PHASE_WORKER_SHA256" \
   --state /data/run/workflow-runtime.json \
   --metrics /data/run/metrics.jsonl \
   --run-id workflow-seed-1 \
@@ -231,21 +230,21 @@ message. The host derives phase identity instead of trusting worker-supplied
 labels. At every runtime boundary it syncs the metric journal before atomically
 recording the committed metric count; resume validates that prefix and removes
 any uncommitted or torn tail. Resume also requires the same resolved workflow,
-worker hash, and metric run id. Optimization/mutation results must be new
+worker dispatch identity, and metric run id. Optimization/mutation results must be new
 immutable checkpoint URIs and assessment cannot change weights. The native
 promotion gate releases only the exact accepted current candidate.
 
-All pinned phase, benchmark, and resource workers run with an empty inherited
+All phase, benchmark, and resource workers run with an empty inherited
 environment and `/` as their working directory. A script worker must therefore
 name its interpreter directly with an absolute shebang such as `#!/bin/sh` or
-`#!/opt/hermes/venv/bin/python`; `#!/usr/bin/env ...` and other `env`-interpreter
-shebangs are rejected. Worker subprocess paths must likewise be absolute or be
-resolved internally by a self-contained binary—the host never injects an
+`#!/opt/hermes/venv/bin/python`; `#!/usr/bin/env ...` cannot be relied on
+without an ambient `PATH`. Worker subprocess paths must likewise be absolute or
+be resolved internally by a self-contained binary—the host never injects an
 ambient `PATH`.
 
 If a worker yields, invoke the same command with `--resume` and without either
-initial-checkpoint option. The runtime verifies the workflow, worker digest,
-metric run id, and committed metric prefix before continuing. The concrete
+initial-checkpoint option. The runtime verifies the workflow, worker dispatch
+identity, metric run id, and committed metric prefix before continuing. The concrete
 post-training library implements DPO, forward `KL(teacher || student)`, clipped
 GRPO with a non-negative KL estimator, JSONL/zstd streaming, and an exact-answer
 verifier. Its native `PhaseExecutor` checkpoints a content-bound cursor before
@@ -273,8 +272,8 @@ model repositories cannot alias one another. Context factories should use
 
 The complete education recipe combines periodic sleep with phase kinds outside
 the wake trainer and therefore uses the public embedded host in `native_host`.
-An embedding application constructs `NativeWorkflowAdapters` and registers a
-pinned external worker for ordinary phases, a
+An embedding application constructs `NativeWorkflowAdapters` and registers an
+external worker for ordinary phases, a
 `NativePostTrainingContextFactory` for native DPO/KL/GRPO, a
 `NativePeriodicWakeExecutor` for periodic optimizer-bearing phases not handled
 by typed post-training, and a `NativeSleepPhaseContextFactory` when the
@@ -599,14 +598,14 @@ no-context SQuAD incorporation, and ARC Dreaming. `--include-later-sweeps` also
 requires Manchu, Kalamang, and BABILong. Catalog IDs and benchmark families are
 fixed by the runner rather than inferred from filenames.
 
-First produce each immutable run with the content-pinned evaluator. `PATH=HASH`
-arguments use raw 64-character SHA-256 digests; the evaluator identity includes
-the `sha256:` prefix and must exactly equal `evaluator_version` in the run
-config. `evaluator_arguments` in that same config is the exact UTF-8 argument
-vector: repeat `--evaluator-arg` with identical values when launching the run.
+First produce each immutable run with the configured evaluator. `PATH=HASH`
+arguments use raw 64-character SHA-256 digests. `evaluator_version` in the run
+config labels the evaluator build that produced the run, and
+`evaluator_arguments` in that same config is the exact UTF-8 argument vector:
+repeat `--evaluator-arg` with identical values when launching the run.
 The host clears the inherited environment and runs the evaluator from `/`, so
-the pinned evaluator must be self-contained and may not depend on ambient
-shell, working-directory, or secret state.
+the evaluator must be self-contained and may not depend on ambient shell,
+working-directory, or secret state.
 
 ```bash
 hermes-train run-benchmark \
@@ -616,7 +615,6 @@ hermes-train run-benchmark \
   --baseline "benchmarks/baseline-target.json=$BASELINE_TARGET_SHA256" \
   --candidate "benchmarks/candidate-target.json=$CANDIDATE_TARGET_SHA256" \
   --evaluator /opt/hermes/bin/benchmark-worker \
-  --evaluator-sha256 "sha256:$BENCHMARK_WORKER_SHA256" \
   --output runs/wake-only.json
 ```
 
@@ -675,8 +673,8 @@ identities include its path-free FP/HQUANT content identity.
 Promotion requires the structurally bound execution receipt published by the
 first-party resource host; a plain raw-observation JSON file is invalid. Run
 the host after all eleven benchmark runs exist. The policy is
-content-addressed and its `resource_evaluator_version` must equal the pinned
-binary hash. Every `--artifact-root` is a safe relative directory beneath the
+content-addressed and its `resource_evaluator_version` is recorded in the
+execution receipt that promotion re-verifies. Every `--artifact-root` is a safe relative directory beneath the
 existing evidence vault; the worker may write exact-resume artifacts only
 there.
 
@@ -696,7 +694,6 @@ hermes-train run-resource-benchmark \
   --comparison-run "runs/no-random-expert.json=$NO_RANDOM_EXPERT_SHA256" \
   --policy "acceptance-policy.json=$POLICY_SHA256" \
   --evaluator /opt/hermes/bin/resource-worker \
-  --evaluator-sha256 "sha256:$RESOURCE_WORKER_SHA256" \
   --evaluator-timeout-seconds 3600 \
   --artifact-root exact-resume/run-2026-08-02 \
   --output-directory evidence/resource-vault
@@ -737,8 +734,8 @@ hermes-train evaluate-candidate \
 SHA-256 arguments are raw 64-character hexadecimal digests. The selected run
 plus exactly ten repeatable `--comparison-run PATH=SHA256` values must cover the
 fixed eleven-ablation catalog; do not repeat the selected run. Every run must
-use the same content-pinned evaluator, manifests, candidate, ordering, paired
-seeds, and measured training-compute allowance. Resource-comparison v2 stores
+use the same evaluator, manifests, candidate, ordering, paired seeds, and
+measured training-compute allowance. Resource-comparison v2 stores
 a mandatory host-derived execution receipt, raw paired
 token/elapsed/latency observations, raw per-cycle capacity
 observations, and raw reference/candidate kernel values. After rechecking the

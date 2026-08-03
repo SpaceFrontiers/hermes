@@ -1,15 +1,14 @@
-//! Content-pinned JSONL bridge for benchmark evaluators.
+//! JSONL bridge for benchmark evaluators.
 //!
 //! Benchmark orchestration verifies suites and model manifests in-process. A
 //! long-lived local worker performs model-specific evaluation without making
 //! the benchmark framework depend on a particular generation or retrieval
-//! implementation. The executable is opened and hashed before it starts,
-//! requests are strictly versioned, and every response is validated by
-//! `BenchmarkRunner`.
+//! implementation. Requests are strictly versioned and every response is
+//! validated by `BenchmarkRunner`.
 
 use std::ffi::OsString;
-use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
+use std::path::PathBuf;
+use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 #[cfg(unix)]
@@ -19,15 +18,11 @@ use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 
 use crate::acceptance::SuiteVisibility;
-use crate::artifact_io::validate_sha256_identity;
 use crate::benchmark::{
     BenchmarkEvaluator, BenchmarkSpec, BenchmarkTarget, EvaluationMeasurement, EvaluationRequest,
     TargetRole, VerifiedArtifact, VerifiedModelRepresentation,
     validate_benchmark_evaluator_arguments,
 };
-use crate::pinned_executable::file_sha256 as pinned_file_sha256;
-#[cfg(unix)]
-use crate::pinned_executable::{PinnedExecutable, StagedExecutable};
 #[cfg(unix)]
 use crate::protocol_process::{ProtocolRead, SupervisedProcess};
 
@@ -39,7 +34,6 @@ const DEFAULT_BENCHMARK_EVALUATOR_TIMEOUT: Duration = Duration::from_secs(3_600)
 #[serde(deny_unknown_fields)]
 pub struct BenchmarkWorkerRequest<'a> {
     pub version: u32,
-    pub evaluator_sha256: &'a str,
     pub suite_id: &'a str,
     pub visibility: SuiteVisibility,
     pub case: &'a BenchmarkSpec,
@@ -67,14 +61,9 @@ struct RunningWorker {
 
 #[cfg(unix)]
 impl RunningWorker {
-    fn from_child(child: Child, executable: StagedExecutable) -> Result<Self> {
+    fn from_child(child: Child) -> Result<Self> {
         Ok(Self {
-            process: SupervisedProcess::new(
-                child,
-                executable,
-                "benchmark evaluator",
-                MAX_MESSAGE_BYTES,
-            )?,
+            process: SupervisedProcess::new(child, "benchmark evaluator", MAX_MESSAGE_BYTES)?,
         })
     }
 
@@ -194,17 +183,12 @@ impl RunningWorker {
 pub struct ExternalBenchmarkEvaluator {
     executable: PathBuf,
     arguments: Vec<String>,
-    expected_sha256: String,
     timeout: Duration,
     running: Option<RunningWorker>,
 }
 
 impl ExternalBenchmarkEvaluator {
-    pub fn new(
-        executable: impl Into<PathBuf>,
-        arguments: Vec<OsString>,
-        expected_sha256: impl Into<String>,
-    ) -> Result<Self> {
+    pub fn new(executable: impl Into<PathBuf>, arguments: Vec<OsString>) -> Result<Self> {
         let arguments = arguments
             .into_iter()
             .map(|argument| {
@@ -214,15 +198,12 @@ impl ExternalBenchmarkEvaluator {
             })
             .collect::<Result<Vec<_>>>()?;
         validate_benchmark_evaluator_arguments(&arguments)?;
-        let evaluator = Self {
+        Ok(Self {
             executable: executable.into(),
             arguments,
-            expected_sha256: expected_sha256.into(),
             timeout: DEFAULT_BENCHMARK_EVALUATOR_TIMEOUT,
             running: None,
-        };
-        evaluator.verify_identity()?;
-        Ok(evaluator)
+        })
     }
 
     /// Set the hard wall-clock bound for each request and for graceful worker
@@ -238,29 +219,9 @@ impl ExternalBenchmarkEvaluator {
         Ok(self)
     }
 
-    pub fn expected_sha256(&self) -> &str {
-        &self.expected_sha256
-    }
-
     /// Canonical argument vector that is part of benchmark run identity.
     pub fn arguments(&self) -> &[String] {
         &self.arguments
-    }
-
-    #[cfg(unix)]
-    pub fn verify_identity(&self) -> Result<()> {
-        validate_sha256_identity(&self.expected_sha256, "benchmark evaluator identity")?;
-        PinnedExecutable::verify(
-            &self.executable,
-            &self.expected_sha256,
-            "benchmark evaluator",
-        )?;
-        Ok(())
-    }
-
-    #[cfg(not(unix))]
-    pub fn verify_identity(&self) -> Result<()> {
-        bail!("external benchmark evaluators require a Unix process host")
     }
 
     #[cfg(unix)]
@@ -268,16 +229,7 @@ impl ExternalBenchmarkEvaluator {
         if self.running.is_some() {
             return Ok(());
         }
-        // Hash the opened descriptor and execute a private materialization of
-        // those exact bytes. A pathname replacement after verification cannot
-        // change the bytes selected for exec.
-        let executable = PinnedExecutable::open(
-            &self.executable,
-            &self.expected_sha256,
-            "benchmark evaluator",
-            "benchmark-evaluator",
-        )?;
-        let mut command = executable.command();
+        let mut command = Command::new(&self.executable);
         command
             .args(&self.arguments)
             .env_clear()
@@ -292,9 +244,7 @@ impl ExternalBenchmarkEvaluator {
                 self.executable.display()
             )
         })?;
-        // Keep the private executable path alive for the lifetime of the
-        // worker. Shebang interpreters may open it after `spawn` returns.
-        self.running = Some(RunningWorker::from_child(child, executable.into_staged())?);
+        self.running = Some(RunningWorker::from_child(child)?);
         Ok(())
     }
 
@@ -350,10 +300,8 @@ impl ExternalBenchmarkEvaluator {
 
 impl BenchmarkEvaluator for ExternalBenchmarkEvaluator {
     fn evaluate(&mut self, request: &EvaluationRequest<'_>) -> Result<EvaluationMeasurement> {
-        let expected_sha256 = self.expected_sha256.clone();
         let wire = BenchmarkWorkerRequest {
             version: BENCHMARK_WORKER_PROTOCOL_VERSION,
-            evaluator_sha256: &expected_sha256,
             suite_id: request.suite_id,
             visibility: request.visibility,
             case: request.case,
@@ -368,10 +316,6 @@ impl BenchmarkEvaluator for ExternalBenchmarkEvaluator {
         };
         self.evaluate_wire(&wire)
     }
-}
-
-pub fn file_sha256(path: &Path) -> Result<String> {
-    pinned_file_sha256(path)
 }
 
 fn checked_deadline(timeout: Duration) -> Result<Instant> {
@@ -391,6 +335,7 @@ fn ensure_before_deadline(deadline: Instant, timeout: Duration) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::path::Path;
     use std::time::Instant;
 
     use super::*;
@@ -492,9 +437,8 @@ mod tests {
                 "done\n"
             ),
         );
-        let hash = file_sha256(&worker).unwrap();
         let mut evaluator =
-            ExternalBenchmarkEvaluator::new(&worker, vec![OsString::from("--profile=a b")], &hash)
+            ExternalBenchmarkEvaluator::new(&worker, vec![OsString::from("--profile=a b")])
                 .unwrap();
         assert_eq!(evaluator.arguments(), ["--profile=a b"]);
         let first = evaluate_once(&mut evaluator, directory.path()).unwrap();
@@ -509,8 +453,7 @@ mod tests {
     fn response_timeout_terminates_the_worker() {
         let directory = tempfile::tempdir().unwrap();
         let worker = worker_script(directory.path(), "read -r request\n/bin/sleep 30\n");
-        let hash = file_sha256(&worker).unwrap();
-        let mut evaluator = ExternalBenchmarkEvaluator::new(&worker, Vec::new(), &hash)
+        let mut evaluator = ExternalBenchmarkEvaluator::new(&worker, Vec::new())
             .unwrap()
             .with_timeout(Duration::from_millis(100))
             .unwrap();
@@ -537,8 +480,7 @@ mod tests {
                 "exit 0\n"
             ),
         );
-        let hash = file_sha256(&worker).unwrap();
-        let mut evaluator = ExternalBenchmarkEvaluator::new(&worker, Vec::new(), &hash)
+        let mut evaluator = ExternalBenchmarkEvaluator::new(&worker, Vec::new())
             .unwrap()
             // Process startup can contend with the other lifecycle tests;
             // this remains far below the descendant's 30-second lifetime.
@@ -563,8 +505,7 @@ mod tests {
                 "/bin/sleep 30\n"
             ),
         );
-        let hash = file_sha256(&worker).unwrap();
-        let mut evaluator = ExternalBenchmarkEvaluator::new(&worker, Vec::new(), &hash)
+        let mut evaluator = ExternalBenchmarkEvaluator::new(&worker, Vec::new())
             .unwrap()
             .with_timeout(Duration::from_secs(2))
             .unwrap();
@@ -583,8 +524,7 @@ mod tests {
             directory.path(),
             "read -r request\nprintf '%s\\n' '{not-json}'\n/bin/sleep 30\n",
         );
-        let hash = file_sha256(&worker).unwrap();
-        let mut evaluator = ExternalBenchmarkEvaluator::new(&worker, Vec::new(), &hash)
+        let mut evaluator = ExternalBenchmarkEvaluator::new(&worker, Vec::new())
             .unwrap()
             .with_timeout(Duration::from_secs(3))
             .unwrap();
@@ -607,8 +547,7 @@ mod tests {
                 "read -r request\nprintf '%s\\n%s\\n' '{response}' '{response}'\n/bin/sleep 30\n"
             ),
         );
-        let hash = file_sha256(&worker).unwrap();
-        let mut evaluator = ExternalBenchmarkEvaluator::new(&worker, Vec::new(), &hash)
+        let mut evaluator = ExternalBenchmarkEvaluator::new(&worker, Vec::new())
             .unwrap()
             .with_timeout(Duration::from_secs(3))
             .unwrap();
@@ -626,27 +565,23 @@ mod tests {
 
         let directory = tempfile::tempdir().unwrap();
         let worker = worker_script(directory.path(), "exit 0\n");
-        let hash = file_sha256(&worker).unwrap();
 
-        let error =
-            ExternalBenchmarkEvaluator::new(&worker, vec![OsString::from_vec(vec![0xff])], &hash)
-                .err()
-                .unwrap()
-                .to_string();
+        let error = ExternalBenchmarkEvaluator::new(&worker, vec![OsString::from_vec(vec![0xff])])
+            .err()
+            .unwrap()
+            .to_string();
         assert!(error.contains("not valid UTF-8"), "{error}");
 
-        let error =
-            ExternalBenchmarkEvaluator::new(&worker, vec![OsString::from("argument"); 65], &hash)
-                .err()
-                .unwrap()
-                .to_string();
+        let error = ExternalBenchmarkEvaluator::new(&worker, vec![OsString::from("argument"); 65])
+            .err()
+            .unwrap()
+            .to_string();
         assert!(error.contains("exceed protocol limits"), "{error}");
 
-        let error =
-            ExternalBenchmarkEvaluator::new(&worker, vec![OsString::from("contains\0nul")], &hash)
-                .err()
-                .unwrap()
-                .to_string();
+        let error = ExternalBenchmarkEvaluator::new(&worker, vec![OsString::from("contains\0nul")])
+            .err()
+            .unwrap()
+            .to_string();
         assert!(error.contains("exceed protocol limits"), "{error}");
     }
 
@@ -656,8 +591,7 @@ mod tests {
         #[cfg(unix)]
         {
             let worker = worker_script(directory.path(), "exit 0\n");
-            let hash = file_sha256(&worker).unwrap();
-            let error = ExternalBenchmarkEvaluator::new(&worker, Vec::new(), &hash)
+            let error = ExternalBenchmarkEvaluator::new(&worker, Vec::new())
                 .unwrap()
                 .with_timeout(Duration::ZERO)
                 .err()

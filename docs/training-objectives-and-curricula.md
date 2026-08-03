@@ -94,9 +94,8 @@ It intentionally has no wake journal or initial tier/parameter-ID state: the
 integrated trainer seals those artifacts at each boundary.
 
 `hermes-train run-workflow` is the algorithm-neutral lifecycle runner. It
-verifies a non-symlink worker executable against
-`--executor-sha256 sha256:<64 lowercase hex>` before every launch and sends one
-protocol-v2 JSON request for each non-sleep, non-promotion phase. Promotion
+launches the configured worker executable and sends one protocol-v2 JSON
+request for each non-sleep, non-promotion phase. Promotion
 uses the built-in content-addressed acceptance executor; an external worker
 cannot authorize release. With `--sleep-runtime PATH` and
 `--sleep-runtime-sha256 sha256:...`, the stock CLI registers the first-party
@@ -119,7 +118,6 @@ accepted worker responses. New and resumed runs use:
 hermes-train run-workflow \
   --workflow hermes-train/workflow.example.json \
   --executor /opt/hermes/bin/phase-worker \
-  --executor-sha256 "sha256:$PHASE_WORKER_SHA256" \
   --state /data/run/workflow-runtime.json \
   --metrics /data/run/metrics.jsonl \
   --run-id workflow-seed-1 \
@@ -129,7 +127,6 @@ hermes-train run-workflow \
 hermes-train run-workflow \
   --workflow hermes-train/workflow.example.json \
   --executor /opt/hermes/bin/phase-worker \
-  --executor-sha256 "sha256:$PHASE_WORKER_SHA256" \
   --state /data/run/workflow-runtime.json \
   --metrics /data/run/metrics.jsonl \
   --run-id workflow-seed-1 \
@@ -158,7 +155,7 @@ trainable-policy model-token clocks against the phase input. The first-party
 the post-training resume envelope and drains all crossed tier boundaries in
 clock order before the next update may commit.
 Promotion remains built in, and only ordinary non-periodic phases may use the
-pinned external worker. The host validates the complete dispatch plan before
+external worker. The host validates the complete dispatch plan before
 it creates or loads state and binds workflow, worker, and factory identities
 into the resume digest. It deliberately supplies no site-specific loader,
 judge, evaluator, or storage implementation.
@@ -176,7 +173,7 @@ phase.
 
 The acceptance suite, benchmark suite manifest, acceptance policy, and resource
 comparison use strict v2 schemas. Resource comparison v2 is produced only by
-the first-party `run-resource-benchmark` host: a pinned, timeout-bounded worker
+the first-party `run-resource-benchmark` host: a timeout-bounded worker
 returns raw observations and safe relative artifact references, while the host
 derives a mandatory receipt over the complete run set, exact targets, addressed
 policy, fixtures/workload, evaluator binary and arguments, and approved vault
