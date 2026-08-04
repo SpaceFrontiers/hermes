@@ -3037,9 +3037,17 @@ mod tests {
     fn training_decreases_loss_and_checkpoint_roundtrips() {
         let mut config = small_hybrid();
         for block in config.pattern.as_mut().unwrap() {
-            block.dropout = 0.1;
-            block.attention.dropout = 0.1;
-            block.ffn.dropout = 0.1;
+            // Deliberately zero, and do not "restore" this to a live rate. The
+            // dropout masks are drawn from the backend's *global* device RNG,
+            // which every concurrently running test that builds a model also
+            // draws from. With dropout enabled the in-process model and the
+            // checkpoint-restored model see different masks on their shared
+            // training step, and the round-trip comparison below fails
+            // nondeterministically. Nothing here asserts dropout behaviour, and
+            // the final comparison runs under `.valid()` with dropout disabled.
+            block.dropout = 0.0;
+            block.attention.dropout = 0.0;
+            block.ffn.dropout = 0.0;
         }
         let device = hermes_llm::default_device().autodiff();
         device.seed(41);
