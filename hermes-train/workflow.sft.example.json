@@ -34,19 +34,19 @@
       "learning_rate_scale": 0.5
     },
     {
-      "name": "sft-2-instruction-tuning-seq8192",
+      "name": "sft-2-instruction-tuning-seq2048",
       "type": "sft",
       "task": {
         "type": "instruction_tuning",
         "instruction": "Follow the instruction and provide the requested response."
       },
-      "data": "/data/sft-mixture/v1-20260804/train-instruction.jsonl.zst",
-      "sequence_length": 8192,
-      "batch_size": 2,
-      "gradient_accumulation": 16,
+      "data": "/data/sft-mixture/v2-20260804/train-instruction.jsonl.zst",
+      "sequence_length": 2048,
+      "batch_size": 8,
+      "gradient_accumulation": 4,
       "epochs": 1,
       "shuffle_buffer": 2048,
-      "steps": 1000,
+      "steps": 4000,
       "loss_weight": 1.0,
       "learning_rate_scale": 1.0
     },
@@ -83,20 +83,20 @@
       "learning_rate_scale": 1.0
     },
     {
-      "name": "sft-4-qa-reasoning-rag-seq4096",
+      "name": "sft-4-qa-reasoning-rag-seq2048",
       "type": "sft",
       "task": {
         "type": "qa_reasoning",
         "instruction": "Solve the problem carefully and provide the final answer.",
         "require_reasoning": false
       },
-      "data": "/data/rag-task-data/v1-20260804/train-qa.jsonl.zst",
-      "sequence_length": 4096,
-      "batch_size": 4,
-      "gradient_accumulation": 8,
+      "data": "/data/rag-tasks/v2-20260804/train-qa.jsonl.zst",
+      "sequence_length": 2048,
+      "batch_size": 8,
+      "gradient_accumulation": 4,
       "epochs": 1,
       "shuffle_buffer": 4096,
-      "steps": 900,
+      "steps": 1800,
       "loss_weight": 1.0,
       "learning_rate_scale": 1.0
     },
@@ -121,7 +121,7 @@
         "type": "retrieval_planning",
         "instruction": "Create a concise retrieval plan as an ordered action trace."
       },
-      "data": "/data/rag-task-data/v1-20260804/train-planning.jsonl.zst",
+      "data": "/data/rag-tasks/v2-20260804/train-planning.jsonl.zst",
       "sequence_length": 1024,
       "batch_size": 16,
       "gradient_accumulation": 2,

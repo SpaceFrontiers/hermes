@@ -1644,6 +1644,11 @@ pub(super) fn train(args: TrainArgs) -> Result<()> {
                             seed: shuffle_seed,
                             token_cache: Some(&token_cache_path),
                             data_binding,
+                            // A supervised record this phase cannot frame is a
+                            // geometry bug the operator must fix: training over
+                            // a silently reduced dataset would report a loss
+                            // over an unknown subset of it.
+                            oversized: OversizedRecordPolicy::Abort,
                         },
                         |sample| {
                             visited = visited

@@ -83,8 +83,8 @@ use checkpoint::{
 #[cfg(test)]
 use data::TrainingSample;
 use data::{
-    BatchStats, PhaseDataBinding, SampleStreamConfig, TrainingBatch, count_samples,
-    indexed_causal_sample_count, make_batch, visit_samples,
+    BatchStats, OversizedRecordPolicy, PhaseDataBinding, SampleStreamConfig, TrainingBatch,
+    count_samples, indexed_causal_sample_count, make_batch, visit_samples,
 };
 use muon::BatchedMuon;
 use wake::{ResolvedWakePlan, load_wake_plan};
@@ -205,12 +205,35 @@ struct TrainArgs {
 /// Held-out objectives supported by the forward-only `eval` command. These are
 /// the objectives the wake trainer can optimize end to end, so their reported
 /// numbers are directly comparable with training-time metrics.
-#[derive(Clone, Copy, Debug, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, ValueEnum)]
 enum EvalObjective {
     #[value(name = "causal_lm")]
     CausalLm,
     #[value(name = "contrastive_retrieval")]
     ContrastiveRetrieval,
+    #[value(name = "summarization")]
+    Summarization,
+    #[value(name = "instruction_tuning")]
+    InstructionTuning,
+    #[value(name = "qa_reasoning")]
+    QaReasoning,
+    #[value(name = "retrieval_planning")]
+    RetrievalPlanning,
+}
+
+impl EvalObjective {
+    /// Supervised-generation objectives score only their target tokens, so they
+    /// share one report block, one prompt-framing contract, and the
+    /// oversized-record policy that a prompt-plus-target geometry needs.
+    fn is_supervised_generation(self) -> bool {
+        matches!(
+            self,
+            Self::Summarization
+                | Self::InstructionTuning
+                | Self::QaReasoning
+                | Self::RetrievalPlanning
+        )
+    }
 }
 
 #[derive(clap::Args)]
@@ -252,6 +275,17 @@ struct EvalArgs {
     /// default, exactly as an unset workflow objective would.
     #[arg(long)]
     temperature: Option<f64>,
+    /// Instruction text for a supervised-generation objective. It is part of
+    /// every prompt, so it must match the training phase's `task.instruction`
+    /// for the reported loss to be comparable. Omitted uses the same built-in
+    /// default an unset workflow objective would.
+    #[arg(long)]
+    instruction: Option<String>,
+    /// `qa_reasoning` only: require a `reasoning` field and supervise the
+    /// `Reasoning:`/`Answer:` target framing, exactly as the training phase's
+    /// `require_reasoning` does.
+    #[arg(long)]
+    require_reasoning: bool,
     /// JSON report path. The human-readable summary is always printed.
     #[arg(short = 'o', long)]
     output: Option<PathBuf>,
