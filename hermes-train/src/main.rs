@@ -179,8 +179,10 @@ struct TrainArgs {
     /// Physical NVIDIA index, GPU UUID, or PCI bus ID passed to nvidia-smi.
     #[arg(long, default_value = "0")]
     gpu_physical_device: String,
-    /// Safetensors checkpoint to fine-tune from.
-    #[arg(long, conflicts_with = "resume")]
+    /// Safetensors checkpoint to fine-tune from. Its exact identity is part of
+    /// the run signature, so `--resume` must repeat the same value; the resumed
+    /// weights themselves always come from --output, never from this file.
+    #[arg(long)]
     checkpoint: Option<PathBuf>,
     /// Resume weights, optimizer state, schedule, and corpus position from --output.
     #[arg(long)]
