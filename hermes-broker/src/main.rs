@@ -247,13 +247,27 @@ async fn async_main(args: Args) -> Result<()> {
                 port_annotation: args.port_annotation.clone(),
                 default_port: args.backend_port,
             };
+            // kube's rustls-tls requires a process-level crypto provider;
+            // installing twice is fine (subsequent installs error, ignored).
+            let _ = rustls::crypto::ring::default_provider().install_default();
             let shutdown = shutdown_rx.clone();
             let fail_shutdown = shutdown_tx.clone();
+            // Fail loud: a broker with no discovery routes nothing. The
+            // double-spawn also converts a PANIC inside the discovery task
+            // (JoinError) into shutdown instead of a zombie broker that
+            // forever answers NOT_SERVING.
             tokio::spawn(async move {
-                if let Err(e) = kube_discovery::run(cfg, endpoints_tx, shutdown).await {
-                    // Fail loud: a broker with no discovery routes nothing.
-                    log::error!("kubernetes discovery failed: {e:#}; shutting down");
-                    let _ = fail_shutdown.send(true);
+                let outcome = tokio::spawn(kube_discovery::run(cfg, endpoints_tx, shutdown)).await;
+                match outcome {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => {
+                        log::error!("kubernetes discovery failed: {e:#}; shutting down");
+                        let _ = fail_shutdown.send(true);
+                    }
+                    Err(join_error) => {
+                        log::error!("kubernetes discovery crashed: {join_error}; shutting down");
+                        let _ = fail_shutdown.send(true);
+                    }
                 }
             })
         }
@@ -335,6 +349,7 @@ async fn async_main(args: Args) -> Result<()> {
     let signal_flag = Arc::clone(&shutting_down);
     let signal_shutdown = shutdown_tx.clone();
     let drain_health = health_reporter.clone();
+    let internal_shutdown_rx = shutdown_rx.clone();
     let serve_result = Server::builder()
         .tcp_keepalive(Some(Duration::from_secs(60)))
         .http2_keepalive_interval(Some(Duration::from_secs(30)))
@@ -364,7 +379,22 @@ async fn async_main(args: Args) -> Result<()> {
         )
         .add_service(BrokerServiceServer::new(admin_service))
         .serve_with_shutdown(addr, async move {
-            shutdown_signal().await;
+            // OS signal, or internal failure (e.g. discovery crash flips the
+            // shutdown channel): either way exit rather than linger as a
+            // routing-dead process.
+            let mut internal_shutdown = internal_shutdown_rx;
+            tokio::select! {
+                _ = shutdown_signal() => {}
+                _ = async {
+                    while internal_shutdown.changed().await.is_ok() {
+                        if *internal_shutdown.borrow() {
+                            break;
+                        }
+                    }
+                } => {
+                    warn!("internal shutdown requested; draining");
+                }
+            }
             // Refuse new RPCs while tonic drains in-flight ones, and flip the
             // health probe so k8s stops routing to this pod.
             signal_flag.store(true, Ordering::Relaxed);

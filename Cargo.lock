@@ -3322,6 +3322,7 @@ dependencies = [
  "num_cpus",
  "parking_lot",
  "prost",
+ "rustls",
  "tempfile",
  "tokio",
  "tokio-stream",
