@@ -15,3 +15,8 @@ pub mod hermes {
 pub mod broker {
     tonic::include_proto!("hermes.broker");
 }
+
+/// Encoded file descriptor sets for gRPC server reflection.
+pub const HERMES_DESCRIPTOR: &[u8] = tonic::include_file_descriptor_set!("hermes_descriptor");
+pub const BROKER_DESCRIPTOR: &[u8] =
+    tonic::include_file_descriptor_set!("hermes_broker_descriptor");

@@ -304,6 +304,15 @@ async fn async_main(args: Args) -> Result<()> {
         ctx: Arc::clone(&ctx),
     };
 
+    // Server reflection so grpcurl and friends can drive the broker (and the
+    // hermes.proto surface behind it) without local .proto files — the
+    // migration runbook's verification steps depend on this.
+    let reflection_service = tonic_reflection::server::Builder::configure()
+        .register_encoded_file_descriptor_set(proto::HERMES_DESCRIPTOR)
+        .register_encoded_file_descriptor_set(proto::BROKER_DESCRIPTOR)
+        .build_v1()
+        .map_err(|e| anyhow::anyhow!("failed to build reflection service: {e}"))?;
+
     info!("Hermes broker v{}", env!("CARGO_PKG_VERSION"));
     info!("Starting Hermes broker on {addr}");
     info!("Discovery: {:?}", args.discovery);
@@ -336,6 +345,7 @@ async fn async_main(args: Args) -> Result<()> {
         .max_concurrent_streams(Some(256))
         .concurrency_limit_per_connection(128)
         .add_service(health_service)
+        .add_service(reflection_service)
         .add_service(
             SearchServiceServer::new(search_service)
                 .max_decoding_message_size(SEARCH_MAX_DECODE)
