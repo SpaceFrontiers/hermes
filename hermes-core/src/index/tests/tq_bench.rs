@@ -238,6 +238,8 @@ async fn run_method(
             crate::segment::VectorIndex::BinaryIvf(_) => "binary_ivf",
             crate::segment::VectorIndex::Tq { .. } => "tq_flat",
             crate::segment::VectorIndex::IvfTq { .. } => "ivf_tq",
+            crate::segment::VectorIndex::ScannAh(_) => "scann_ah",
+            crate::segment::VectorIndex::ScannBinary(_) => "scann_binary",
         })
         .next()
         .unwrap_or("none")
@@ -248,7 +250,9 @@ async fn run_method(
         .map(|ann| match ann {
             crate::segment::VectorIndex::BinaryIvf(index) => index.get().header().vector_count,
             crate::segment::VectorIndex::Tq { index, .. }
-            | crate::segment::VectorIndex::IvfTq { index, .. } => index.get().header().vector_count,
+            | crate::segment::VectorIndex::IvfTq { index, .. }
+            | crate::segment::VectorIndex::ScannAh(index)
+            | crate::segment::VectorIndex::ScannBinary(index) => index.get().header().vector_count,
         })
         .sum();
     let vectors_bytes: u64 = {
