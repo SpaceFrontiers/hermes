@@ -29,6 +29,8 @@ pub(crate) use builder::graph_bisection::{
     build_forward_index_from_blocks, build_forward_index_from_bmps, graph_bisection,
 };
 #[cfg(any(feature = "native", feature = "wasm"))]
+pub(crate) use builder::validate_vector_value_counts;
+#[cfg(any(feature = "native", feature = "wasm"))]
 pub use builder::{
     BpBudget, MemoryBreakdown, SegmentBuilder, SegmentBuilderConfig, SegmentBuilderStats,
 };
