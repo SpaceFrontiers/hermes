@@ -4,11 +4,12 @@
 //! - **Unpacking**: Convert packed 8/16/32-bit values to u32 arrays
 //! - **Delta decoding**: Prefix sum for converting deltas to absolute values
 //! - **Add one**: Increment all values in an array (for TF decoding)
+//! - **Float reductions**: dot product, squared L2, squared norm
 //!
 //! Supports:
 //! - **NEON** on aarch64 (Apple Silicon, ARM servers)
 //! - **SSE/SSE4.1** on x86_64 (Intel/AMD)
-//! - **Scalar fallback** for other architectures
+//! - **Scalar fallback** for other architectures (algebraic float ops, see below)
 
 // ============================================================================
 // NEON intrinsics for aarch64 (Apple Silicon, ARM servers)
@@ -1777,6 +1778,94 @@ unsafe fn dequantize_uint8_sse(
     }
 }
 
+// ============================================================================
+// Algebraic float reductions
+// ============================================================================
+//
+// `f32::algebraic_add` / `algebraic_mul` (stable since Rust 1.98) permit the
+// compiler to reassociate a floating-point reduction. That permission is the
+// whole point: with strict IEEE `+` the loop-carried dependency on the
+// accumulator pins these reductions to one scalar add per iteration, and LLVM
+// is not allowed to split them into independent accumulator chains or vector
+// lanes. With algebraic ops it vectorizes them the same way the hand-written
+// NEON/AVX kernels below do by hand.
+//
+// Measured on aarch64 (Apple Silicon, rustc 1.98.0, opt-level=3, baseline
+// target-cpu), before -> after ns/op:
+//
+//   dim    squared_l2       scalar dot     fused dot+norm   SOAR loss
+//   128     55.5 -> 17.0     108 ->  16      145 ->  27      76.6 -> 18.8
+//   384    220.8 -> 26.1     360 ->  32      365 ->  30      290  -> 80.0
+//   768    592.8 -> 63.2     956 ->  55      752 ->  52      538  -> 67.7
+//   1536  1827.8 -> 123.6   2032 -> 131     1404 -> 123     1464  -> 287
+//
+// i.e. 3-17x depending on width, largest at embedding-sized dimensions.
+// Relative error against a strict f64 reference stays under 1e-6.
+//
+// End to end on `benches/vector_indexing.rs` (criterion, source-only diff):
+// ivf_coarse_training/257 clusters -29.1%, /64 clusters -16.4%,
+// ivf_tq_plan/64 -21.9%, ivf_tq_plan/16 -9.4%. See
+// docs/algebraic-float-reductions.md.
+//
+// These operations are always safe (never UB), but they are *not*
+// bit-reproducible across builds: a different rustc version, target CPU, or
+// inlining decision may pick a different reduction order and move the last few
+// ULPs. That variance already exists in every kernel in this module —
+// `dot_product_f32` rounds differently on NEON (4 accumulators), AVX2 (4),
+// AVX-512 (4) and the scalar path (1), so a query scored on an Apple Silicon
+// replica already does not bit-match the same query on an AVX-512 replica.
+// Using algebraic ops in the scalar paths therefore adds no new *class* of
+// variance, only the same one at vector speed.
+//
+// Do not use these where a float is compared for bit-exact equality, hashed, or
+// written into a content-addressed artifact.
+
+/// Dot product of two equal-length f32 slices, reassociated for vectorization.
+#[inline]
+fn dot_product_f32_scalar(a: &[f32], b: &[f32]) -> f32 {
+    a.iter().zip(b).fold(0.0f32, |acc, (&x, &y)| {
+        acc.algebraic_add(x.algebraic_mul(y))
+    })
+}
+
+/// Fused dot(a, b) and dot(b, b) over equal-length f32 slices in one pass.
+#[inline]
+fn fused_dot_norm_scalar(a: &[f32], b: &[f32]) -> (f32, f32) {
+    a.iter()
+        .zip(b)
+        .fold((0.0f32, 0.0f32), |(dot, norm), (&x, &y)| {
+            (
+                dot.algebraic_add(x.algebraic_mul(y)),
+                norm.algebraic_add(y.algebraic_mul(y)),
+            )
+        })
+}
+
+/// Squared L2 distance `||a - b||^2` between two equal-length f32 slices.
+///
+/// The element-wise subtraction stays strict IEEE; only the summation is
+/// reassociated. Iterates over `min(a.len(), b.len())` elements.
+#[inline]
+pub fn squared_l2_f32(a: &[f32], b: &[f32]) -> f32 {
+    a.iter().zip(b).fold(0.0f32, |acc, (&x, &y)| {
+        let delta = x - y;
+        acc.algebraic_add(delta.algebraic_mul(delta))
+    })
+}
+
+/// Squared L2 norm `||v||^2` of an f32 slice.
+#[inline]
+pub fn norm_squared_f32(v: &[f32]) -> f32 {
+    v.iter()
+        .fold(0.0f32, |acc, &x| acc.algebraic_add(x.algebraic_mul(x)))
+}
+
+/// L2 norm `||v||` of an f32 slice.
+#[inline]
+pub fn norm_f32(v: &[f32]) -> f32 {
+    norm_squared_f32(v).sqrt()
+}
+
 /// Compute dot product of two f32 arrays with SIMD acceleration
 #[inline]
 pub fn dot_product_f32(a: &[f32], b: &[f32], count: usize) -> f32 {
@@ -1807,11 +1896,7 @@ pub fn dot_product_f32(a: &[f32], b: &[f32], count: usize) -> f32 {
     }
 
     // Scalar fallback
-    let mut sum = 0.0f32;
-    for i in 0..count {
-        sum += a[i] * b[i];
-    }
-    sum
+    dot_product_f32_scalar(&a[..count], &b[..count])
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -2085,13 +2170,7 @@ fn fused_dot_norm(a: &[f32], b: &[f32], count: usize) -> (f32, f32) {
     }
 
     // Scalar fallback
-    let mut dot = 0.0f32;
-    let mut norm_b = 0.0f32;
-    for i in 0..count {
-        dot += a[i] * b[i];
-        norm_b += b[i] * b[i];
-    }
-    (dot, norm_b)
+    fused_dot_norm_scalar(&a[..count], &b[..count])
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -2667,45 +2746,39 @@ mod neon_quant {
 
 #[allow(dead_code)]
 fn fused_dot_norm_f16_scalar(query_f16: &[u16], vec_f16: &[u16], dim: usize) -> (f32, f32) {
-    let mut dot = 0.0f32;
-    let mut norm = 0.0f32;
-    for i in 0..dim {
+    (0..dim).fold((0.0f32, 0.0f32), |(dot, norm), i| {
         let v = f16_to_f32(vec_f16[i]);
         let q = f16_to_f32(query_f16[i]);
-        dot += q * v;
-        norm += v * v;
-    }
-    (dot, norm)
+        (
+            dot.algebraic_add(q.algebraic_mul(v)),
+            norm.algebraic_add(v.algebraic_mul(v)),
+        )
+    })
 }
 
 #[allow(dead_code)]
 fn fused_dot_norm_u8_scalar(query: &[f32], vec_u8: &[u8], dim: usize) -> (f32, f32) {
-    let mut dot = 0.0f32;
-    let mut norm = 0.0f32;
-    for i in 0..dim {
+    (0..dim).fold((0.0f32, 0.0f32), |(dot, norm), i| {
         let v = u8_to_f32(vec_u8[i]);
-        dot += query[i] * v;
-        norm += v * v;
-    }
-    (dot, norm)
+        (
+            dot.algebraic_add(query[i].algebraic_mul(v)),
+            norm.algebraic_add(v.algebraic_mul(v)),
+        )
+    })
 }
 
 #[allow(dead_code)]
 fn dot_product_f16_scalar(query_f16: &[u16], vec_f16: &[u16], dim: usize) -> f32 {
-    let mut dot = 0.0f32;
-    for i in 0..dim {
-        dot += f16_to_f32(query_f16[i]) * f16_to_f32(vec_f16[i]);
-    }
-    dot
+    (0..dim).fold(0.0f32, |dot, i| {
+        dot.algebraic_add(f16_to_f32(query_f16[i]).algebraic_mul(f16_to_f32(vec_f16[i])))
+    })
 }
 
 #[allow(dead_code)]
 fn dot_product_u8_scalar(query: &[f32], vec_u8: &[u8], dim: usize) -> f32 {
-    let mut dot = 0.0f32;
-    for i in 0..dim {
-        dot += query[i] * u8_to_f32(vec_u8[i]);
-    }
-    dot
+    (0..dim).fold(0.0f32, |dot, i| {
+        dot.algebraic_add(query[i].algebraic_mul(u8_to_f32(vec_u8[i])))
+    })
 }
 
 // ============================================================================
@@ -4919,5 +4992,117 @@ mod find_first_ge_tests {
         assert_eq!(find_first_ge_u32(&data, u32::MAX - 10), 0);
         assert_eq!(find_first_ge_u32(&data, u32::MAX - 7), 1);
         assert_eq!(find_first_ge_u32(&data, u32::MAX), 3);
+    }
+}
+
+/// Regression coverage for the algebraic (reassociation-permitting) float
+/// reductions. Pins them against a strict f64 reference and against the
+/// hand-written SIMD kernels they must stay interchangeable with.
+#[cfg(test)]
+mod algebraic_reduction_tests {
+    use super::*;
+
+    fn algebraic_test_vector(dim: usize, seed: u64) -> Vec<f32> {
+        let mut state = seed | 1;
+        (0..dim)
+            .map(|_| {
+                state = state
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                ((state >> 33) as f32 / (1u64 << 30) as f32) - 1.0
+            })
+            .collect()
+    }
+
+    /// Dimensions that straddle every SIMD chunk width used in this module
+    /// (4/8/16 lanes) plus their tails, and realistic embedding widths.
+    const ALGEBRAIC_TEST_DIMS: [usize; 12] = [0, 1, 3, 4, 7, 8, 15, 16, 17, 64, 384, 768];
+
+    #[test]
+    fn test_algebraic_squared_l2_matches_f64_reference() {
+        for dim in ALGEBRAIC_TEST_DIMS {
+            let a = algebraic_test_vector(dim, 0x51ed_0001);
+            let b = algebraic_test_vector(dim, 0x51ed_0002);
+            let reference: f64 = a
+                .iter()
+                .zip(&b)
+                .map(|(&x, &y)| {
+                    let delta = f64::from(x) - f64::from(y);
+                    delta * delta
+                })
+                .sum();
+            let actual = squared_l2_f32(&a, &b);
+            let tolerance = (reference * 1e-5).max(1e-6);
+            assert!(
+                (f64::from(actual) - reference).abs() <= tolerance,
+                "dim {dim}: squared_l2_f32 {actual} drifted from f64 reference {reference}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_algebraic_squared_l2_uses_shorter_length() {
+        let a = [1.0f32, 2.0, 3.0, 4.0];
+        let b = [1.0f32, 4.0];
+        assert_eq!(squared_l2_f32(&a, &b), 4.0);
+        assert_eq!(squared_l2_f32(&b, &a), 4.0);
+    }
+
+    #[test]
+    fn test_algebraic_norm_squared_matches_f64_reference() {
+        for dim in ALGEBRAIC_TEST_DIMS {
+            let v = algebraic_test_vector(dim, 0x51ed_0003);
+            let reference: f64 = v.iter().map(|&x| f64::from(x) * f64::from(x)).sum();
+            let actual = norm_squared_f32(&v);
+            let tolerance = (reference * 1e-5).max(1e-6);
+            assert!(
+                (f64::from(actual) - reference).abs() <= tolerance,
+                "dim {dim}: norm_squared_f32 {actual} drifted from f64 reference {reference}"
+            );
+            assert!(
+                (f64::from(norm_f32(&v)) - reference.sqrt()).abs() <= tolerance.sqrt().max(1e-5)
+            );
+        }
+    }
+
+    #[test]
+    fn test_algebraic_dot_scalar_matches_simd_dispatch() {
+        for dim in ALGEBRAIC_TEST_DIMS {
+            let a = algebraic_test_vector(dim, 0x51ed_0004);
+            let b = algebraic_test_vector(dim, 0x51ed_0005);
+            let dispatched = dot_product_f32(&a, &b, dim);
+            let scalar = dot_product_f32_scalar(&a, &b);
+            let tolerance = (dispatched.abs() * 1e-5).max(1e-5);
+            assert!(
+                (dispatched - scalar).abs() <= tolerance,
+                "dim {dim}: scalar dot {scalar} disagrees with dispatched {dispatched}"
+            );
+
+            let (fused_dot, fused_norm) = fused_dot_norm(&a, &b, dim);
+            let (scalar_dot, scalar_norm) = fused_dot_norm_scalar(&a, &b);
+            assert!((fused_dot - scalar_dot).abs() <= tolerance);
+            assert!((fused_norm - scalar_norm).abs() <= (fused_norm.abs() * 1e-5).max(1e-5));
+        }
+    }
+
+    /// Rust's algebraic operations differ from `-ffast-math`: they permit
+    /// reassociation but never assume finite inputs. NaN and infinity must
+    /// still propagate, otherwise a degenerate stored vector would silently
+    /// score as a finite number instead of being rejected downstream.
+    #[test]
+    fn test_algebraic_reductions_propagate_non_finite() {
+        let finite = vec![1.0f32; 8];
+
+        let mut with_nan = finite.clone();
+        with_nan[5] = f32::NAN;
+        assert!(norm_squared_f32(&with_nan).is_nan());
+        assert!(squared_l2_f32(&with_nan, &finite).is_nan());
+        assert!(dot_product_f32_scalar(&with_nan, &finite).is_nan());
+
+        let mut with_inf = finite.clone();
+        with_inf[2] = f32::INFINITY;
+        assert!(norm_squared_f32(&with_inf).is_infinite());
+        assert!(squared_l2_f32(&with_inf, &finite).is_infinite());
+        assert!(dot_product_f32_scalar(&with_inf, &finite).is_infinite());
     }
 }

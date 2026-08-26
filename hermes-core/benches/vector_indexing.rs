@@ -1,3 +1,5 @@
+#![allow(clippy::chunks_exact_to_as_chunks)]
+
 //! Dense ANN microbenchmarks: coarse training, TQ LUT16 block scoring, and
 //! IVF-TQ plan build.
 //!
