@@ -118,7 +118,9 @@ message PhraseQuery { string field = 1; string text = 2; uint32 slop = 3; string
 the token positions become the phrase offsets (`hermes_core::PhraseQuery::
 with_offsets`), so terms must occur at their original distances (`slop` 0)
 or within `slop` positions of them; with no stop words dropped that is the
-usual consecutive match. Requires
+usual consecutive match. The score is BM25 over the phrase frequency (the
+number of occurrences of the whole phrase in the unit) with the summed idf of
+the terms and the unit's real length, Lucene semantics. Requires
 `indexed<token_position>` or `indexed<positions>`; without positions
 `hermes_core::PhraseQuery` degrades to a MUST of the terms, and a single
 token collapses to a `TermQuery`. Scored with BM25. The query-language parser

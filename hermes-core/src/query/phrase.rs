@@ -447,6 +447,9 @@ struct PhraseScorer {
     slop: u32,
     /// Current matching document
     current_doc: DocId,
+    /// Number of phrase occurrences in the current document (phrase
+    /// frequency), the `tf` of the phrase for BM25.
+    current_matches: u32,
     /// Combined IDF
     idf: f32,
     /// Average field length
@@ -486,6 +489,7 @@ impl PhraseScorer {
             deltas,
             slop,
             current_doc: 0,
+            current_matches: 0,
             idf,
             avg_field_len,
             lengths: None,
@@ -572,24 +576,21 @@ impl PhraseScorer {
             }
         }
 
-        // Check for consecutive positions
-        // For exact phrase (slop=0), position[i+1] = position[i] + 1
-        self.find_phrase_match_from_bufs()
+        // Count the occurrences: every position of the first term that
+        // starts a full match. The count is the phrase frequency BM25 scores.
+        self.current_matches = self.count_phrase_matches_in_bufs();
+        self.current_matches > 0
     }
 
-    /// Find phrase match using the internal reusable buffers
-    fn find_phrase_match_from_bufs(&self) -> bool {
+    /// Number of phrase occurrences in the internal reusable buffers.
+    fn count_phrase_matches_in_bufs(&self) -> u32 {
         if self.position_bufs.is_empty() || self.position_bufs[0].is_empty() {
-            return false;
+            return 0;
         }
-
-        for &first_pos in &self.position_bufs[0] {
-            if self.check_phrase_from_position(first_pos, &self.position_bufs) {
-                return true;
-            }
-        }
-
-        false
+        self.position_bufs[0]
+            .iter()
+            .filter(|&&first_pos| self.check_phrase_from_position(first_pos, &self.position_bufs))
+            .count() as u32
     }
 
     /// Check if a phrase exists starting from the given position
@@ -657,21 +658,23 @@ impl Scorer for PhraseScorer {
             return 0.0;
         }
 
-        // Sum term frequencies for BM25 scoring
-        let tf: f32 = self
-            .posting_iters
-            .iter()
-            .map(|it| it.term_freq() as f32)
-            .sum();
+        // BM25 over the phrase frequency with the summed idf of the terms
+        // (Lucene semantics): a document with two occurrences of the phrase
+        // outranks one with a single occurrence at equal length.
+        let tf = self.current_matches.max(1) as f32;
 
-        // Chunked fields know the real chunk length; other fields keep the
-        // `tf`-as-length approximation.
+        // Real unit length when the segment has it; otherwise the summed
+        // term frequency stands in for the length (legacy segments).
         let doc_len = match &self.lengths {
             Some(lengths) => (lengths.length(self.current_doc) as f32).max(1.0),
-            None => tf,
+            None => self
+                .posting_iters
+                .iter()
+                .map(|it| it.term_freq() as f32)
+                .sum::<f32>()
+                .max(tf),
         };
 
-        // Phrase matches get a boost since they're more precise
-        super::bm25_score(tf, self.idf, doc_len, self.avg_field_len) * 1.5
+        super::bm25_score(tf, self.idf, doc_len, self.avg_field_len)
     }
 }

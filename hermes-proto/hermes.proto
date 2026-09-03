@@ -192,7 +192,8 @@ message MatchQuery {
 // words between them, whose positions are kept as gaps) or within `slop`
 // positions of that. Requires the field to be indexed with token positions
 // (`indexed<token_position>` or `indexed<positions>`); without positions the
-// engine degrades to a MUST of the terms. Scored with BM25 like MatchQuery.
+// engine degrades to a MUST of the terms. Scored with BM25 over the phrase
+// frequency (occurrences of the whole phrase) and the summed idf of its terms.
 // A phrase whose words are all stop words is rejected standalone and dropped
 // (with a server warning) when it is a clause of a BooleanQuery.
 message PhraseQuery {
