@@ -161,6 +161,10 @@ field content: text<stem(by: languages, default: simple, stop_words: true)> [ind
   boundaries (`float-zero` → `float`, `zero`), bigrams runs of Han, Hiragana
   and Katakana, and folds diacritics of Latin, Cyrillic and Greek tokens
   after stemming.
+- `reorder` on a chunked text field lets the reorder pass permute the
+  field's virtual chunk ids with Recursive Graph Bisection over the field's
+  own postings (smaller postings, tighter block bounds). Only that field's
+  postings, positions and chunk map are rewritten; document ids never move.
 - Each token is stemmed with the first hinted language whose script matches
   the token (Snowball stemmers are script-local), so Cyrillic and Latin text
   in one document both stem correctly; same-script languages use the first

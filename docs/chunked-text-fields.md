@@ -38,7 +38,10 @@ field content: text<stem(by: languages, default: simple)> [indexed<chunked, toke
 Each chunked field owns a segment-local, dense **virtual id** space. The
 `n`-th chunk value indexed for the field (across all documents, in indexing
 order) gets virtual id `n`; documents are added in doc-id order, so virtual
-ids are sorted by `(doc_id, ordinal)`. Term postings and position lists of a
+ids start out sorted by `(doc_id, ordinal)`. A reorder pass on a field with
+the `reorder` attribute permutes them (BP over the field's postings,
+`docs/lexical-vertical.md`); no query path depends on the order. Term
+postings and position lists of a
 chunked field are keyed by virtual id and use the existing
 `BlockPostingList` format and the cursor-addressed position stream of
 `docs/lexical-vertical.md` ("Position list format v2"). Token positions

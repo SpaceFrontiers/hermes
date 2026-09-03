@@ -214,7 +214,7 @@ impl SegmentMerger {
     /// concatenation (O(blocks) instead of O(postings)), including the
     /// single-source case.
     /// Otherwise: full decode → remap doc IDs → re-encode.
-    async fn merge_term(
+    pub(crate) async fn merge_term(
         &self,
         segments: &[SegmentReader],
         sources: &mut [(usize, TermInfo, u32)],

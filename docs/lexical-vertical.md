@@ -233,6 +233,10 @@ segment is still readable and is converted by its first merge.
 
 ## Field-level reordering
 
+Status: implemented for the standalone reorder pass (2026-09-03,
+`segment/text_reorder.rs`, driven by `reorder_segment`, i.e. the optimizer
+and `IndexWriter::reorder`); merge-time BP for text fields is still open.
+
 There is no document-level permutation in Hermes and this design keeps it
 that way: doc ids, the store, the fast fields and the dense vector maps
 never move. A field that wants locality owns its permutation and a map back
@@ -380,7 +384,8 @@ unicode`).
    L1 superblock maxima, per-field k1/b, proximity rescoring (all done).
    Block-Max WAND as an alternative executor for short queries: possible on
    the same cursors, to be decided from measurements on a real generation.
-5. Field-level BP reordering of chunked text fields through their chunk maps.
+5. Field-level BP reordering of chunked text fields through their chunk maps
+   (done for the standalone/optimizer pass; merge-time pass open).
 6. Anytime/budgeted BM25 and long-query handling.
 7. Cross-shard DF with broker phase 2.
 

@@ -17,9 +17,11 @@
 //! only; they are still read.
 //!
 //! Virtual ids are assigned in indexing order, and documents are indexed in
-//! doc-id order, so `doc_ids` is non-decreasing and `(doc_id, ordinal)` is
-//! strictly increasing. Merges concatenate sections and add the document
-//! offset to `doc_ids`; ordinals and lengths are copied verbatim.
+//! doc-id order, so `doc_ids` starts out non-decreasing. A reorder pass on a
+//! field with the `reorder` attribute permutes the virtual ids (BP over the
+//! field's postings, `segment/text_reorder.rs`); no query path depends on the
+//! order. Merges concatenate sections and add the document offset to
+//! `doc_ids`; ordinals and lengths are copied verbatim.
 //!
 //! A doc-length section stores the token count of the field in every
 //! document of the segment (0 when the document has no value), so BM25 can
