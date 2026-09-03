@@ -10,8 +10,12 @@
 use std::hint::black_box;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+#[cfg(feature = "sync")]
 use hermes_core::directories::MmapDirectory;
-use hermes_core::dsl::{DenseVectorConfig, Document, IvfRoutingMode, SchemaBuilder};
+use hermes_core::dsl::IvfRoutingMode;
+#[cfg(feature = "sync")]
+use hermes_core::dsl::{DenseVectorConfig, Document, SchemaBuilder};
+#[cfg(feature = "sync")]
 use hermes_core::index::{Index, IndexConfig, IndexWriter};
 use hermes_core::structures::CoarseCentroids;
 use hermes_core::structures::simd;
@@ -139,12 +143,18 @@ fn bench_coarse_routing_crossover(c: &mut Criterion) {
     group.finish();
 }
 
+#[cfg(feature = "sync")]
 const SEARCH_DIM: usize = 128;
+#[cfg(feature = "sync")]
 const SEARCH_DOCS: usize = 200_000;
+#[cfg(feature = "sync")]
 const SEARCH_CLUSTERS: usize = 256;
+#[cfg(feature = "sync")]
 const SEARCH_K: usize = 10;
+#[cfg(feature = "sync")]
 const SEARCH_RERANK_FACTOR: f32 = 2.0;
 
+#[cfg(feature = "sync")]
 struct SearchFixture {
     _dir: tempfile::TempDir,
     _index: Index<MmapDirectory>,
@@ -155,6 +165,7 @@ struct SearchFixture {
 
 /// Build one merged on-disk IVF-TQ segment: clustered corpus, trained coarse
 /// router, generation rewrite — exactly what production serves from.
+#[cfg(feature = "sync")]
 fn build_search_fixture(runtime: &tokio::runtime::Runtime, soar: bool) -> SearchFixture {
     let config = if soar {
         DenseVectorConfig::ivf_tq(SEARCH_DIM, Some(SEARCH_CLUSTERS), 32)
@@ -235,6 +246,7 @@ fn build_search_fixture(runtime: &tokio::runtime::Runtime, soar: bool) -> Search
 /// End-to-end IVF-TQ segment search: plan build, probed lane loop, collector,
 /// exact rerank. `nprobe` 32 stays on the serial scan; 128 crosses the
 /// parallel fan-out threshold on this corpus (100k probed postings).
+#[cfg(feature = "sync")]
 fn bench_ivf_tq_search(c: &mut Criterion) {
     if !selected("ivf_tq_search") {
         return;
@@ -277,6 +289,9 @@ fn bench_ivf_tq_search(c: &mut Criterion) {
     }
     group.finish();
 }
+
+#[cfg(not(feature = "sync"))]
+fn bench_ivf_tq_search(_: &mut Criterion) {}
 
 const BATCH_VECTORS: usize = 4_096;
 const BATCH_DIM: usize = 768;
