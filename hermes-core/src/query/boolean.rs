@@ -235,6 +235,7 @@ macro_rules! boolean_plan {
                     reader.schema().index_label(),
                     reader.schema().get_field_name(text_field).unwrap_or("?"),
                     None,
+                    super::Bm25Params::for_field(reader.schema(), text_field),
                 );
             }
 
@@ -299,6 +300,7 @@ macro_rules! boolean_plan {
                             reader.schema().index_label(),
                             reader.schema().get_field_name(*field).unwrap_or("?"),
                             None,
+                            super::Bm25Params::for_field(reader.schema(), *field),
                         )?);
                     }
                 }
@@ -406,6 +408,7 @@ macro_rules! boolean_plan {
                             reader.schema().index_label(),
                             reader.schema().get_field_name(field).unwrap_or("?"),
                             Some(predicate),
+                            super::Bm25Params::for_field(reader.schema(), field),
                         )?
                     };
                     let hits = scorer.size_hint();

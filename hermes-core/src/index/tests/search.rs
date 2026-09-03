@@ -1044,6 +1044,80 @@ async fn block_max_skip_never_jumps_over_another_essential_cursor() {
     }
 }
 
+/// Per-field BM25 parameters reach every scoring path: with `b: 0` the
+/// field length no longer matters, and `k1` changes the saturation curve.
+#[tokio::test]
+async fn per_field_bm25_parameters_apply_to_scores() {
+    use crate::dsl::sdl::parse_sdl;
+    use crate::query::{Bm25Params, BooleanQuery, TermQuery};
+
+    let schema = parse_sdl(
+        "index i {\n  field flat: text<simple> [indexed<b: 0.0>]\n  field body: text<simple> [indexed<k1: 0.5, b: 0.75>]\n}",
+    )
+    .unwrap()[0]
+        .to_schema();
+    let flat = schema.get_field("flat").unwrap();
+    let body = schema.get_field("body").unwrap();
+    let dir = RamDirectory::new();
+    let config = IndexConfig::default();
+    let mut writer = IndexWriter::create(dir.clone(), schema.clone(), config.clone())
+        .await
+        .unwrap();
+    let long = format!("needle {}", "pad ".repeat(60));
+    for text in ["needle", long.as_str()] {
+        let mut doc = Document::new();
+        doc.add_text(flat, text);
+        doc.add_text(body, text);
+        writer.add_document(doc).unwrap();
+    }
+    writer.commit().await.unwrap();
+    let index = Index::open(dir, config).await.unwrap();
+
+    // b = 0: both documents score the same despite the length difference,
+    // through the single-term scorer and through the MaxScore executor.
+    let scores = |response: crate::query::SearchResponse| {
+        let mut v: Vec<(u32, f32)> = response
+            .hits
+            .iter()
+            .map(|h| (h.address.doc_id, h.score))
+            .collect();
+        v.sort_by_key(|(d, _)| *d);
+        v
+    };
+    let single = scores(
+        index
+            .search(&TermQuery::text(flat, "needle"), 10)
+            .await
+            .unwrap(),
+    );
+    assert_eq!(single.len(), 2);
+    assert!((single[0].1 - single[1].1).abs() < 1e-6, "{single:?}");
+    let query = BooleanQuery::new()
+        .should(TermQuery::text(flat, "needle"))
+        .should(TermQuery::text(flat, "pad"));
+    let both = scores(index.search(&query, 10).await.unwrap());
+    let needle_only = single[0].1;
+    assert!((both[0].1 - needle_only).abs() < 1e-6, "{both:?}");
+
+    // k1 = 0.5 on `body`: the short document's score equals BM25 with those
+    // parameters, not the defaults.
+    let params = Bm25Params::for_field(&schema, body);
+    assert_eq!((params.k1, params.b), (0.5, 0.75));
+    let hits = scores(
+        index
+            .search(&TermQuery::text(body, "needle"), 10)
+            .await
+            .unwrap(),
+    );
+    let idf = crate::query::bm25_idf(2.0, 2.0);
+    let avg = (1.0 + 61.0) / 2.0;
+    assert!(
+        (hits[0].1 - params.score(1.0, idf, 1.0, avg)).abs() < 1e-5,
+        "{hits:?}"
+    );
+    assert!((hits[0].1 - Bm25Params::default().score(1.0, idf, 1.0, avg)).abs() > 1e-3);
+}
+
 /// Stop words dropped at index time leave their positions behind, so a
 /// phrase keeps the original word distances: `"quantum of the art"` is
 /// `quantum@0 art@3` on both sides and never matches `quantum art`.

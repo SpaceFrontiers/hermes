@@ -166,6 +166,11 @@ field content: text<stem(by: languages, default: simple, stop_words: true)> [ind
   in one document both stem correctly; same-script languages use the first
   listed one.
 - `indexed<token_position>` enables phrase queries on the field.
+- `indexed<k1: 0.9, b: 0.4>` sets the field's BM25 parameters (defaults
+  1.2 and 0.75; `b` must lie in 0..=1). They apply to every BM25 path
+  (MaxScore bounds and scores, term and phrase scorers) at query time; the
+  stored block bounds are parameter-free, so no rebuild is needed to change
+  them.
 
 See `docs/dynamic-tokenizer-and-phrase.md` for the design.
 

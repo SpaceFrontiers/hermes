@@ -161,7 +161,8 @@ fn build_chunked_phrase_scorer<'a>(
     let (postings, positions): (Vec<_>, Vec<_>) = term_data.into_iter().unzip();
     let mut scorer =
         PhraseScorer::new(postings, positions, offsets, slop, idf, chunk_map.avg_len())
-            .with_lengths(Lengths::Chunks(chunk_map.clone()));
+            .with_lengths(Lengths::Chunks(chunk_map.clone()))
+            .with_params(super::Bm25Params::for_field(reader.schema(), field));
 
     use super::docset::DocSet as _;
     let mut raw: Vec<(u32, u16, f32)> = Vec::new();
@@ -197,7 +198,8 @@ fn build_phrase_scorer<'a>(
         .sum();
     let avg_field_len = reader.avg_field_len(field);
     let (postings, positions): (Vec<_>, Vec<_>) = term_data.into_iter().unzip();
-    let mut scorer = PhraseScorer::new(postings, positions, offsets, slop, idf, avg_field_len);
+    let mut scorer = PhraseScorer::new(postings, positions, offsets, slop, idf, avg_field_len)
+        .with_params(super::Bm25Params::for_field(reader.schema(), field));
     if let Some(lengths) = reader.doc_lengths(field) {
         scorer = scorer.with_lengths(Lengths::Docs(lengths.clone()));
     }
@@ -452,6 +454,8 @@ struct PhraseScorer {
     current_matches: u32,
     /// Combined IDF
     idf: f32,
+    /// Per-field k1/b.
+    params: super::Bm25Params,
     /// Average field length
     avg_field_len: f32,
     /// Real lengths of the scoring units. `None` keeps the historic
@@ -490,6 +494,7 @@ impl PhraseScorer {
             slop,
             current_doc: 0,
             current_matches: 0,
+            params: super::Bm25Params::default(),
             idf,
             avg_field_len,
             lengths: None,
@@ -503,6 +508,12 @@ impl PhraseScorer {
     /// Score with the real length of each scoring unit.
     fn with_lengths(mut self, lengths: Lengths) -> Self {
         self.lengths = Some(lengths);
+        self
+    }
+
+    /// Score with the field's BM25 parameters.
+    fn with_params(mut self, params: super::Bm25Params) -> Self {
+        self.params = params;
         self
     }
 
@@ -675,6 +686,6 @@ impl Scorer for PhraseScorer {
                 .max(tf),
         };
 
-        super::bm25_score(tf, self.idf, doc_len, self.avg_field_len)
+        self.params.score(tf, self.idf, doc_len, self.avg_field_len)
     }
 }

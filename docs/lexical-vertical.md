@@ -314,9 +314,12 @@ the map lookup per hit that chunked fields already pay.
 
 ## Scoring
 
-- BM25 constants become per-field schema options (`k1`, `b`) with the Lucene
+- BM25 constants are per-field schema options (`indexed<k1: .., b: ..>`,
+  implemented 2026-09-03; `Bm25Params::for_field`) with the Lucene
   formulation as default (Kamphuis et al., "Which BM25 Do You Mean?", ECIR
   2020: the variants are practically equivalent, so keep the common one).
+  The stored `(max_tf, min_len)` bounds are parameter-free, so k1/b change
+  without a rebuild.
 - Phrase score = BM25 over the **phrase frequency** (number of matched
   occurrences) with the phrase's summed idf, not `1.5 × BM25(Σ tf)`
   (implemented 2026-09-03).
@@ -369,7 +372,7 @@ per-list clustering (all need a bounded vocabulary).
 3. UAX #29 tokenizer, folding, CJK bigrams (done, opt-in `segmenter:
 unicode`).
 4. Filters and phrases as executor predicates, phrase-frequency scoring,
-   L1 superblock maxima (done); proximity rescoring, per-field k1/b (open).
+   L1 superblock maxima, per-field k1/b (done); proximity rescoring (open).
    Block-Max WAND as an alternative executor for short queries: possible on
    the same cursors, to be decided from measurements on a real generation.
 5. Field-level BP reordering of chunked text fields through their chunk maps.

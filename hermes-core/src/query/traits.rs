@@ -8,21 +8,6 @@ use std::pin::Pin;
 use crate::segment::SegmentReader;
 use crate::{DocId, Result, Score};
 
-/// BM25 parameters
-#[derive(Debug, Clone, Copy)]
-pub struct Bm25Params {
-    /// Term frequency saturation parameter (typically 1.2-2.0)
-    pub k1: f32,
-    /// Length normalization parameter (typically 0.75)
-    pub b: f32,
-}
-
-impl Default for Bm25Params {
-    fn default() -> Self {
-        Self { k1: 1.2, b: 0.75 }
-    }
-}
-
 /// Future type for scorer creation
 #[cfg(not(target_arch = "wasm32"))]
 pub type ScorerFuture<'a> = Pin<Box<dyn Future<Output = Result<Box<dyn Scorer + 'a>>> + Send + 'a>>;

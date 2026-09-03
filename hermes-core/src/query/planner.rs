@@ -83,11 +83,12 @@ pub(super) fn finish_text_maxscore<'a>(
     index_label: &str,
     field_label: &str,
     predicate: Option<DocPredicate<'a>>,
+    params: super::Bm25Params,
 ) -> crate::Result<Box<dyn Scorer + 'a>> {
     if posting_lists.is_empty() {
         return Ok(Box::new(EmptyScorer) as Box<dyn Scorer + 'a>);
     }
-    let mut executor = MaxScoreExecutor::text(posting_lists, avg_field_len, limit, lengths)
+    let mut executor = MaxScoreExecutor::text(posting_lists, avg_field_len, limit, lengths, params)
         .with_metric_labels(index_label, field_label);
     if let Some(predicate) = predicate {
         executor = executor.with_predicate(predicate);
@@ -168,6 +169,7 @@ pub(crate) fn finish_chunked_text_maxscore<'a>(
         chunk_map.avg_len(),
         executor_limit,
         chunk_map,
+        super::Bm25Params::for_field(reader.schema(), field),
     )
     .with_metric_labels(
         reader.schema().index_label(),

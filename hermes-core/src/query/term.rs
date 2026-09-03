@@ -147,7 +147,8 @@ macro_rules! term_plan {
                     None
                 };
 
-                let mut scorer = TermScorer::new(posting_list, idf, avg_field_len, 1.0);
+                let mut scorer = TermScorer::new(posting_list, idf, avg_field_len, 1.0)
+                    .with_params(super::Bm25Params::for_field(reader.schema(), field));
                 if let Some(lengths) = reader.doc_lengths(field) {
                     scorer = scorer.with_doc_lengths(lengths.clone());
                 }
@@ -304,6 +305,8 @@ struct TermScorer {
     positions: Option<crate::structures::TermPositions>,
     /// Persisted per-document field lengths; `None` keeps `tf` as the length.
     lengths: Option<crate::segment::chunk_map::DocLengths>,
+    /// Per-field k1/b.
+    params: super::Bm25Params,
 }
 
 impl TermScorer {
@@ -321,7 +324,14 @@ impl TermScorer {
             field_id: 0,
             positions: None,
             lengths: None,
+            params: super::Bm25Params::default(),
         }
+    }
+
+    /// Score with the field's BM25 parameters.
+    pub fn with_params(mut self, params: super::Bm25Params) -> Self {
+        self.params = params;
+        self
     }
 
     /// Score with the field's persisted per-document lengths.
@@ -451,7 +461,8 @@ impl Scorer for TermScorer {
             .map(|lengths| lengths.length(self.iterator.doc()) as f32)
             .filter(|len| *len > 0.0)
             .unwrap_or(tf);
-        super::bm25f_score(tf, self.idf, doc_len, self.avg_field_len, self.field_boost)
+        self.params
+            .score_boosted(tf, self.idf, doc_len, self.avg_field_len, self.field_boost)
     }
 
     fn matched_positions(&self) -> Option<super::MatchedPositions> {

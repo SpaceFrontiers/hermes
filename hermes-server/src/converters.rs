@@ -831,6 +831,13 @@ pub fn schema_to_sdl(schema: &Schema) -> String {
             if entry.chunked {
                 idx_params.push("chunked".to_string());
             }
+            // BM25 parameters of a text field
+            if let Some(k1) = entry.bm25_k1 {
+                idx_params.push(format!("k1: {k1}"));
+            }
+            if let Some(b) = entry.bm25_b {
+                idx_params.push(format!("b: {b}"));
+            }
 
             // Positions (for text/sparse)
             if let Some(pos) = entry.positions {
@@ -1833,6 +1840,25 @@ mod tests {
         let mut too_wide = base;
         too_wide.matryoshka_dims = 4;
         assert!(convert_reranker(&too_wide, &schema).is_err());
+    }
+
+    #[test]
+    fn schema_to_sdl_renders_bm25_parameters() {
+        let input = r#"
+            index documents {
+                field title: text<en_stem> [indexed<token_position, k1: 0.9, b: 0.4>]
+            }
+        "#;
+        let schema = hermes_core::dsl::sdl::parse_sdl(input).unwrap()[0].to_schema();
+        let rendered = schema_to_sdl(&schema);
+        assert!(rendered.contains("k1: 0.9"), "{rendered}");
+        assert!(rendered.contains("b: 0.4"), "{rendered}");
+        let reparsed = hermes_core::dsl::sdl::parse_sdl(&rendered).unwrap()[0].to_schema();
+        let entry = reparsed
+            .get_field_entry(reparsed.get_field("title").unwrap())
+            .unwrap();
+        assert_eq!(entry.bm25_k1, Some(0.9));
+        assert_eq!(entry.bm25_b, Some(0.4));
     }
 
     #[test]
