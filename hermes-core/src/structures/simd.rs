@@ -3566,15 +3566,43 @@ pub fn batch_cosine_scores_precomp(
         "precomputed cosine vectors are truncated: need {required}, got {}",
         vectors.len()
     );
-    let kernel = DenseF32Kernel::resolve();
-    for i in 0..n {
-        let vec = &vectors[i * dim..(i + 1) * dim];
-        let (dot, norm_v_sq) = kernel.fused_dot_norm(query, vec, dim);
-        scores[i] = if norm_v_sq < f32::EPSILON {
-            0.0
-        } else {
-            dot * inv_norm_q * fast_inv_sqrt(norm_v_sq)
-        };
+    // Dispatch outside the row loop. Calling `DenseF32Kernel::fused_dot_norm`
+    // through a loop-carried enum was measurably slower on Sapphire Rapids;
+    // these arms preserve a direct target-feature call without repeating CPU
+    // detection for every stored vector.
+    macro_rules! score_simd_rows {
+        ($kernel:path) => {{
+            for i in 0..n {
+                let vec = &vectors[i * dim..(i + 1) * dim];
+                let (dot, norm_v_sq) = unsafe { $kernel(query, vec, dim) };
+                scores[i] = if norm_v_sq < f32::EPSILON {
+                    0.0
+                } else {
+                    dot * inv_norm_q * fast_inv_sqrt(norm_v_sq)
+                };
+            }
+        }};
+    }
+    match DenseF32Kernel::resolve() {
+        #[cfg(target_arch = "aarch64")]
+        DenseF32Kernel::Neon => score_simd_rows!(fused_dot_norm_neon),
+        #[cfg(target_arch = "x86_64")]
+        DenseF32Kernel::Avx512 => score_simd_rows!(fused_dot_norm_avx512),
+        #[cfg(target_arch = "x86_64")]
+        DenseF32Kernel::Avx2Fma => score_simd_rows!(fused_dot_norm_avx2),
+        #[cfg(target_arch = "x86_64")]
+        DenseF32Kernel::Sse => score_simd_rows!(fused_dot_norm_sse),
+        DenseF32Kernel::Scalar => {
+            for i in 0..n {
+                let vec = &vectors[i * dim..(i + 1) * dim];
+                let (dot, norm_v_sq) = fused_dot_norm_scalar(query, vec);
+                scores[i] = if norm_v_sq < f32::EPSILON {
+                    0.0
+                } else {
+                    dot * inv_norm_q * fast_inv_sqrt(norm_v_sq)
+                };
+            }
+        }
     }
 }
 
