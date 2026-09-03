@@ -1337,8 +1337,105 @@ pub fn convert_proto_to_document(
     Ok(doc)
 }
 
+/// Render the text statistics of one searcher for `GetTextStats`.
+pub fn text_stats_to_proto(
+    stats: &hermes_core::query::GlobalStats,
+    schema: &hermes_core::Schema,
+) -> crate::proto::TextStats {
+    let mut fields: Vec<crate::proto::TextFieldStats> = stats
+        .text_fields()
+        .filter_map(|(field, field_stats)| {
+            let name = schema.get_field_name(field)?;
+            let mut terms: Vec<crate::proto::TermDocFreq> = field_stats
+                .doc_freqs
+                .iter()
+                .map(|(term, df)| crate::proto::TermDocFreq {
+                    term: term.as_bytes().to_vec(),
+                    doc_freq: *df,
+                })
+                .collect();
+            terms.sort_by(|a, b| a.term.cmp(&b.term));
+            Some(crate::proto::TextFieldStats {
+                field: name.to_string(),
+                corpus_size: field_stats.corpus_size,
+                avg_len: field_stats.avg_field_len,
+                terms,
+            })
+        })
+        .collect();
+    fields.sort_by(|a, b| a.field.cmp(&b.field));
+    crate::proto::TextStats {
+        total_docs: stats.total_docs(),
+        fields,
+    }
+}
+
+/// Build the scoring statistics a search runs with from a broker-supplied
+/// `SearchRequest.text_stats`. Fields unknown to this schema are dropped.
+pub fn text_stats_from_proto(
+    stats: &crate::proto::TextStats,
+    schema: &hermes_core::Schema,
+) -> hermes_core::query::GlobalStats {
+    let mut builder = hermes_core::query::GlobalStatsBuilder::new();
+    builder.total_docs = stats.total_docs;
+    for field_stats in &stats.fields {
+        let Some(field) = schema.get_field(&field_stats.field) else {
+            continue;
+        };
+        builder.set_avg_field_len(field, field_stats.avg_len.max(1.0));
+        builder.set_text_corpus_size(field, field_stats.corpus_size);
+        for term in &field_stats.terms {
+            if term.doc_freq > 0 {
+                builder.add_text_df(
+                    field,
+                    String::from_utf8_lossy(&term.term).into_owned(),
+                    term.doc_freq,
+                );
+            }
+        }
+    }
+    builder.build(0)
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn text_stats_round_trip_through_proto() {
+        use hermes_core::query::GlobalStatsBuilder;
+        let mut builder = hermes_core::SchemaBuilder::default();
+        let body = builder.add_text_field_with_tokenizer("body", true, false, "simple");
+        let title = builder.add_text_field_with_tokenizer("title", true, false, "simple");
+        let schema = builder.build();
+        let mut builder = GlobalStatsBuilder::new();
+        builder.total_docs = 1_000;
+        builder.set_text_corpus_size(body, 12_345);
+        builder.set_avg_field_len(body, 48.5);
+        builder.add_text_df(body, "needle".to_string(), 7);
+        builder.add_text_df(body, "haystack".to_string(), 900);
+        builder.set_text_corpus_size(title, 1_000);
+        builder.set_avg_field_len(title, 6.0);
+        builder.add_text_df(title, "needle".to_string(), 3);
+        let stats = builder.build(0);
+
+        let wire = text_stats_to_proto(&stats, &schema);
+        assert_eq!(wire.total_docs, 1_000);
+        assert_eq!(wire.fields.len(), 2);
+        let body_wire = wire.fields.iter().find(|f| f.field == "body").unwrap();
+        assert_eq!(body_wire.corpus_size, 12_345);
+        assert_eq!(body_wire.terms.len(), 2);
+
+        let back = text_stats_from_proto(&wire, &schema);
+        assert_eq!(back.total_docs(), 1_000);
+        assert_eq!(back.text_corpus_size(body), 12_345);
+        assert_eq!(back.text_df(body, "needle"), Some(7));
+        assert_eq!(back.text_df(title, "needle"), Some(3));
+        assert!((back.avg_field_len(body) - 48.5).abs() < 1e-6);
+        // IDF uses the field's corpus (chunks), not the document total.
+        let expected = ((12_345.0f32 - 7.0 + 0.5) / (7.0 + 0.5) + 1.0).ln();
+        assert!((back.text_idf(body, "needle") - expected).abs() < 1e-5);
+        assert_eq!(back.text_idf(body, "absent"), 0.0);
+    }
+
     use super::*;
 
     fn shape() -> QueryShapeLimits {

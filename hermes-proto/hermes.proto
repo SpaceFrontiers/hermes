@@ -12,6 +12,13 @@ service SearchService {
 
   // Get index info
   rpc GetIndexInfo(GetIndexInfoRequest) returns (GetIndexInfoResponse);
+
+  // Text statistics (document frequencies, corpus sizes, average lengths)
+  // of the BM25 terms of a query over this backend's index. A broker that
+  // scatters one index over several shards sums the responses and sends the
+  // total back as `SearchRequest.text_stats`, so every shard scores with
+  // the same IDF.
+  rpc GetTextStats(GetTextStatsRequest) returns (GetTextStatsResponse);
 }
 
 // Index service
@@ -255,6 +262,44 @@ message SearchRequest {
   // results found so far; `SearchResponse.truncated` reports that it fired.
   // 0 = unbounded (exact top-k).
   uint64 time_budget_ms = 8;
+  // Cross-shard text statistics for BM25 (see `GetTextStats`). When set they
+  // replace the backend's own statistics for the listed fields and terms;
+  // unset = the backend aggregates over its own segments.
+  TextStats text_stats = 9;
+}
+
+message GetTextStatsRequest {
+  string index_name = 1;
+  // The query whose BM25 terms are collected (after this backend's own
+  // tokenization); sparse, dense and filter clauses contribute nothing.
+  Query query = 2;
+}
+
+message GetTextStatsResponse {
+  TextStats stats = 1;
+}
+
+// BM25 statistics of a set of text terms.
+message TextStats {
+  // Documents in the index (or the sum over shards).
+  uint64 total_docs = 1;
+  repeated TextFieldStats fields = 2;
+}
+
+message TextFieldStats {
+  string field = 1;
+  // Scoring units of the field: documents for a plain field, chunks for a
+  // chunked one.
+  uint64 corpus_size = 2;
+  // Average length of a scoring unit in tokens.
+  float avg_len = 3;
+  repeated TermDocFreq terms = 4;
+}
+
+message TermDocFreq {
+  // Index-time token bytes.
+  bytes term = 1;
+  uint64 doc_freq = 2;
 }
 
 // Unique document address: segment + local doc_id

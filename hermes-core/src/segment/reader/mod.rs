@@ -3622,6 +3622,18 @@ impl SegmentReader {
 // ── Synchronous search methods (mmap/RAM only) ─────────────────────────────
 #[cfg(feature = "sync")]
 impl SegmentReader {
+    /// Document frequency of a text term from the term dictionary alone (no
+    /// posting bytes are read). 0 when the term is absent.
+    pub fn text_doc_freq_sync(&self, field: Field, term: &[u8]) -> Result<u32> {
+        let mut key = Vec::with_capacity(4 + term.len());
+        key.extend_from_slice(&field.0.to_le_bytes());
+        key.extend_from_slice(term);
+        Ok(self
+            .term_dict
+            .get_sync(&key)?
+            .map_or(0, |info| info.doc_freq()))
+    }
+
     /// Synchronous posting list lookup — requires Inline (mmap/RAM) file handles.
     pub fn get_postings_sync(&self, field: Field, term: &[u8]) -> Result<Option<BlockPostingList>> {
         // Build key: field_id + term

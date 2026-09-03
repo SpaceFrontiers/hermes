@@ -1349,6 +1349,104 @@ async fn text_maxscore_stops_at_the_deadline() {
     assert!(partial.windows(2).all(|w| w[0].score >= w[1].score));
 }
 
+/// BM25 IDF and average length come from the whole searcher, not the
+/// segment: the same document scores identically in a small and a large
+/// segment, and identically to the force-merged index.
+#[tokio::test]
+async fn text_scores_use_searcher_wide_statistics_across_segments() {
+    use crate::query::{BooleanQuery, TermQuery};
+    use std::collections::BTreeMap;
+
+    let mut schema_builder = SchemaBuilder::default();
+    let body = schema_builder.add_text_field_with_tokenizer("body", true, false, "simple");
+    let n = schema_builder.add_u64_field("n", true, true);
+    let schema = schema_builder.build();
+    let dir = RamDirectory::new();
+    let config = IndexConfig::default();
+    let mut writer = IndexWriter::create(dir.clone(), schema.clone(), config.clone())
+        .await
+        .unwrap();
+    // Segment 1: two documents, "needle" is in both (local idf ~ 0).
+    for (i, text) in [(1u64, "needle haystack"), (2, "needle")] {
+        let mut doc = Document::new();
+        doc.add_text(body, text);
+        doc.add_u64(n, i);
+        writer.add_document(doc).unwrap();
+    }
+    writer.commit().await.unwrap();
+    // Segment 2: the same first document among 300 long "haystack" documents.
+    let mut doc = Document::new();
+    doc.add_text(body, "needle haystack");
+    doc.add_u64(n, 3);
+    writer.add_document(doc).unwrap();
+    for i in 0..300u64 {
+        let mut doc = Document::new();
+        doc.add_text(body, "haystack ".repeat(12));
+        doc.add_u64(n, 100 + i);
+        writer.add_document(doc).unwrap();
+    }
+    writer.commit().await.unwrap();
+    drop(writer);
+
+    async fn by_n(
+        index: &Index<RamDirectory>,
+        query: &dyn crate::query::Query,
+        n: crate::Field,
+    ) -> BTreeMap<u64, i64> {
+        let reader = index.reader().await.unwrap();
+        let searcher = reader.searcher().await.unwrap();
+        let (results, _) = searcher.search_with_count(query, 400).await.unwrap();
+        let mut out = BTreeMap::new();
+        for result in results {
+            let doc = searcher
+                .doc(result.segment_id, result.doc_id)
+                .await
+                .unwrap()
+                .unwrap();
+            let key = doc.get_first(n).unwrap().as_u64().unwrap();
+            out.insert(key, (result.score * 1e4).round() as i64);
+        }
+        out
+    }
+
+    let index = Index::open(dir.clone(), config.clone()).await.unwrap();
+    assert_eq!(
+        index
+            .reader()
+            .await
+            .unwrap()
+            .searcher()
+            .await
+            .unwrap()
+            .segment_readers()
+            .len(),
+        2
+    );
+    let query = BooleanQuery::new()
+        .should(TermQuery::text(body, "needle"))
+        .should(TermQuery::text(body, "haystack"));
+    let scores = by_n(&index, &query, n).await;
+    assert_eq!(
+        scores[&1], scores[&3],
+        "identical documents in different segments must score alike: {scores:?}"
+    );
+    let single = by_n(&index, &TermQuery::text(body, "needle"), n).await;
+    assert_eq!(single[&1], single[&3], "{single:?}");
+
+    // The merged index scores exactly the same.
+    let mut writer = IndexWriter::open(dir.clone(), config.clone())
+        .await
+        .unwrap();
+    writer.force_merge().await.unwrap();
+    drop(writer);
+    let merged = Index::open(dir, config).await.unwrap();
+    assert_eq!(by_n(&merged, &query, n).await, scores);
+    assert_eq!(
+        by_n(&merged, &TermQuery::text(body, "needle"), n).await,
+        single
+    );
+}
+
 /// Stop words dropped at index time leave their positions behind, so a
 /// phrase keeps the original word distances: `"quantum of the art"` is
 /// `quantum@0 art@3` on both sides and never matches `quantum art`.

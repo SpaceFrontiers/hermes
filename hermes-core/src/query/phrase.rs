@@ -231,6 +231,12 @@ macro_rules! phrase_early_returns {
 }
 
 impl Query for PhraseQuery {
+    fn text_terms(&self, out: &mut Vec<(Field, Vec<u8>)>) {
+        for term in &self.terms {
+            out.push((self.field, term.clone()));
+        }
+    }
+
     fn scorer<'a>(&self, reader: &'a SegmentReader, limit: usize) -> ScorerFuture<'a> {
         self.scorer_with_options(reader, limit, super::ScorerOptions::with_positions())
     }

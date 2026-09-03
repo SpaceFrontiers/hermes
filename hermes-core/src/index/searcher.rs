@@ -669,7 +669,7 @@ impl<D: Directory + 'static> Searcher<D> {
         limit: usize,
         deadline: Option<std::time::Instant>,
     ) -> Result<(Vec<crate::query::SearchResult>, u32, bool)> {
-        self.search_internal_budgeted(query, limit, 0, true, deadline)
+        self.search_internal_budgeted(query, limit, 0, true, deadline, None)
             .await
     }
 
@@ -681,8 +681,60 @@ impl<D: Directory + 'static> Searcher<D> {
         limit: usize,
         deadline: Option<std::time::Instant>,
     ) -> Result<(Vec<crate::query::SearchResult>, u32, bool)> {
-        self.search_internal_budgeted(query, limit, 0, false, deadline)
+        self.search_internal_budgeted(query, limit, 0, false, deadline, None)
             .await
+    }
+
+    /// [`Self::search_with_positions_budgeted`] with externally supplied
+    /// text statistics (a broker's cross-shard document frequencies); they
+    /// replace the searcher's own segment-aggregated statistics.
+    pub async fn search_with_positions_budgeted_stats(
+        &self,
+        query: &dyn crate::query::Query,
+        limit: usize,
+        deadline: Option<std::time::Instant>,
+        stats: Option<Arc<crate::query::GlobalStats>>,
+    ) -> Result<(Vec<crate::query::SearchResult>, u32, bool)> {
+        self.search_internal_budgeted(query, limit, 0, true, deadline, stats)
+            .await
+    }
+
+    /// [`Self::search_with_count_budgeted`] with externally supplied text
+    /// statistics.
+    pub async fn search_with_count_budgeted_stats(
+        &self,
+        query: &dyn crate::query::Query,
+        limit: usize,
+        deadline: Option<std::time::Instant>,
+        stats: Option<Arc<crate::query::GlobalStats>>,
+    ) -> Result<(Vec<crate::query::SearchResult>, u32, bool)> {
+        self.search_internal_budgeted(query, limit, 0, false, deadline, stats)
+            .await
+    }
+
+    /// Text statistics a query scores with: the caller's override when
+    /// given, otherwise document frequencies, corpus sizes and average
+    /// lengths aggregated over every segment of this searcher (`None` for a
+    /// single segment, whose local statistics already are the whole).
+    pub fn query_text_stats(
+        &self,
+        query: &dyn crate::query::Query,
+        stats_override: Option<Arc<crate::query::GlobalStats>>,
+    ) -> Option<Arc<crate::query::GlobalStats>> {
+        if stats_override.is_some() {
+            return stats_override;
+        }
+        if self.segments.len() < 2 {
+            return None;
+        }
+        let mut terms = Vec::new();
+        query.text_terms(&mut terms);
+        if terms.is_empty() {
+            return None;
+        }
+        terms.sort_unstable_by(|a, b| (a.0.0, &a.1).cmp(&(b.0.0, &b.1)));
+        terms.dedup_by(|a, b| a.0.0 == b.0.0 && a.1 == b.1);
+        Some(Arc::new(self.global_stats.text_stats_for(&terms)))
     }
 
     /// Build the paper's single query-level top-γ superblock set, then project
@@ -934,7 +986,7 @@ impl<D: Directory + 'static> Searcher<D> {
         collect_positions: bool,
     ) -> Result<(Vec<crate::query::SearchResult>, u32)> {
         let (results, seen, _) = self
-            .search_internal_budgeted(query, limit, offset, collect_positions, None)
+            .search_internal_budgeted(query, limit, offset, collect_positions, None, None)
             .await?;
         Ok((results, seen))
     }
@@ -946,8 +998,10 @@ impl<D: Directory + 'static> Searcher<D> {
         offset: usize,
         collect_positions: bool,
         deadline: Option<std::time::Instant>,
+        stats_override: Option<Arc<crate::query::GlobalStats>>,
     ) -> Result<(Vec<crate::query::SearchResult>, u32, bool)> {
         let fetch_limit = checked_search_window(limit, offset)?;
+        let text_stats = self.query_text_stats(query, stats_override);
 
         // Use rayon + block_in_place for CPU-bound scoring (sync feature required).
         // Offloads the scoring loop from tokio workers so search doesn't starve
@@ -965,6 +1019,7 @@ impl<D: Directory + 'static> Searcher<D> {
                 offset,
                 collect_positions,
                 deadline,
+                text_stats,
             );
         }
 
@@ -992,6 +1047,7 @@ impl<D: Directory + 'static> Searcher<D> {
         #[cfg(feature = "native")]
         let bmp_io_gate = Arc::clone(&self.bmp_io_gate);
         let run_segment = |segment_index: usize| {
+            let text_stats = text_stats.clone();
             let segment = Arc::clone(&self.segments[segment_index]);
             let lsp_plan = lsp_plans[segment_index].clone();
             let shared = shared.clone();
@@ -1015,6 +1071,7 @@ impl<D: Directory + 'static> Searcher<D> {
                     collect_positions,
                     shared.clone(),
                     lsp_plan,
+                    text_stats.clone(),
                 )
                 .await?;
                 if fetch_limit > 0 && results.len() >= fetch_limit {
@@ -1067,6 +1124,7 @@ impl<D: Directory + 'static> Searcher<D> {
         offset: usize,
         collect_positions: bool,
         deadline: Option<std::time::Instant>,
+        text_stats: Option<Arc<crate::query::GlobalStats>>,
     ) -> Result<(Vec<crate::query::SearchResult>, u32, bool)> {
         tokio::task::block_in_place(|| {
             self.search_internal_sync_budgeted(
@@ -1075,6 +1133,7 @@ impl<D: Directory + 'static> Searcher<D> {
                 offset,
                 collect_positions,
                 deadline,
+                text_stats,
             )
         })
     }
@@ -1091,12 +1150,14 @@ impl<D: Directory + 'static> Searcher<D> {
         offset: usize,
         collect_positions: bool,
     ) -> Result<(Vec<crate::query::SearchResult>, u32)> {
+        let text_stats = self.query_text_stats(query, None);
         let (results, total_seen, _) = self.search_internal_sync_budgeted(
             query,
             fetch_limit,
             offset,
             collect_positions,
             None,
+            text_stats,
         )?;
         Ok((results, total_seen))
     }
@@ -1109,9 +1170,10 @@ impl<D: Directory + 'static> Searcher<D> {
         offset: usize,
         collect_positions: bool,
         deadline: Option<std::time::Instant>,
+        text_stats: Option<Arc<crate::query::GlobalStats>>,
     ) -> Result<(Vec<crate::query::SearchResult>, u32, bool)> {
         let (merged, total_seen, truncated) =
-            self.search_segments_sync(query, fetch_limit, collect_positions, deadline)?;
+            self.search_segments_sync(query, fetch_limit, collect_positions, deadline, text_stats)?;
         let results = apply_result_offset(merged, fetch_limit, offset);
         Ok((results, total_seen, truncated))
     }
@@ -1130,6 +1192,7 @@ impl<D: Directory + 'static> Searcher<D> {
         fetch_limit: usize,
         collect_positions: bool,
         deadline: Option<std::time::Instant>,
+        text_stats: Option<Arc<crate::query::GlobalStats>>,
     ) -> Result<(Vec<crate::query::SearchResult>, u32, bool)> {
         use rayon::prelude::*;
 
@@ -1150,6 +1213,7 @@ impl<D: Directory + 'static> Searcher<D> {
                 collect_positions,
                 shared.clone(),
                 lsp_plan,
+                text_stats.clone(),
             )?;
             if fetch_limit > 0 && results.len() >= fetch_limit {
                 shared.raise(results[fetch_limit - 1].score);
@@ -1212,7 +1276,9 @@ impl<D: Directory + 'static> Searcher<D> {
         offset: usize,
     ) -> Result<(Vec<crate::query::SearchResult>, u32)> {
         let fetch_limit = checked_search_window(limit, offset)?;
-        let (merged, total_seen, _) = self.search_segments_sync(query, fetch_limit, false, None)?;
+        let text_stats = self.query_text_stats(query, None);
+        let (merged, total_seen, _) =
+            self.search_segments_sync(query, fetch_limit, false, None, text_stats)?;
 
         let results = apply_result_offset(merged, fetch_limit, offset);
         Ok((results, total_seen))

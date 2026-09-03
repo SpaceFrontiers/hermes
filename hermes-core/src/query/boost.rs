@@ -121,6 +121,10 @@ impl Query for BoostQuery {
             .flatten()
     }
 
+    fn text_terms(&self, out: &mut Vec<(crate::dsl::Field, Vec<u8>)>) {
+        self.inner.text_terms(out);
+    }
+
     fn decompose(&self) -> super::QueryDecomposition {
         if self.boost == 1.0 {
             self.inner.decompose()

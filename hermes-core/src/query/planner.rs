@@ -933,6 +933,7 @@ mod tests {
             initial_threshold: 5.0,
             shared_threshold: Some(shared),
             lsp_plan: None,
+            global_stats: None,
         };
 
         let single_sum = bmp_threshold(&options, MultiValueCombiner::Sum, true, true);
@@ -960,6 +961,7 @@ mod tests {
             initial_threshold: 0.0,
             shared_threshold: Some(shared),
             lsp_plan: None,
+            global_stats: None,
         };
 
         let clamped = bmp_threshold(&options, MultiValueCombiner::Sum, true, false);

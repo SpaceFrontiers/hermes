@@ -34,6 +34,12 @@ pub struct ScorerOptions {
     pub shared_threshold: Option<super::scoring::SharedThreshold>,
     /// Query-global LSP/0 selection projected onto this segment.
     pub(crate) lsp_plan: Option<std::sync::Arc<super::bmp::LspSegmentPlan>>,
+    /// Query-global text statistics (document frequencies, corpus sizes,
+    /// average lengths aggregated over every segment of the searcher, or
+    /// supplied by a broker across shards). Text scorers use them for IDF
+    /// and length normalisation so a term scores the same in every segment;
+    /// a query's own `with_global_stats` takes precedence.
+    pub global_stats: Option<std::sync::Arc<super::GlobalStats>>,
 }
 
 impl ScorerOptions {
@@ -43,6 +49,7 @@ impl ScorerOptions {
             initial_threshold: 0.0,
             shared_threshold: None,
             lsp_plan: None,
+            global_stats: None,
         }
     }
 
@@ -55,6 +62,7 @@ impl ScorerOptions {
             initial_threshold: 0.0,
             shared_threshold: None,
             lsp_plan: None,
+            global_stats: self.global_stats.clone(),
         }
     }
 }
@@ -310,6 +318,13 @@ macro_rules! define_query_traits {
                 QueryDecomposition::Opaque
             }
 
+            /// Append every `(field, term)` this query scores with BM25 to
+            /// `out`. The searcher aggregates their document frequencies
+            /// across segments before scoring (see `ScorerOptions::global_stats`).
+            fn text_terms(&self, out: &mut Vec<(crate::dsl::Field, Vec<u8>)>) {
+                let _ = out;
+            }
+
             /// True if this query is a pure filter (always scores 1.0, no positions).
             /// Used by the planner to convert non-selective MUST filters into predicates.
             fn is_filter(&self) -> bool {
@@ -402,6 +417,10 @@ impl Query for Box<dyn Query> {
         options: ScorerOptions,
     ) -> ScorerFuture<'a> {
         (**self).scorer_with_options(reader, limit, options)
+    }
+
+    fn text_terms(&self, out: &mut Vec<(crate::dsl::Field, Vec<u8>)>) {
+        (**self).text_terms(out)
     }
 
     fn decompose(&self) -> QueryDecomposition {

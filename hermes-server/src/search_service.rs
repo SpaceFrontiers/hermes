@@ -9,7 +9,10 @@ use hermes_core::FieldValue as CoreFieldValue;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tonic::{Request, Response, Status};
 
-use crate::converters::{convert_field_value, convert_query, convert_reranker, schema_to_sdl};
+use crate::converters::{
+    convert_field_value, convert_query, convert_reranker, schema_to_sdl, text_stats_from_proto,
+    text_stats_to_proto,
+};
 use crate::proto::search_service_server::SearchService;
 use crate::proto::*;
 use crate::registry::IndexRegistry;
@@ -880,19 +883,31 @@ impl SearchService for SearchServiceImpl {
                     query_desc
                 );
 
+                // Broker-supplied cross-shard statistics replace this
+                // backend's own segment-aggregated IDF.
+                let stats_override = req
+                    .text_stats
+                    .as_ref()
+                    .map(|stats| Arc::new(text_stats_from_proto(stats, searcher.schema())));
                 if let Some(config) = rerank_setup {
                     let (candidates, seen, hit_budget) = searcher
-                        .search_with_count_budgeted(core_query.as_ref(), candidate_limit, deadline)
+                        .search_with_count_budgeted_stats(
+                            core_query.as_ref(),
+                            candidate_limit,
+                            deadline,
+                            stats_override,
+                        )
                         .await
                         .map_err(crate::error::hermes_error_to_status)?;
                     truncated = hit_budget;
                     (candidates, seen, Some((config, limit)))
                 } else {
                     let (results, seen, hit_budget) = searcher
-                        .search_with_positions_budgeted(
+                        .search_with_positions_budgeted_stats(
                             core_query.as_ref(),
                             candidate_limit,
                             deadline,
+                            stats_override,
                         )
                         .await
                         .map_err(crate::error::hermes_error_to_status)?;
@@ -1116,6 +1131,41 @@ impl SearchService for SearchServiceImpl {
         }
 
         Ok(Response::new(GetDocumentResponse { fields }))
+    }
+
+    async fn get_text_stats(
+        &self,
+        request: Request<GetTextStatsRequest>,
+    ) -> Result<Response<GetTextStatsResponse>, Status> {
+        let req = request.into_inner();
+        let query = req
+            .query
+            .ok_or_else(|| Status::invalid_argument("query is required"))?;
+        let index = self.registry.get_or_open_index(&req.index_name).await?;
+        let reader = index
+            .reader()
+            .await
+            .map_err(crate::error::hermes_error_to_status)?;
+        let searcher = reader
+            .searcher()
+            .await
+            .map_err(crate::error::hermes_error_to_status)?;
+        let core_query = convert_query(
+            &query,
+            searcher.schema(),
+            Some(searcher.global_stats()),
+            Some(index.directory().root()),
+            &self.limits.shape,
+        )
+        .map_err(|e| Status::invalid_argument(format!("Invalid query: {}", e)))?;
+        let mut terms = Vec::new();
+        core_query.text_terms(&mut terms);
+        terms.sort_unstable_by(|a, b| (a.0.0, &a.1).cmp(&(b.0.0, &b.1)));
+        terms.dedup_by(|a, b| a.0.0 == b.0.0 && a.1 == b.1);
+        let stats = searcher.global_stats().text_stats_for(&terms);
+        Ok(Response::new(GetTextStatsResponse {
+            stats: Some(text_stats_to_proto(&stats, searcher.schema())),
+        }))
     }
 
     async fn get_index_info(

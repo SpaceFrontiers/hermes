@@ -359,9 +359,24 @@ the map lookup per hit that chunked fields already pay.
 
 ## Statistics, sharding, residency
 
-- Cross-shard IDF: a per-query DF exchange in broker phase 2, or a periodic
-  merged DF table for terms above a df threshold with per-shard fallback
-  (the "global DF table" fix of arXiv:2608.00229).
+- Searcher-wide IDF (implemented 2026-09-03). Text scorers used the segment's
+  own `df` and document count, so the same document scored differently in a
+  small and a large segment and the cross-segment threshold compared
+  incomparable scores. `Query::text_terms` lists the BM25 terms of a query;
+  for a multi-segment searcher `Searcher::query_text_stats` sums their
+  document frequencies over the segments through the term dictionary
+  (`text_doc_freq_sync`, no posting bytes read, cached per searcher) and
+  passes `GlobalStats` (per-field corpus size in scoring units, average
+  length, term df) through `ScorerOptions::global_stats`; a query's own
+  `with_global_stats` still wins. Phrase scoring keeps local idf (verifier).
+- Cross-shard IDF (contract implemented 2026-09-03, broker fan-out pending).
+  `GetTextStats(index, query)` returns the statistics of the query's terms on
+  one backend; `SearchRequest.text_stats` carries a total back and replaces
+  the backend's own statistics. The broker proxies both today (one index =
+  one shard); a scatter-gather broker sums `GetTextStats` over the shards of
+  an index before fanning the search out. The periodic merged DF table for
+  terms above a df threshold (the "global DF table" of arXiv:2608.00229)
+  stays the fallback if the extra round trip is measured to matter.
 - `PinPolicy`: pin the term dictionary index (FST or raw index) and the
   L0/L1 skip sections of terms above a df threshold; `.pos` stays evictable
   with random-access advice.
@@ -400,7 +415,35 @@ unicode`).
    (done for the standalone/optimizer pass; merge-time pass open).
 6. Anytime/budgeted BM25 and long-query handling (done: `heap_factor`,
    `max_terms`, `time_budget_ms` + `truncated`; bound-ordered traversal open).
-7. Cross-shard DF with broker phase 2.
+7. Searcher-wide DF (done) and the cross-shard statistics contract (done);
+   broker scatter-gather itself is phase 2 of the broker.
+
+## Lucene and turbopuffer parity checklist
+
+What Lucene 10's `MaxScoreBulkScorer`/`Lucene104PostingsReader` and
+turbopuffer's FTS v2 (blog "fts-v2-maxscore", batched iterator advancement)
+do, and where the text vertical stands (2026-09-03):
+
+| Technique                                                                                                                                                                                          | Source      | Hermes                                                                                                             |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------ |
+| Block-Max MaxScore with a two-level skip (Lucene: 256-doc level 0, level 1 = `LEVEL1_NUM_DOCS`)                                                                                                    | Lucene      | done: 128-doc L0 blocks, 8-block L1 groups, both with bounds                                                       |
+| Window-at-a-time scoring: essential lists bulk-scored into a dense `windowScores[]` + `windowMatches` bitset, non-essential lists applied to the surviving candidates (`scoreNonEssentialClauses`) | Lucene      | done: `execute_windowed` for text cursors (see below)                                                              |
+| Batched iterator advancement: each postings iterator advances many times in a row before the next one (cache prefetch, branch prediction, SIMD)                                                    | turbopuffer | done: same windowed executor                                                                                       |
+| Per-window essential/non-essential partition from block maxima (`partitionScorers`, `maxWindowScore`)                                                                                              | Lucene      | done: window bounds from L0 entries (`window_max_score`)                                                           |
+| Branch-free competitive filtering of a candidate buffer (`VectorUtil.filterByScore`)                                                                                                               | Lucene      | done: `filter_competitive`                                                                                         |
+| Adaptive window size from candidate density (`minWindowSize` doubling up to `INNER_WINDOW_SIZE = 4096`)                                                                                            | Lucene      | done: window ends at the smallest current block among essential cursors, capped at 4096 ids                        |
+| Bulk SIMD block decode (`ForUtil`/`PForUtil` on the Panama vector API)                                                                                                                             | Lucene      | done: `simd::unpack_rounded`, prefix sum as a plain loop                                                           |
+| Lazy frequency decode (freqs decoded only when scored)                                                                                                                                             | Lucene      | done: `deferred_tf`                                                                                                |
+| BM25 norm cache: 1-byte `SmallFloat` norm, 256-entry `1 / (k1 * ((1 - b) + b * len / avgdl))` table, `weight - weight / (1 + freq * normInverse)`                                                  | Lucene      | equivalent: exact u16 lengths, per-cursor precomputed coefficients, one division per posting; no lossy norm        |
+| Impacts as a Pareto list of `(freq, norm)` pairs per block                                                                                                                                         | Lucene      | open: one `(max_tf, min_len)` pair per block/group is a looser bound; measure before widening the L0 word          |
+| Dense blocks stored as bitsets (`docBitSet`, `intoBitSet`, `docIDRunEnd`)                                                                                                                          | Lucene      | partial: width-0/8 rounded blocks; no bitset blocks, no run detection (matters for conjunctions, not for MaxScore) |
+| Dynamic minimum competitive score from the collector, shared across slices (`MaxScoreAccumulator`)                                                                                                 | Lucene      | done: heap threshold + `SharedThreshold` across segments                                                           |
+| Conjunction optimisation inside MaxScore; MUST clauses as cheap predicates                                                                                                                         | Lucene      | done                                                                                                               |
+| MaxScore rather than BMW for long queries (turbopuffer: several times faster at tens of terms)                                                                                                     | turbopuffer | done: MaxScore default, `max_terms` cap; BMW only if measured                                                      |
+| Terms ordered by upper bound                                                                                                                                                                       | both        | done (global order; per-window order in the windowed executor)                                                     |
+| Time-limited bulk scoring                                                                                                                                                                          | Lucene      | done: `time_budget_ms` / `truncated`                                                                               |
+| Query term de-duplication with query-tf weighting                                                                                                                                                  | both        | open                                                                                                               |
+| Bimorphic call sites for JIT inlining                                                                                                                                                              | Lucene      | not applicable (monomorphised Rust)                                                                                |
 
 ## Evaluation
 

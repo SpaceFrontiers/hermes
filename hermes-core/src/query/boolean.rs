@@ -762,7 +762,10 @@ impl Query for BooleanQuery {
         let must = self.must.clone();
         let should = self.should.clone();
         let must_not = self.must_not.clone();
-        let global_stats = self.global_stats.clone();
+        let global_stats = self
+            .global_stats
+            .clone()
+            .or_else(|| options.global_stats.clone());
         let proximity = self.proximity;
         let text_tuning = (self.text_heap_factor, self.max_terms);
         Box::pin(async move {
@@ -800,11 +803,15 @@ impl Query for BooleanQuery {
         limit: usize,
         options: super::ScorerOptions,
     ) -> crate::Result<Box<dyn Scorer + 'a>> {
+        let global_stats = self
+            .global_stats
+            .clone()
+            .or_else(|| options.global_stats.clone());
         boolean_plan!(
             self.must,
             self.should,
             self.must_not,
-            self.global_stats.as_ref(),
+            global_stats.as_ref(),
             self.proximity,
             (self.text_heap_factor, self.max_terms),
             reader,
@@ -814,6 +821,12 @@ impl Query for BooleanQuery {
             get_postings_sync,
             execute_sync
         )
+    }
+
+    fn text_terms(&self, out: &mut Vec<(crate::dsl::Field, Vec<u8>)>) {
+        for clause in self.must.iter().chain(&self.should).chain(&self.must_not) {
+            clause.text_terms(out);
+        }
     }
 
     fn decompose(&self) -> super::QueryDecomposition {

@@ -185,7 +185,10 @@ impl Query for TermQuery {
     ) -> ScorerFuture<'a> {
         let field = self.field;
         let term = self.term.clone();
-        let global_stats = self.global_stats.clone();
+        let global_stats = self
+            .global_stats
+            .clone()
+            .or_else(|| options.global_stats.clone());
         let load_positions = options.collect_positions;
         Box::pin(async move {
             term_plan!(
@@ -229,10 +232,14 @@ impl Query for TermQuery {
         limit: usize,
         options: super::ScorerOptions,
     ) -> crate::Result<Box<dyn Scorer + 'a>> {
+        let global_stats = self
+            .global_stats
+            .clone()
+            .or_else(|| options.global_stats.clone());
         term_plan!(
             self.field,
             &self.term,
-            self.global_stats.as_ref(),
+            global_stats.as_ref(),
             reader,
             limit,
             options.collect_positions,
@@ -285,6 +292,10 @@ impl Query for TermQuery {
             iter.advance();
         }
         Some(bitset)
+    }
+
+    fn text_terms(&self, out: &mut Vec<(Field, Vec<u8>)>) {
+        out.push((self.field, self.term.clone()));
     }
 
     fn decompose(&self) -> super::QueryDecomposition {
