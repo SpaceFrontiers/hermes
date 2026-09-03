@@ -96,6 +96,18 @@ fn bench_hamming_kernels(criterion: &mut Criterion) {
                 });
             },
         );
+        // Plain u64 `count_ones` loop: the candidate replacement for short
+        // codes, where the SIMD kernel's horizontal reduction dominates.
+        group.bench_with_input(
+            BenchmarkId::new("scalar_u64_batch", byte_len),
+            &byte_len,
+            |bencher, &byte_len| {
+                bencher.iter(|| {
+                    HammingKernel::Scalar.distances(&query, &db, byte_len, &mut distances);
+                    black_box(distances[0])
+                });
+            },
+        );
         // Graph routing visits scattered rows; this is the gather path's cost.
         group.bench_with_input(
             BenchmarkId::new("resolved_gather", byte_len),
@@ -221,7 +233,9 @@ fn bench_routing(criterion: &mut Criterion) {
                 bencher.iter(|| {
                     let start = cursor * CODE_BYTES;
                     cursor = (cursor + 1) % (probes.len() / CODE_BYTES);
-                    let plan = quantizer.probe(&probes[start..start + CODE_BYTES], 64, routing);
+                    let plan = quantizer
+                        .probe(&probes[start..start + CODE_BYTES], 64, routing)
+                        .expect("binary probe");
                     black_box(plan.cluster_ids.len())
                 });
             },
@@ -234,7 +248,11 @@ fn bench_routing(criterion: &mut Criterion) {
                 bencher.iter(|| {
                     let start = cursor * CODE_BYTES;
                     cursor = (cursor + 1) % (probes.len() / CODE_BYTES);
-                    black_box(quantizer.assign(&probes[start..start + CODE_BYTES], routing))
+                    black_box(
+                        quantizer
+                            .assign(&probes[start..start + CODE_BYTES], routing)
+                            .expect("binary assign"),
+                    )
                 });
             },
         );
@@ -266,7 +284,9 @@ fn bench_routing_crossover(criterion: &mut Criterion) {
                     bencher.iter(|| {
                         let start = cursor * CODE_BYTES;
                         cursor = (cursor + 1) % (probes.len() / CODE_BYTES);
-                        let plan = quantizer.probe(&probes[start..start + CODE_BYTES], 64, mode);
+                        let plan = quantizer
+                            .probe(&probes[start..start + CODE_BYTES], 64, mode)
+                            .expect("binary probe");
                         black_box(plan.cluster_ids.len())
                     });
                 },

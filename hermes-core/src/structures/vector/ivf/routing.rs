@@ -17,10 +17,27 @@ use serde::{Deserialize, Serialize};
 /// Automatic routing switches to a centroid graph at this leaf count.
 ///
 /// Float centroids are wide (a 768-dim leaf is 3 KiB), so a flat pass over them
-/// gets expensive at far fewer leaves than for packed binary codes. This value
-/// is the historical one and is *not* backed by a crossover measurement; see
-/// [`BINARY_HNSW_AUTO_THRESHOLD`] for the measured binary counterpart, and
-/// measure the float case the same way before changing this.
+/// gets expensive at far fewer leaves than for packed binary codes. Measured
+/// on 768-dim centroids at `nprobe = 64` with the flat pass on the SIMD
+/// `squared_l2_f32` kernel (`benches/dense_ann.rs`, `coarse_routing_crossover`,
+/// aarch64/NEON, both modes probing the *same* codebook; recall is the
+/// graph's overlap with the exact flat top-64):
+///
+/// | leaves | flat probe | graph probe | graph recall@64 |
+/// |-------:|-----------:|------------:|----------------:|
+/// |  1,024 |      75 µs |      157 µs |           1.000 |
+/// |  4,096 |     318 µs |      261 µs |           0.990 |
+/// |  8,192 |     545 µs |      302 µs |           0.933 |
+/// | 16,384 |    1.26 ms |      316 µs |           0.805 |
+/// | 32,768 |    2.66 ms |      414 µs |           0.543 |
+///
+/// Below 4k leaves the exact flat pass is both faster and exact; at 4k the
+/// graph first wins on latency while still recovering 99% of the exact leaf
+/// set, and past that the flat pass grows linearly while the graph's recall
+/// on tightly clustered codebooks falls off. 4,096 is therefore the switch.
+/// See [`BINARY_HNSW_AUTO_THRESHOLD`] for the binary counterpart, whose
+/// packed codes keep the flat pass cheap ~8x further. Explicit `hnsw`/`flat`
+/// routing is honoured at any size.
 pub const HNSW_AUTO_THRESHOLD: usize = 4_096;
 
 /// Automatic routing switch for packed binary centroids.
@@ -1330,7 +1347,6 @@ pub fn select_best<const HIGHER_IS_BETTER: bool>(scores: &[f32], take: usize) ->
     if take == 0 {
         return Vec::new();
     }
-    let mut order: Vec<u32> = (0..scores.len() as u32).collect();
     let compare = |left: &u32, right: &u32| {
         let left_score = scores[*left as usize];
         let right_score = scores[*right as usize];
@@ -1341,12 +1357,37 @@ pub fn select_best<const HIGHER_IS_BETTER: bool>(scores: &[f32], take: usize) ->
         };
         score_order.then_with(|| left.cmp(right))
     };
+    // The full index permutation is `scores.len()` wide (hundreds of KiB at
+    // production leaf counts) but only `take` entries leave this function, so
+    // the permutation lives in per-thread scratch and the result is exact-size.
+    SELECT_BEST_ORDER.with(|cell| {
+        let Ok(mut order) = cell.try_borrow_mut() else {
+            // Re-entrant use (not expected): fall back to a private buffer.
+            let mut order: Vec<u32> = (0..scores.len() as u32).collect();
+            return select_best_in(&mut order, take, compare);
+        };
+        order.clear();
+        order.extend(0..scores.len() as u32);
+        select_best_in(&mut order, take, compare)
+    })
+}
+
+thread_local! {
+    static SELECT_BEST_ORDER: std::cell::RefCell<Vec<u32>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+fn select_best_in(
+    order: &mut Vec<u32>,
+    take: usize,
+    compare: impl Fn(&u32, &u32) -> std::cmp::Ordering,
+) -> Vec<u32> {
     if take < order.len() {
-        order.select_nth_unstable_by(take, compare);
+        order.select_nth_unstable_by(take, &compare);
         order.truncate(take);
     }
-    order.sort_unstable_by(compare);
-    order
+    order.sort_unstable_by(&compare);
+    order.clone()
 }
 
 /// Select leaf IDs from a scored candidate set. Candidate IDs need not be
