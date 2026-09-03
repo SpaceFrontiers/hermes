@@ -169,10 +169,11 @@ segment is still readable and is converted by its first merge.
   for sources lacking the column. `short_document` now scores with its
   real length in MaxScore, `TermScorer` and `PhraseScorer`; multi-valued
   fields sum their values' lengths.
-- **L1 superblock maxima.** The L1 entry (one per 8 blocks) gains `max_tf`
-  and `min_len`, giving two-level block-max skipping (Mallia & Porciani,
-  "Faster BlockMax WAND with Longer Skipping", ECIR 2019). This is the text
-  analogue of the BMP D/E hierarchy and costs 4 B per 1,024 postings.
+- **L1 superblock maxima** (implemented 2026-09-03). Every L1 group of
+  8 blocks stores a packed `(max_tf, min_len)` word, giving two-level
+  block-max skipping (Mallia & Porciani, "Faster BlockMax WAND with Longer
+  Skipping", ECIR 2019), the text analogue of the BMP D/E hierarchy, at
+  4 B per 1,024 postings.
 - **Codec.** Keep 128-block OptPFD by default; after BP reordering (below)
   measure partitioned Elias-Fano (`structures/postings/partitioned_ef.rs`)
   for lists longer than a few hundred thousand postings, where PEF wins on
@@ -192,8 +193,12 @@ segment is still readable and is converted by its first merge.
   scores and could drop out of the top-k (regression test
   `block_max_skip_never_jumps_over_another_essential_cursor`; the same loop
   serves sparse MaxScore). The skip is now bounded by the next essential
-  document, the Block-Max MaxScore rule. Still open: the L1 skip in the same
-  branch (skip 8 blocks at once when the superblock bound fails).
+  document, the Block-Max MaxScore rule. Superblock skips landed with it:
+  every L1 group (eight blocks) stores a packed `(max_tf, min_len)` word
+  (`FLAG_L1_BOUNDS`, 4 B per 1,024 postings, rebuilt from the L0 words on
+  merge), and when the at-minimum cursors' group bounds cannot reach the
+  threshold either, each jumps to its next group, bounded by the same next
+  essential document. Sparse cursors keep single-block skips.
 - **Filters and phrases as executor predicates** (implemented 2026-09-03).
   The query shape clients send is `MUST [phrases, filters] + SHOULD
 [terms]`. When every SHOULD clause is a text term and the MUST/MUST_NOT
@@ -363,8 +368,10 @@ per-list clustering (all need a bounded vocabulary).
    text-bearing index generation.
 3. UAX #29 tokenizer, folding, CJK bigrams (done, opt-in `segmenter:
 unicode`).
-4. Filters and phrases as executor predicates, phrase-frequency scoring
-   (done); L1 superblock maxima, proximity rescoring, per-field k1/b (open).
+4. Filters and phrases as executor predicates, phrase-frequency scoring,
+   L1 superblock maxima (done); proximity rescoring, per-field k1/b (open).
+   Block-Max WAND as an alternative executor for short queries: possible on
+   the same cursors, to be decided from measurements on a real generation.
 5. Field-level BP reordering of chunked text fields through their chunk maps.
 6. Anytime/budgeted BM25 and long-query handling.
 7. Cross-shard DF with broker phase 2.

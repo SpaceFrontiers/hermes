@@ -670,7 +670,9 @@ async fn plain_text_fields_score_with_persisted_lengths_and_prune_safely() {
         seed ^= seed << 17;
         seed
     };
-    let n = 600usize;
+    // 4000 docs: every term spans dozens of blocks, so block and superblock
+    // skips both fire against the brute-force ranking.
+    let n = 4000usize;
     let mut tfs: Vec<[u32; 3]> = Vec::with_capacity(n);
     let mut lens: Vec<u32> = Vec::with_capacity(n);
     let mut texts: Vec<String> = Vec::with_capacity(n);

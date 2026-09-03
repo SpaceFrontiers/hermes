@@ -833,6 +833,65 @@ impl<'a> TermCursor<'a> {
         }
     }
 
+    /// Upper bound over the L1 group (eight blocks) containing the current
+    /// block, for text lists that store superblock bounds; `None` when the
+    /// cursor cannot bound a whole group (sparse, legacy lists).
+    #[inline]
+    pub fn current_group_max_score(&self) -> Option<f32> {
+        if self.exhausted {
+            return Some(0.0);
+        }
+        match &self.variant {
+            CursorVariant::Text {
+                list,
+                idf,
+                length_bounds,
+                avg_len,
+                ..
+            } => {
+                let (max_tf, min_len) = list.group_bounds(self.block_idx)?;
+                Some(if *length_bounds {
+                    super::bm25_upper_bound_with_len(
+                        (max_tf as f32).max(1.0),
+                        *idf,
+                        min_len as f32,
+                        *avg_len,
+                    )
+                } else {
+                    super::bm25_upper_bound((max_tf as f32).max(1.0), *idf)
+                })
+            }
+            CursorVariant::Sparse { .. } => None,
+        }
+    }
+
+    /// Last doc of the L1 group containing the current block (text only).
+    #[inline]
+    pub fn current_group_last_doc(&self) -> DocId {
+        match &self.variant {
+            CursorVariant::Text { list, .. } => list.group_last_doc(self.block_idx).unwrap_or(0),
+            CursorVariant::Sparse { .. } => self.block_last_doc(self.block_idx),
+        }
+    }
+
+    /// Jump past the current L1 group (text) or block (sparse).
+    pub fn skip_to_next_group(&mut self) -> DocId {
+        if self.exhausted {
+            return u32::MAX;
+        }
+        let next = match &self.variant {
+            CursorVariant::Text { list, .. } => list.next_group_block(self.block_idx),
+            CursorVariant::Sparse { .. } => self.block_idx + 1,
+        };
+        self.block_idx = next;
+        self.block_loaded = false;
+        if self.block_idx >= self.num_blocks {
+            self.exhausted = true;
+            return u32::MAX;
+        }
+        self.block_first_doc(self.block_idx)
+    }
+
     // ── Block navigation ────────────────────────────────────────────────
 
     pub fn skip_to_next_block(&mut self) -> DocId {
@@ -1038,6 +1097,7 @@ macro_rules! bms_execute_loop {
         let mut docs_scored = 0u64;
         let mut docs_skipped = 0u64;
         let mut blocks_skipped = 0u64;
+        let mut groups_skipped = 0u64;
         let mut conjunction_skipped = 0u64;
         let mut ordinal_scores: Vec<(u16, f32)> = Vec::with_capacity(n * 2);
         let _bms_start = std::time::Instant::now();
@@ -1130,13 +1190,40 @@ macro_rules! bms_execute_loop {
                     // cursor's score, so no cursor jumps past it: skip the
                     // block when it ends before `next_other`, otherwise seek
                     // to `next_other` inside the block.
+                    //
+                    // Superblocks: when the cursors' L1 group bounds cannot
+                    // reach the threshold either, the same argument covers
+                    // the whole group of eight blocks, so a cursor may jump
+                    // to its next group instead (bounded by `next_other` in
+                    // the same way). A cursor without group bounds counts
+                    // with its block bound and still skips one block.
+                    let mut group_sum: f32 = 0.0;
                     let mut mask = at_min_mask;
                     while mask != 0 {
                         let i = mask.trailing_zeros() as usize;
-                        let block_end =
-                            $self.cursors[i].block_last_doc($self.cursors[i].block_idx);
-                        if next_other > block_end {
-                            $self.cursors[i].skip_to_next_block();
+                        group_sum += $self.cursors[i]
+                            .current_group_max_score()
+                            .unwrap_or_else(|| $self.cursors[i].current_block_max_score());
+                        mask &= mask - 1;
+                    }
+                    let group_prunable = group_sum + non_essential_upper < adjusted_threshold;
+                    let mut mask = at_min_mask;
+                    while mask != 0 {
+                        let i = mask.trailing_zeros() as usize;
+                        let by_group =
+                            group_prunable && $self.cursors[i].current_group_max_score().is_some();
+                        let boundary = if by_group {
+                            $self.cursors[i].current_group_last_doc()
+                        } else {
+                            $self.cursors[i].block_last_doc($self.cursors[i].block_idx)
+                        };
+                        if next_other > boundary {
+                            if by_group {
+                                $self.cursors[i].skip_to_next_group();
+                                groups_skipped += 1;
+                            } else {
+                                $self.cursors[i].skip_to_next_block();
+                            }
                             $self.cursors[i].$ensure() $($aw)* ?;
                         } else {
                             $self.cursors[i].$seek(next_other) $($aw)* ?;
@@ -1261,23 +1348,25 @@ macro_rules! bms_execute_loop {
         let _bms_elapsed_ms = _bms_start.elapsed().as_millis() as u64;
         if _bms_elapsed_ms > 500 {
             warn!(
-                "slow MaxScore: {}ms, cursors={}, scored={}, skipped={}, blocks_skipped={}, conjunction_skipped={}, returned={}, top_score={:.4}",
+                "slow MaxScore: {}ms, cursors={}, scored={}, skipped={}, blocks_skipped={}, groups_skipped={}, conjunction_skipped={}, returned={}, top_score={:.4}",
                 _bms_elapsed_ms,
                 n,
                 docs_scored,
                 docs_skipped,
                 blocks_skipped,
+                groups_skipped,
                 conjunction_skipped,
                 results.len(),
                 results.first().map(|r| r.score).unwrap_or(0.0)
             );
         } else {
             debug!(
-                "MaxScoreExecutor: {}ms, scored={}, skipped={}, blocks_skipped={}, conjunction_skipped={}, returned={}, top_score={:.4}",
+                "MaxScoreExecutor: {}ms, scored={}, skipped={}, blocks_skipped={}, groups_skipped={}, conjunction_skipped={}, returned={}, top_score={:.4}",
                 _bms_elapsed_ms,
                 docs_scored,
                 docs_skipped,
                 blocks_skipped,
+                groups_skipped,
                 conjunction_skipped,
                 results.len(),
                 results.first().map(|r| r.score).unwrap_or(0.0)

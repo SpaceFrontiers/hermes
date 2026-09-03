@@ -205,6 +205,32 @@ const FLAG_POS_CURSORS: u32 = 1;
 /// max tf, so a block bound can use real length normalisation.
 const FLAG_LEN_BOUNDS: u32 = 2;
 
+/// Footer flag: a packed `(max_tf, min_len)` word per L1 group follows the
+/// L1 `last_doc` entries (superblock bounds: the maximum and minimum over
+/// the group's blocks), so an executor can skip eight blocks at once.
+const FLAG_L1_BOUNDS: u32 = 4;
+
+/// Superblock bounds derived from packed L0 words: per `L1_INTERVAL` group
+/// the maximum `max_tf` and minimum `min_len` of its blocks.
+fn group_bounds_from_l0(l0: &[u8], l0_count: usize) -> Vec<u32> {
+    let mut groups = Vec::with_capacity(l0_count.div_ceil(L1_INTERVAL));
+    let mut idx = 0;
+    while idx < l0_count {
+        let end = (idx + L1_INTERVAL).min(l0_count);
+        let mut max_tf = 0u32;
+        let mut min_len = u32::MAX;
+        for block in idx..end {
+            let (_, _, _, word) = read_l0(l0, block);
+            let (tf, len) = unpack_bounds(word, true);
+            max_tf = max_tf.max(tf);
+            min_len = min_len.min(len.unwrap_or(1));
+        }
+        groups.push(pack_bounds(max_tf, min_len));
+        idx = end;
+    }
+    groups
+}
+
 /// Pack block bounds into the fourth L0 word (both saturate at u16).
 #[inline]
 fn pack_bounds(max_tf: u32, min_len: u32) -> u32 {
@@ -236,6 +262,7 @@ struct Footer {
     total_positions: u64,
     has_cursors: bool,
     len_bounds: bool,
+    l1_bounds: bool,
     min_len: u32,
 }
 
@@ -277,6 +304,7 @@ impl Footer {
             total_positions,
             has_cursors: flags & FLAG_POS_CURSORS != 0,
             len_bounds: flags & FLAG_LEN_BOUNDS != 0,
+            l1_bounds: flags & FLAG_L1_BOUNDS != 0,
             min_len,
         };
         if footer.cursors_end() > f {
@@ -297,8 +325,11 @@ impl Footer {
     fn l1_end(&self) -> usize {
         self.l0_end() + self.l1_count * L1_SIZE
     }
+    fn l1_bounds_end(&self) -> usize {
+        self.l1_end() + if self.l1_bounds { self.l1_count * 4 } else { 0 }
+    }
     fn cursors_end(&self) -> usize {
-        self.l1_end()
+        self.l1_bounds_end()
             + if self.has_cursors {
                 self.l0_count * CURSOR_SIZE
             } else {
@@ -361,6 +392,9 @@ pub struct BlockPostingList {
     /// Level-1 skip `last_doc` values — one per `L1_INTERVAL` blocks.
     /// Stored as `Vec<u32>` for direct SIMD-accelerated `find_first_ge_u32`.
     l1_docs: Vec<u32>,
+    /// Packed `(max_tf, min_len)` per L1 group (superblock bounds); empty
+    /// for legacy lists.
+    l1_bounds: Vec<u32>,
     /// Total posting count.
     doc_count: u32,
     /// Max TF across all blocks.
@@ -531,12 +565,14 @@ impl BlockPostingList {
             let (_, last_doc, _, _) = read_l0(&l0_buf, l0_count - 1);
             l1_docs.push(last_doc);
         }
+        let l1_bounds = group_bounds_from_l0(&l0_buf, l0_count);
 
         Ok(Self {
             stream: OwnedBytes::new(stream),
             l0_bytes: OwnedBytes::new(l0_buf),
             l0_count,
             l1_docs,
+            l1_bounds,
             doc_count: postings.len() as u32,
             max_tf,
             pos_cursors: with_positions.then(|| OwnedBytes::new(cursors)),
@@ -557,15 +593,19 @@ impl BlockPostingList {
     /// [stream: block data]
     /// [L0 entries: l0_count × 16 bytes (first_doc, last_doc, offset, max_weight)]
     /// [L1 entries: l1_count × 4 bytes (last_doc)]
+    /// [L1 bounds: l1_count × 4 bytes (packed max_tf, min_len), FLAG_L1_BOUNDS]
     /// [position cursors: l0_count × 8 bytes, only with positions]
     /// [footer: stream_len(8) + l0_count(4) + l1_count(4) + doc_count(4) + max_tf(4)
-    ///          + total_positions(8) + flags(4) + magic(4) = 40 bytes]
+    ///          + total_positions(8) + flags(4) + min_len(4) + magic(4) = 44 bytes]
     /// ```
     pub fn serialize<W: Write>(&self, writer: &mut W) -> io::Result<()> {
         writer.write_all(&self.stream)?;
         writer.write_all(&self.l0_bytes)?;
         for &doc in &self.l1_docs {
             writer.write_u32::<LittleEndian>(doc)?;
+        }
+        for &bounds in &self.l1_bounds {
+            writer.write_u32::<LittleEndian>(bounds)?;
         }
         if let Some(cursors) = &self.pos_cursors {
             writer.write_all(cursors)?;
@@ -580,6 +620,7 @@ impl BlockPostingList {
             self.total_positions,
             self.pos_cursors.is_some(),
             self.len_bounds.then_some(self.min_len),
+            !self.l1_bounds.is_empty(),
         )
     }
 
@@ -594,6 +635,7 @@ impl BlockPostingList {
         total_positions: u64,
         has_cursors: bool,
         min_len: Option<u32>,
+        l1_bounds: bool,
     ) -> io::Result<()> {
         writer.write_u64::<LittleEndian>(stream_len)?;
         writer.write_u32::<LittleEndian>(l0_count as u32)?;
@@ -607,6 +649,9 @@ impl BlockPostingList {
         }
         if min_len.is_some() {
             flags |= FLAG_LEN_BOUNDS;
+        }
+        if l1_bounds {
+            flags |= FLAG_L1_BOUNDS;
         }
         writer.write_u32::<LittleEndian>(flags)?;
         writer.write_u32::<LittleEndian>(min_len.unwrap_or(0))?;
@@ -625,15 +670,21 @@ impl BlockPostingList {
     pub fn deserialize_zero_copy(raw: OwnedBytes) -> io::Result<Self> {
         let footer = Footer::parse(raw.as_slice())?;
         let l1_docs = Self::extract_l1_docs(&raw[footer.l0_end()..], footer.l1_count);
+        let l1_bounds = if footer.l1_bounds {
+            Self::extract_l1_docs(&raw[footer.l1_end()..], footer.l1_count)
+        } else {
+            Vec::new()
+        };
         let pos_cursors = footer
             .has_cursors
-            .then(|| raw.slice(footer.l1_end()..footer.cursors_end()));
+            .then(|| raw.slice(footer.l1_bounds_end()..footer.cursors_end()));
 
         Ok(Self {
             stream: raw.slice(0..footer.stream_len),
             l0_bytes: raw.slice(footer.l0_start()..footer.l0_end()),
             l0_count: footer.l0_count,
             l1_docs,
+            l1_bounds,
             doc_count: footer.doc_count,
             max_tf: footer.max_tf,
             pos_cursors,
@@ -657,6 +708,31 @@ impl BlockPostingList {
         }
         let (_, _, _, word) = self.read_l0_entry(block_idx);
         Some(unpack_bounds(word, self.len_bounds))
+    }
+
+    /// `(max_tf, min_len)` over the L1 group (`L1_INTERVAL` blocks) that
+    /// contains `block_idx`; `None` for legacy lists without group bounds.
+    #[inline]
+    pub fn group_bounds(&self, block_idx: usize) -> Option<(u32, u32)> {
+        if block_idx >= self.l0_count {
+            return None;
+        }
+        let word = *self.l1_bounds.get(block_idx / L1_INTERVAL)?;
+        let (max_tf, min_len) = unpack_bounds(word, true);
+        Some((max_tf, min_len.unwrap_or(1)))
+    }
+
+    /// Last doc of the L1 group containing `block_idx`.
+    #[inline]
+    pub fn group_last_doc(&self, block_idx: usize) -> Option<DocId> {
+        self.l1_docs.get(block_idx / L1_INTERVAL).copied()
+    }
+
+    /// Index of the first block after the L1 group containing `block_idx`
+    /// (clamped to the block count).
+    #[inline]
+    pub fn next_group_block(&self, block_idx: usize) -> usize {
+        ((block_idx / L1_INTERVAL + 1) * L1_INTERVAL).min(self.l0_count)
     }
 
     /// Whether serialized bytes carry position cursors (cheap footer check).
@@ -784,12 +860,14 @@ impl BlockPostingList {
             let (_, last_doc, _, _) = read_l0(&l0_buf, l0_count - 1);
             l1_docs.push(last_doc);
         }
+        let l1_bounds = group_bounds_from_l0(&l0_buf, l0_count);
 
         Ok(Self {
             stream: OwnedBytes::new(stream),
             l0_bytes: OwnedBytes::new(l0_buf),
             l0_count,
             l1_docs,
+            l1_bounds,
             doc_count: total_docs,
             max_tf,
             pos_cursors: all_cursors.then(|| OwnedBytes::new(cursors)),
@@ -854,7 +932,7 @@ impl BlockPostingList {
             let (raw, doc_offset) = &sources[src_idx];
             let l0_base = meta.l0_start(); // L0 entries start right after stream
             let src_stream = &raw[..meta.stream_len];
-            let cursors_base = meta.l1_end();
+            let cursors_base = meta.l1_bounds_end();
 
             for i in 0..meta.l0_count {
                 // Read source L0 entry directly from raw bytes
@@ -912,10 +990,14 @@ impl BlockPostingList {
             out_l1_docs.push(last_doc);
         }
 
-        // Phase 2: Write L0 + L1 + cursors + footer
+        // Phase 2: Write L0 + L1 + L1 bounds + cursors + footer
+        let out_l1_bounds = group_bounds_from_l0(&out_l0, out_l0_count);
         writer.write_all(&out_l0)?;
         for &doc in &out_l1_docs {
             writer.write_u32::<LittleEndian>(doc)?;
+        }
+        for &bounds in &out_l1_bounds {
+            writer.write_u32::<LittleEndian>(bounds)?;
         }
         writer.write_all(&out_cursors)?;
         Self::write_footer(
@@ -932,9 +1014,10 @@ impl BlockPostingList {
             } else {
                 merged_min_len
             }),
+            true,
         )?;
 
-        let l1_bytes_len = out_l1_docs.len() * L1_SIZE;
+        let l1_bytes_len = out_l1_docs.len() * L1_SIZE + out_l1_bounds.len() * 4;
         let total_bytes = stream_written as usize
             + out_l0.len()
             + l1_bytes_len
@@ -2010,7 +2093,7 @@ mod tests {
 
         let expected = bpl.stream.len()
             + bpl.l0_count * L0_SIZE
-            + bpl.l1_docs.len() * L1_SIZE
+            + bpl.l1_docs.len() * (L1_SIZE + 4)
             + FOOTER_V2_SIZE;
         assert_eq!(bytes.len(), expected);
     }
@@ -2067,7 +2150,7 @@ mod tests {
             bytes.len(),
             bpl.stream.len()
                 + bpl.l0_count * (L0_SIZE + CURSOR_SIZE)
-                + bpl.l1_docs.len() * L1_SIZE
+                + bpl.l1_docs.len() * (L1_SIZE + 4)
                 + FOOTER_V2_SIZE
         );
         assert!(BlockPostingList::has_cursors_bytes(&bytes));
@@ -2114,6 +2197,13 @@ mod tests {
         let decoded = BlockPostingList::deserialize(&bytes).unwrap();
         assert_eq!(decoded.min_len(), Some(10));
         assert_eq!(decoded.block_bounds(2), Some((3, Some(52))));
+        // Superblock bounds: one group of three blocks here, max tf 3 and
+        // the smallest length of the whole list.
+        assert_eq!(decoded.group_bounds(0), Some((3, 10)));
+        assert_eq!(decoded.group_bounds(2), Some((3, 10)));
+        assert_eq!(decoded.group_bounds(3), None);
+        assert_eq!(decoded.group_last_doc(1), Some(299));
+        assert_eq!(decoded.next_group_block(1), 3);
 
         // Without lengths the minimum is 1, which every real unit satisfies.
         let plain = build_bpl(&docs);
@@ -2128,6 +2218,11 @@ mod tests {
         assert_eq!(merged.block_bounds(2), Some((3, Some(52))));
         assert_eq!(merged.block_bounds(3), Some((3, Some(10))));
         assert_eq!(merged.block_max_tf(5), Some(3));
+        // Six blocks: one full group of eight would need more; here both
+        // lists' blocks share group 0.
+        assert_eq!(merged.group_bounds(5), Some((3, 10)));
+        assert_eq!(merged.group_last_doc(5), Some(1299));
+        assert_eq!(merged.next_group_block(5), 6);
     }
 
     #[test]
@@ -2144,6 +2239,7 @@ mod tests {
         assert_eq!(decoded.max_tf(), 3);
         assert!(!decoded.has_position_cursors());
         assert_eq!(decoded.min_len(), None);
+        assert_eq!(decoded.group_bounds(0), None);
         // And the legacy bytes concatenate into a current-format list.
         let mut out = Vec::new();
         let (count, written) =
