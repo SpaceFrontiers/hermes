@@ -152,15 +152,23 @@ segment is still readable and is converted by its first merge.
 
 ## Doc postings and skip metadata
 
-- **Block bounds with real lengths.** Replace the L0 `max_weight f32` by
-  `(max_tf u16, min_len u16)` so the block upper bound is
-  `bm25(max_tf, idf, min_len)` instead of the `1 - b` floor, and keep k1/b a
-  query-time choice (Lucene stores `(tf, norm)` impact pairs for the same
-  reason). Chunk lengths come from `.chunks`; non-chunked fields need norms
-  (next item).
-- **Norms for non-chunked fields.** Persist one length per document per
-  text field as a u8 log-quantised value (Lucene `SmallFloat`) or the exact
-  u16, so `short_document` stops scoring with tf as its length.
+- **Block bounds with real lengths** (implemented 2026-09-03). The fourth
+  L0 word packs `(max_tf u16, min_len u16)` and the footer carries the
+  list minimum (`FLAG_LEN_BOUNDS`), so a bound is
+  `bm25(max_tf, idf, min_len, avg)` instead of the `1 - b` floor; k1/b stay
+  a query-time choice. The builder derives `min_len` from chunk lengths or
+  the document norms; merges copy the words and take the minimum; a list
+  rebuilt without lengths stores 1, which every real unit satisfies.
+  Legacy lists keep their `f32` word and the old bound. A cursor uses the
+  stored minimum only when it also scores with real lengths: a `tf`-as-
+  length score is not bounded by a real-length bound.
+- **Norms for plain fields** (implemented 2026-09-03). `.chunks` version 2
+  adds per-field sections of kind 1: one `u16` token count per document of
+  the segment (0 = no value), written by the builder for every plain
+  indexed text field with tokens and concatenated on merge with zero fill
+  for sources lacking the column. `short_document` now scores with its
+  real length in MaxScore, `TermScorer` and `PhraseScorer`; multi-valued
+  fields sum their values' lengths.
 - **L1 superblock maxima.** The L1 entry (one per 8 blocks) gains `max_tf`
   and `min_len`, giving two-level block-max skipping (Mallia & Porciani,
   "Faster BlockMax WAND with Longer Skipping", ECIR 2019). This is the text
@@ -331,9 +339,9 @@ per-list clustering (all need a bounded vocabulary).
 
 1. `stop_words` spec + gap-preserving positions + `PhraseQuery` offsets.
    Small; unblocks azeroth's templates.
-2. Position format v2 + lazy phrase scorer (done); `(max_tf, min_len)`
-   block bounds + norms for non-chunked fields (next). Must precede the
-   first text-bearing index generation.
+2. Position format v2 + lazy phrase scorer, `(max_tf, min_len)` block
+   bounds, norms for plain fields (all done). Must precede the first
+   text-bearing index generation.
 3. UAX #29 tokenizer, folding, CJK bigrams. Index-time change: bundle with 2
    so there is one rebuild.
 4. L1 superblock maxima, phrase-as-MaxScore clause, phrase-frequency scoring,

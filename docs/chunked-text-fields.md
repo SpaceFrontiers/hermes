@@ -55,9 +55,9 @@ per field:        doc_ids u32 × n | ordinals u16 × n | lengths u16 × n
 
 `lengths` is the token count of the chunk (saturating at 65 535) and gives
 BM25 its real length normalisation: `score = idf · tf · (k1 + 1) /
-(tf + k1 · (1 − b + b · len / avg_len))`. Non-chunked fields keep the historic
-`tf`-as-length approximation; upper bounds are unchanged (they already assume
-the shortest possible document).
+(tf + k1 · (1 − b + b · len / avg_len))`. Plain fields score with the per-document
+length columns of the same file (`.chunks` version 2, section kind 1) and
+block bounds use each block's minimum length (`docs/lexical-vertical.md`).
 
 `FieldStats` of a chunked field count chunks: `doc_count` is the number of
 chunks and `total_tokens / doc_count` is the average chunk length. IDF uses

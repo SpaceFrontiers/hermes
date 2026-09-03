@@ -227,6 +227,7 @@ macro_rules! boolean_plan {
                 return finish_text_maxscore(
                     posting_lists,
                     avg_field_len,
+                    reader.doc_lengths(text_field),
                     limit,
                     &shared_threshold,
                     reader.schema().index_label(),
@@ -288,6 +289,7 @@ macro_rules! boolean_plan {
                         scorers.push(finish_text_maxscore(
                             posting_lists,
                             *avg_field_len,
+                            reader.doc_lengths(*field),
                             grouping.per_field_limit,
                             &shared_threshold,
                             reader.schema().index_label(),

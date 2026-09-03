@@ -404,6 +404,25 @@ pub struct MaxScoreExecutor<'a> {
     predicate: Option<super::DocPredicate<'a>>,
 }
 
+/// Where a text cursor reads the length of a scoring unit: chunk lengths of a
+/// chunked field, or the persisted per-document field lengths (norms) of a
+/// plain field. Without either, `tf` stands in for the length.
+#[derive(Clone, Copy)]
+pub enum LengthSource<'a> {
+    Chunks(&'a crate::segment::chunk_map::ChunkMap),
+    Docs(&'a crate::segment::chunk_map::DocLengths),
+}
+
+impl LengthSource<'_> {
+    #[inline]
+    pub fn length(&self, id: u32) -> u32 {
+        match self {
+            LengthSource::Chunks(map) => map.length(id),
+            LengthSource::Docs(lengths) => lengths.length(id),
+        }
+    }
+}
+
 /// Unified term cursor for Block-Max MaxScore execution.
 ///
 /// All per-position decode buffers (`doc_ids`, `scores`, `ordinals`) live in
@@ -435,6 +454,9 @@ pub(crate) struct TermCursor<'a> {
     variant: CursorVariant<'a>,
 }
 
+// One cursor per query term; the text variant carries the decoded-block
+// state inline on purpose (no indirection on the scoring path).
+#[allow(clippy::large_enum_variant)]
 enum CursorVariant<'a> {
     /// Full-text BM25 — in-memory BlockPostingList (skip list + block data)
     Text {
@@ -449,9 +471,15 @@ enum CursorVariant<'a> {
         /// Precomputed: BM25_K1 * BM25_B / avg_len — per-token length
         /// coefficient, used when `lengths` supplies real chunk lengths.
         denom_len_coeff: f32,
-        /// Real per-posting lengths (chunked fields: posting ids are virtual
-        /// chunk ids). `None` keeps the historic `tf`-as-length approximation.
-        lengths: Option<&'a crate::segment::chunk_map::ChunkMap>,
+        /// Real per-posting lengths (chunk lengths or document norms).
+        /// `None` keeps the historic `tf`-as-length approximation.
+        lengths: Option<LengthSource<'a>>,
+        /// Block bounds may use the block's minimum length: only when the
+        /// list stores one and scoring uses real lengths (a `tf`-as-length
+        /// score is not bounded by a real-length bound).
+        length_bounds: bool,
+        /// Average length used by the bounds (matches the scoring average).
+        avg_len: f32,
         tfs: Vec<u32>,
         /// Deferred TF decode state: (block_offset, tf_start, count).
         /// Set when doc_ids are decoded but TFs/scores are not yet computed.
@@ -577,19 +605,46 @@ impl<'a> TermCursor<'a> {
         avg_chunk_len: f32,
         lengths: &'a crate::segment::chunk_map::ChunkMap,
     ) -> Self {
-        Self::text_with_lengths(posting_list, idf, avg_chunk_len, Some(lengths))
+        Self::text_with_lengths(
+            posting_list,
+            idf,
+            avg_chunk_len,
+            Some(LengthSource::Chunks(lengths)),
+        )
+    }
+
+    /// Full-text BM25 cursor over a plain field with persisted per-document
+    /// lengths (norms).
+    pub fn text_with_norms(
+        posting_list: crate::structures::BlockPostingList,
+        idf: f32,
+        avg_field_len: f32,
+        lengths: &'a crate::segment::chunk_map::DocLengths,
+    ) -> Self {
+        Self::text_with_lengths(
+            posting_list,
+            idf,
+            avg_field_len,
+            Some(LengthSource::Docs(lengths)),
+        )
     }
 
     fn text_with_lengths(
         posting_list: crate::structures::BlockPostingList,
         idf: f32,
         avg_field_len: f32,
-        lengths: Option<&'a crate::segment::chunk_map::ChunkMap>,
+        lengths: Option<LengthSource<'a>>,
     ) -> Self {
         let max_tf = posting_list.max_tf() as f32;
-        let max_score = super::bm25_upper_bound(max_tf.max(1.0), idf);
-        let num_blocks = posting_list.num_blocks();
         let safe_avg = avg_field_len.max(1.0);
+        let length_bounds = lengths.is_some() && posting_list.min_len().is_some();
+        let max_score = match posting_list.min_len() {
+            Some(min_len) if length_bounds => {
+                super::bm25_upper_bound_with_len(max_tf.max(1.0), idf, min_len as f32, safe_avg)
+            }
+            _ => super::bm25_upper_bound(max_tf.max(1.0), idf),
+        };
+        let num_blocks = posting_list.num_blocks();
         Self {
             max_score,
             num_blocks,
@@ -611,6 +666,8 @@ impl<'a> TermCursor<'a> {
                 denom_const: super::BM25_K1 * (1.0 - super::BM25_B),
                 denom_len_coeff: super::BM25_K1 * super::BM25_B / safe_avg,
                 lengths,
+                length_bounds,
+                avg_len: safe_avg,
                 tfs: Vec::with_capacity(128),
                 deferred_tf: None,
             },
@@ -748,9 +805,24 @@ impl<'a> TermCursor<'a> {
             return 0.0;
         }
         match &self.variant {
-            CursorVariant::Text { list, idf, .. } => {
-                let block_max_tf = list.block_max_tf(self.block_idx).unwrap_or(0) as f32;
-                super::bm25_upper_bound(block_max_tf.max(1.0), *idf)
+            CursorVariant::Text {
+                list,
+                idf,
+                length_bounds,
+                avg_len,
+                ..
+            } => {
+                let (block_max_tf, block_min_len) =
+                    list.block_bounds(self.block_idx).unwrap_or((0, None));
+                match block_min_len {
+                    Some(min_len) if *length_bounds => super::bm25_upper_bound_with_len(
+                        (block_max_tf as f32).max(1.0),
+                        *idf,
+                        min_len as f32,
+                        *avg_len,
+                    ),
+                    _ => super::bm25_upper_bound((block_max_tf as f32).max(1.0), *idf),
+                }
             }
             CursorVariant::Sparse {
                 si,
@@ -814,12 +886,12 @@ impl<'a> TermCursor<'a> {
             self.scores.clear();
             self.scores.resize(count, 0.0);
             match lengths {
-                // Chunked field: real BM25 length normalisation per chunk.
-                Some(map) => {
+                // Real BM25 length normalisation per chunk or document.
+                Some(source) => {
                     for i in 0..count {
                         let tf = unsafe { *tfs.get_unchecked(i) } as f32;
                         let vid = unsafe { *self.doc_ids.get_unchecked(i) };
-                        let len = map.length(vid) as f32;
+                        let len = source.length(vid) as f32;
                         let score = (num_scale * tf) / (tf + d_const + d_len * len);
                         unsafe {
                             *self.scores.get_unchecked_mut(i) = score;
@@ -1293,10 +1365,14 @@ impl<'a> MaxScoreExecutor<'a> {
         posting_lists: Vec<(crate::structures::BlockPostingList, f32)>,
         avg_field_len: f32,
         k: usize,
+        lengths: Option<&'a crate::segment::chunk_map::DocLengths>,
     ) -> Self {
         let cursors: Vec<TermCursor<'a>> = posting_lists
             .into_iter()
-            .map(|(pl, idf)| TermCursor::text(pl, idf, avg_field_len))
+            .map(|(pl, idf)| match lengths {
+                Some(norms) => TermCursor::text_with_norms(pl, idf, avg_field_len, norms),
+                None => TermCursor::text(pl, idf, avg_field_len),
+            })
             .collect();
         Self::new(cursors, k, 1.0)
     }

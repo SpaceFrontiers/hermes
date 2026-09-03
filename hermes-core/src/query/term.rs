@@ -147,6 +147,9 @@ macro_rules! term_plan {
                 };
 
                 let mut scorer = TermScorer::new(posting_list, idf, avg_field_len, 1.0);
+                if let Some(lengths) = reader.doc_lengths(field) {
+                    scorer = scorer.with_doc_lengths(lengths.clone());
+                }
                 if let Some(pos) = positions {
                     scorer = scorer.with_positions(field.0, pos);
                 }
@@ -298,6 +301,8 @@ struct TermScorer {
     field_id: u32,
     /// Positions of the term (if positions are enabled)
     positions: Option<crate::structures::TermPositions>,
+    /// Persisted per-document field lengths; `None` keeps `tf` as the length.
+    lengths: Option<crate::segment::chunk_map::DocLengths>,
 }
 
 impl TermScorer {
@@ -314,7 +319,14 @@ impl TermScorer {
             field_boost,
             field_id: 0,
             positions: None,
+            lengths: None,
         }
+    }
+
+    /// Score with the field's persisted per-document lengths.
+    pub fn with_doc_lengths(mut self, lengths: crate::segment::chunk_map::DocLengths) -> Self {
+        self.lengths = Some(lengths);
+        self
     }
 
     pub fn with_positions(
@@ -430,9 +442,15 @@ impl Scorer for FastFieldTextScorer<'_> {
 impl Scorer for TermScorer {
     fn score(&self) -> Score {
         let tf = self.iterator.term_freq() as f32;
-        // Note: Using tf as doc_len proxy since we don't store per-doc field lengths.
-        // This is a common approximation - longer docs tend to have higher TF.
-        super::bm25f_score(tf, self.idf, tf, self.avg_field_len, self.field_boost)
+        // Persisted field length when the segment has norms; otherwise `tf`
+        // stands in for the length (legacy segments).
+        let doc_len = self
+            .lengths
+            .as_ref()
+            .map(|lengths| lengths.length(self.iterator.doc()) as f32)
+            .filter(|len| *len > 0.0)
+            .unwrap_or(tf);
+        super::bm25f_score(tf, self.idf, doc_len, self.avg_field_len, self.field_boost)
     }
 
     fn matched_positions(&self) -> Option<super::MatchedPositions> {

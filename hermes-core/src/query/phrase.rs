@@ -161,7 +161,7 @@ fn build_chunked_phrase_scorer<'a>(
     let (postings, positions): (Vec<_>, Vec<_>) = term_data.into_iter().unzip();
     let mut scorer =
         PhraseScorer::new(postings, positions, offsets, slop, idf, chunk_map.avg_len())
-            .with_chunk_lengths(chunk_map.clone());
+            .with_lengths(Lengths::Chunks(chunk_map.clone()));
 
     use super::docset::DocSet as _;
     let mut raw: Vec<(u32, u16, f32)> = Vec::new();
@@ -193,14 +193,11 @@ fn build_phrase_scorer<'a>(
         .sum();
     let avg_field_len = reader.avg_field_len(field);
     let (postings, positions): (Vec<_>, Vec<_>) = term_data.into_iter().unzip();
-    Box::new(PhraseScorer::new(
-        postings,
-        positions,
-        offsets,
-        slop,
-        idf,
-        avg_field_len,
-    ))
+    let mut scorer = PhraseScorer::new(postings, positions, offsets, slop, idf, avg_field_len);
+    if let Some(lengths) = reader.doc_lengths(field) {
+        scorer = scorer.with_lengths(Lengths::Docs(lengths.clone()));
+    }
+    Box::new(scorer)
 }
 
 // ── Shared early-return checks for phrase scorer ─────────────────────────
@@ -369,6 +366,22 @@ impl Query for PhraseQuery {
     }
 }
 
+/// Real lengths of the scoring units of a phrase: chunk lengths of a chunked
+/// field or persisted document lengths of a plain field.
+enum Lengths {
+    Chunks(crate::segment::chunk_map::ChunkMap),
+    Docs(crate::segment::chunk_map::DocLengths),
+}
+
+impl Lengths {
+    fn length(&self, id: u32) -> u32 {
+        match self {
+            Lengths::Chunks(map) => map.length(id),
+            Lengths::Docs(lengths) => lengths.length(id),
+        }
+    }
+}
+
 /// Scorer that checks phrase positions
 struct PhraseScorer {
     /// Posting iterators for each term
@@ -388,9 +401,9 @@ struct PhraseScorer {
     idf: f32,
     /// Average field length
     avg_field_len: f32,
-    /// Real per-chunk lengths for chunked fields (posting ids are virtual
-    /// chunk ids). `None` keeps the historic `tf`-as-length approximation.
-    chunk_lengths: Option<crate::segment::chunk_map::ChunkMap>,
+    /// Real lengths of the scoring units. `None` keeps the historic
+    /// `tf`-as-length approximation.
+    lengths: Option<Lengths>,
     /// Reusable position buffers (one per term, avoids per-document allocation)
     position_bufs: Vec<Vec<u32>>,
 }
@@ -425,7 +438,7 @@ impl PhraseScorer {
             current_doc: 0,
             idf,
             avg_field_len,
-            chunk_lengths: None,
+            lengths: None,
             position_bufs: (0..num_terms).map(|_| Vec::new()).collect(),
         };
 
@@ -433,9 +446,9 @@ impl PhraseScorer {
         scorer
     }
 
-    /// Score with each chunk's real length (chunked fields).
-    fn with_chunk_lengths(mut self, lengths: crate::segment::chunk_map::ChunkMap) -> Self {
-        self.chunk_lengths = Some(lengths);
+    /// Score with the real length of each scoring unit.
+    fn with_lengths(mut self, lengths: Lengths) -> Self {
+        self.lengths = Some(lengths);
         self
     }
 
@@ -603,8 +616,8 @@ impl Scorer for PhraseScorer {
 
         // Chunked fields know the real chunk length; other fields keep the
         // `tf`-as-length approximation.
-        let doc_len = match &self.chunk_lengths {
-            Some(lengths) => lengths.length(self.current_doc) as f32,
+        let doc_len = match &self.lengths {
+            Some(lengths) => (lengths.length(self.current_doc) as f32).max(1.0),
             None => tf,
         };
 

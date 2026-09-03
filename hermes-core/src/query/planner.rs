@@ -76,6 +76,7 @@ pub(super) fn prepare_text_maxscore(
 pub(super) fn finish_text_maxscore<'a>(
     posting_lists: Vec<(crate::structures::BlockPostingList, f32)>,
     avg_field_len: f32,
+    lengths: Option<&crate::segment::chunk_map::DocLengths>,
     limit: usize,
     shared_threshold: &std::cell::Cell<f32>,
     index_label: &str,
@@ -84,7 +85,7 @@ pub(super) fn finish_text_maxscore<'a>(
     if posting_lists.is_empty() {
         return Ok(Box::new(EmptyScorer) as Box<dyn Scorer + 'a>);
     }
-    let mut executor = MaxScoreExecutor::text(posting_lists, avg_field_len, limit)
+    let mut executor = MaxScoreExecutor::text(posting_lists, avg_field_len, limit, lengths)
         .with_metric_labels(index_label, field_label);
     let initial = shared_threshold.get();
     if initial > 0.0 {

@@ -131,6 +131,32 @@ impl PositionPostingListBuilder {
     }
 }
 
+/// Length of every scoring unit while a segment is built: chunk lengths of
+/// chunked fields and per-document field lengths of plain fields. Block
+/// bounds of the doc postings are derived from it.
+pub(super) struct LengthLookup<'a> {
+    pub doc_lengths: &'a [u32],
+    pub num_indexed_fields: usize,
+    pub field_to_slot: &'a FxHashMap<u32, usize>,
+    pub chunk_maps: &'a FxHashMap<u32, crate::segment::chunk_map::ChunkMapBuilder>,
+}
+
+impl LengthLookup<'_> {
+    /// Length of scoring unit `id` (virtual chunk id or document id) of `field`.
+    pub fn length(&self, field_id: u32, id: u32) -> u32 {
+        if let Some(map) = self.chunk_maps.get(&field_id) {
+            return map.length(id);
+        }
+        let Some(&slot) = self.field_to_slot.get(&field_id) else {
+            return 0;
+        };
+        self.doc_lengths
+            .get(id as usize * self.num_indexed_fields + slot)
+            .copied()
+            .unwrap_or(0)
+    }
+}
+
 /// Intermediate result for parallel posting serialization
 pub(super) enum SerializedPosting {
     /// Inline posting (small enough to fit in TermInfo)
@@ -158,6 +184,7 @@ pub(super) fn build_postings_streaming(
     inverted_index: HashMap<TermKey, PostingListBuilder>,
     term_interner: Rodeo,
     position_offsets: &FxHashMap<Vec<u8>, (u64, u64)>,
+    lengths: &LengthLookup<'_>,
     term_dict_writer: &mut dyn Write,
     postings_writer: &mut dyn Write,
     #[cfg(feature = "native")] spill_reader: Option<(
@@ -273,12 +300,15 @@ pub(super) fn build_postings_streaming(
 
         let mut posting_bytes = Vec::new();
         // Terms with positions carry a position cursor per block so the
-        // stream written by `build_positions_streaming` is addressable.
-        let block_list = if has_positions {
-            crate::structures::BlockPostingList::from_posting_list_with_positions(&full_postings)?
-        } else {
-            crate::structures::BlockPostingList::from_posting_list(&full_postings)?
-        };
+        // stream written by `build_positions_streaming` is addressable; every
+        // block records the shortest scoring unit it covers for its bound.
+        let field_id = u32::from_le_bytes([key[0], key[1], key[2], key[3]]);
+        let length_of = |id: u32| lengths.length(field_id, id);
+        let block_list = crate::structures::BlockPostingList::from_posting_list_with(
+            &full_postings,
+            has_positions,
+            Some(&length_of),
+        )?;
         block_list.serialize(&mut posting_bytes)?;
         let result = SerializedPosting::External {
             bytes: posting_bytes,

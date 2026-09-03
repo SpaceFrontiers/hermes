@@ -649,6 +649,186 @@ async fn dynamic_stemmer_indexes_per_document_language() {
     assert_eq!(hits(response), vec![3]);
 }
 
+/// Plain (non-chunked) text fields persist per-document lengths, so BM25
+/// normalises by the real field length instead of `tf`, and MaxScore prunes
+/// with block bounds that use each block's minimum length while staying
+/// rank-safe against a brute-force evaluation.
+#[tokio::test]
+async fn plain_text_fields_score_with_persisted_lengths_and_prune_safely() {
+    use crate::query::{BooleanQuery, TermQuery, bm25_idf, bm25_score};
+
+    let mut schema_builder = SchemaBuilder::default();
+    let body = schema_builder.add_text_field_with_tokenizer("body", true, false, "simple");
+    let schema = schema_builder.build();
+
+    // Deterministic corpus: term frequencies of three terms plus filler, with
+    // field lengths spread between 1 and ~300 tokens.
+    let mut seed = 0x2545_F491_4F6C_DD1Du64;
+    let mut rng = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed
+    };
+    let n = 600usize;
+    let mut tfs: Vec<[u32; 3]> = Vec::with_capacity(n);
+    let mut lens: Vec<u32> = Vec::with_capacity(n);
+    let mut texts: Vec<String> = Vec::with_capacity(n);
+    for _ in 0..n {
+        let mut counts = [(rng() % 4) as u32, (rng() % 3) as u32, (rng() % 2) as u32];
+        let filler = (rng() % 300) as u32;
+        if counts.iter().sum::<u32>() + filler == 0 {
+            counts[0] = 1;
+        }
+        let mut words: Vec<&str> = Vec::new();
+        words.extend(std::iter::repeat_n("alpha", counts[0] as usize));
+        words.extend(std::iter::repeat_n("beta", counts[1] as usize));
+        words.extend(std::iter::repeat_n("gamma", counts[2] as usize));
+        words.extend(std::iter::repeat_n("zzz", filler as usize));
+        tfs.push(counts);
+        lens.push(words.len() as u32);
+        texts.push(words.join(" "));
+    }
+
+    let dir = RamDirectory::new();
+    let config = IndexConfig::default();
+    let mut writer = IndexWriter::create(dir.clone(), schema.clone(), config.clone())
+        .await
+        .unwrap();
+    for text in &texts {
+        let mut doc = Document::new();
+        doc.add_text(body, text);
+        writer.add_document(doc).unwrap();
+    }
+    writer.commit().await.unwrap();
+    let index = Index::open(dir, config).await.unwrap();
+
+    // Brute-force BM25 with real lengths.
+    let avg = lens.iter().map(|&l| l as f32).sum::<f32>() / n as f32;
+    let terms = ["alpha", "beta", "gamma"];
+    let idf: Vec<f32> = (0..3)
+        .map(|t| {
+            let df = tfs.iter().filter(|c| c[t] > 0).count() as f32;
+            bm25_idf(df, n as f32)
+        })
+        .collect();
+    let component = |doc: usize, t: usize| -> f32 {
+        let tf = tfs[doc][t] as f32;
+        if tf == 0.0 {
+            0.0
+        } else {
+            bm25_score(tf, idf[t], lens[doc] as f32, avg)
+        }
+    };
+    let expected: Vec<f32> = (0..n)
+        .map(|d| (0..3).map(|t| component(d, t)).sum())
+        .collect();
+
+    let mut query = BooleanQuery::new();
+    for term in terms {
+        query = query.should(TermQuery::text(body, term));
+    }
+    let response = index.search(&query, 10).await.unwrap();
+    assert_eq!(response.hits.len(), 10);
+    let mut best: Vec<f32> = expected.clone();
+    best.sort_by(|a, b| b.partial_cmp(a).unwrap());
+    for (hit, want) in response.hits.iter().zip(&best) {
+        let doc = hit.address.doc_id as usize;
+        assert!(
+            (hit.score - expected[doc]).abs() < 1e-3,
+            "doc {doc}: got {} expected {}",
+            hit.score,
+            expected[doc]
+        );
+        assert!(
+            (hit.score - want).abs() < 1e-3,
+            "rank-safety: got {} expected {want}",
+            hit.score
+        );
+    }
+
+    // A single term goes through TermScorer: same length-normalised scores.
+    let response = index
+        .search(&TermQuery::text(body, "alpha"), 10)
+        .await
+        .unwrap();
+    for hit in &response.hits {
+        let doc = hit.address.doc_id as usize;
+        assert!((hit.score - component(doc, 0)).abs() < 1e-3, "doc {doc}");
+    }
+
+    // Length matters: at equal tf the shorter field scores higher.
+    let short = (0..n)
+        .filter(|&d| tfs[d] == [1, 0, 0])
+        .min_by_key(|&d| lens[d])
+        .unwrap();
+    let long = (0..n)
+        .filter(|&d| tfs[d] == [1, 0, 0])
+        .max_by_key(|&d| lens[d])
+        .unwrap();
+    assert!(lens[short] < lens[long]);
+    assert!(expected[short] > expected[long]);
+}
+
+/// Length columns of plain fields are concatenated on merge (with zero fill
+/// for segments without the field), so scores after a merge equal the
+/// single-segment scores.
+#[tokio::test]
+async fn plain_field_lengths_survive_merges() {
+    use crate::query::{TermQuery, bm25_idf, bm25_score};
+
+    let mut schema_builder = SchemaBuilder::default();
+    let body = schema_builder.add_text_field_with_tokenizer("body", true, false, "simple");
+    let title = schema_builder.add_text_field_with_tokenizer("title", true, false, "simple");
+    let schema = schema_builder.build();
+
+    let dir = RamDirectory::new();
+    let config = IndexConfig::default();
+    let mut writer = IndexWriter::create(dir.clone(), schema.clone(), config.clone())
+        .await
+        .unwrap();
+    // Segment 1: only `title` has values (no `body` length column).
+    for text in ["needle", "needle haystack"] {
+        let mut doc = Document::new();
+        doc.add_text(title, text);
+        writer.add_document(doc).unwrap();
+    }
+    writer.commit().await.unwrap();
+    // Segment 2: `body` with very different lengths.
+    let long_body = format!("needle {}", "word ".repeat(120));
+    for text in ["needle", long_body.as_str(), "other"] {
+        let mut doc = Document::new();
+        doc.add_text(body, text);
+        writer.add_document(doc).unwrap();
+    }
+    writer.commit().await.unwrap();
+    writer.force_merge().await.unwrap();
+    let index = Index::open(dir, config).await.unwrap();
+    let reader = index.reader().await.unwrap();
+    let searcher = reader.searcher().await.unwrap();
+    assert_eq!(
+        searcher.segment_readers().len(),
+        1,
+        "force_merge must leave one segment"
+    );
+
+    // body: two docs with the term, lengths 1 and 121; avg over docs with the field.
+    let avg_body = (1.0 + 121.0 + 1.0) / 3.0;
+    let idf_body = bm25_idf(2.0, 5.0);
+    let response = index
+        .search(&TermQuery::text(body, "needle"), 10)
+        .await
+        .unwrap();
+    assert_eq!(response.hits.len(), 2);
+    let mut scores: Vec<f32> = response.hits.iter().map(|h| h.score).collect();
+    scores.sort_by(|a, b| b.partial_cmp(a).unwrap());
+    let expected_short = bm25_score(1.0, idf_body, 1.0, avg_body);
+    let expected_long = bm25_score(1.0, idf_body, 121.0, avg_body);
+    assert!((scores[0] - expected_short).abs() < 1e-3, "{scores:?}");
+    assert!((scores[1] - expected_long).abs() < 1e-3, "{scores:?}");
+    assert!(expected_short > expected_long);
+}
+
 /// Stop words dropped at index time leave their positions behind, so a
 /// phrase keeps the original word distances: `"quantum of the art"` is
 /// `quantum@0 art@3` on both sides and never matches `quantum art`.

@@ -52,6 +52,16 @@ pub fn bm25_upper_bound(max_tf: f32, idf: f32) -> f32 {
     idf * tf_norm
 }
 
+/// BM25 upper bound with a known minimum length of the scoring units the
+/// bound covers (a block or a whole list): the shortest unit has the
+/// weakest length normalisation, so it bounds every longer one.
+#[inline]
+pub fn bm25_upper_bound_with_len(max_tf: f32, idf: f32, min_len: f32, avg_len: f32) -> f32 {
+    let length_norm = 1.0 - BM25_B + BM25_B * (min_len / avg_len.max(1.0));
+    let tf_norm = (max_tf * (BM25_K1 + 1.0)) / (max_tf + BM25_K1 * length_norm);
+    idf * tf_norm
+}
+
 /// Compute BM25F upper bound score for MaxScore pruning with field boost
 ///
 /// Uses conservative assumptions for maximum possible score:
