@@ -659,6 +659,32 @@ impl<D: Directory + 'static> Searcher<D> {
         self.search_internal(query, limit, 0, true).await
     }
 
+    /// `search_with_positions` under a wall-clock budget (anytime mode).
+    /// Returns `(results, seen, truncated)`; `truncated` is set when an
+    /// executor stopped scoring at the deadline, in which case the results
+    /// are the best found so far rather than the exact top-k.
+    pub async fn search_with_positions_budgeted(
+        &self,
+        query: &dyn crate::query::Query,
+        limit: usize,
+        deadline: Option<std::time::Instant>,
+    ) -> Result<(Vec<crate::query::SearchResult>, u32, bool)> {
+        self.search_internal_budgeted(query, limit, 0, true, deadline)
+            .await
+    }
+
+    /// `search_with_count` under a wall-clock budget; see
+    /// [`Self::search_with_positions_budgeted`].
+    pub async fn search_with_count_budgeted(
+        &self,
+        query: &dyn crate::query::Query,
+        limit: usize,
+        deadline: Option<std::time::Instant>,
+    ) -> Result<(Vec<crate::query::SearchResult>, u32, bool)> {
+        self.search_internal_budgeted(query, limit, 0, false, deadline)
+            .await
+    }
+
     /// Build the paper's single query-level top-γ superblock set, then project
     /// it back onto segment-local plans.
     ///
@@ -907,6 +933,20 @@ impl<D: Directory + 'static> Searcher<D> {
         offset: usize,
         collect_positions: bool,
     ) -> Result<(Vec<crate::query::SearchResult>, u32)> {
+        let (results, seen, _) = self
+            .search_internal_budgeted(query, limit, offset, collect_positions, None)
+            .await?;
+        Ok((results, seen))
+    }
+
+    async fn search_internal_budgeted(
+        &self,
+        query: &dyn crate::query::Query,
+        limit: usize,
+        offset: usize,
+        collect_positions: bool,
+        deadline: Option<std::time::Instant>,
+    ) -> Result<(Vec<crate::query::SearchResult>, u32, bool)> {
         let fetch_limit = checked_search_window(limit, offset)?;
 
         // Use rayon + block_in_place for CPU-bound scoring (sync feature required).
@@ -919,7 +959,13 @@ impl<D: Directory + 'static> Searcher<D> {
             && tokio::runtime::Handle::current().runtime_flavor()
                 == tokio::runtime::RuntimeFlavor::MultiThread
         {
-            return self.search_internal_parallel(query, fetch_limit, offset, collect_positions);
+            return self.search_internal_parallel(
+                query,
+                fetch_limit,
+                offset,
+                collect_positions,
+                deadline,
+            );
         }
 
         // No segments, no sync feature, or current_thread runtime: use an
@@ -932,7 +978,7 @@ impl<D: Directory + 'static> Searcher<D> {
         // segments share it via an atomic; ordering is best-effort. The floor
         // carries the query window so executors with clamped heaps (segments
         // smaller than the window) can never publish an invalid floor.
-        let shared = crate::query::SharedThreshold::for_limit(fetch_limit);
+        let shared = crate::query::SharedThreshold::for_limit(fetch_limit).with_deadline(deadline);
         let lsp_plans = self.prepare_global_lsp(query, fetch_limit, false)?;
         let mut total_seen: u32 = 0;
         let mut merged = Vec::new();
@@ -1006,7 +1052,7 @@ impl<D: Directory + 'static> Searcher<D> {
         }
 
         let results = apply_result_offset(merged, fetch_limit, offset);
-        Ok((results, total_seen))
+        Ok((results, total_seen, shared.truncated()))
     }
 
     /// Multi-segment parallel search using rayon (CPU-bound scoring on thread pool).
@@ -1020,9 +1066,16 @@ impl<D: Directory + 'static> Searcher<D> {
         fetch_limit: usize,
         offset: usize,
         collect_positions: bool,
-    ) -> Result<(Vec<crate::query::SearchResult>, u32)> {
+        deadline: Option<std::time::Instant>,
+    ) -> Result<(Vec<crate::query::SearchResult>, u32, bool)> {
         tokio::task::block_in_place(|| {
-            self.search_internal_sync(query, fetch_limit, offset, collect_positions)
+            self.search_internal_sync_budgeted(
+                query,
+                fetch_limit,
+                offset,
+                collect_positions,
+                deadline,
+            )
         })
     }
 
@@ -1038,11 +1091,29 @@ impl<D: Directory + 'static> Searcher<D> {
         offset: usize,
         collect_positions: bool,
     ) -> Result<(Vec<crate::query::SearchResult>, u32)> {
-        let (merged, total_seen) =
-            self.search_segments_sync(query, fetch_limit, collect_positions)?;
-
-        let results = apply_result_offset(merged, fetch_limit, offset);
+        let (results, total_seen, _) = self.search_internal_sync_budgeted(
+            query,
+            fetch_limit,
+            offset,
+            collect_positions,
+            None,
+        )?;
         Ok((results, total_seen))
+    }
+
+    #[cfg(feature = "sync")]
+    fn search_internal_sync_budgeted(
+        &self,
+        query: &dyn crate::query::Query,
+        fetch_limit: usize,
+        offset: usize,
+        collect_positions: bool,
+        deadline: Option<std::time::Instant>,
+    ) -> Result<(Vec<crate::query::SearchResult>, u32, bool)> {
+        let (merged, total_seen, truncated) =
+            self.search_segments_sync(query, fetch_limit, collect_positions, deadline)?;
+        let results = apply_result_offset(merged, fetch_limit, offset);
+        Ok((results, total_seen, truncated))
     }
 
     /// Score all segments with one shared threshold.
@@ -1058,11 +1129,12 @@ impl<D: Directory + 'static> Searcher<D> {
         query: &dyn crate::query::Query,
         fetch_limit: usize,
         collect_positions: bool,
-    ) -> Result<(Vec<crate::query::SearchResult>, u32)> {
+        deadline: Option<std::time::Instant>,
+    ) -> Result<(Vec<crate::query::SearchResult>, u32, bool)> {
         use rayon::prelude::*;
 
         let lsp_plans = self.prepare_global_lsp(query, fetch_limit, true)?;
-        let shared = crate::query::SharedThreshold::for_limit(fetch_limit);
+        let shared = crate::query::SharedThreshold::for_limit(fetch_limit).with_deadline(deadline);
         let run_segment = |segment_index: &usize| {
             let segment = &self.segments[*segment_index];
             let lsp_plan = lsp_plans[*segment_index].clone();
@@ -1089,7 +1161,7 @@ impl<D: Directory + 'static> Searcher<D> {
         };
 
         if !lsp_plans.iter().any(Option::is_some) {
-            return self.search_pool.install(|| {
+            let (merged, seen) = self.search_pool.install(|| {
                 (0..self.segments.len())
                     .into_par_iter()
                     .map(|segment| run_segment(&segment))
@@ -1102,7 +1174,8 @@ impl<D: Directory + 'static> Searcher<D> {
                             ))
                         },
                     )
-            });
+            })?;
+            return Ok((merged, seen, shared.truncated()));
         }
 
         let order = self.ordered_lsp_segments(&lsp_plans);
@@ -1125,7 +1198,7 @@ impl<D: Directory + 'static> Searcher<D> {
                 }
             }
         }
-        Ok((merged, total_seen))
+        Ok((merged, total_seen, shared.truncated()))
     }
 
     /// Synchronous search across all segments using rayon for parallelism.
@@ -1139,7 +1212,7 @@ impl<D: Directory + 'static> Searcher<D> {
         offset: usize,
     ) -> Result<(Vec<crate::query::SearchResult>, u32)> {
         let fetch_limit = checked_search_window(limit, offset)?;
-        let (merged, total_seen) = self.search_segments_sync(query, fetch_limit, false)?;
+        let (merged, total_seen, _) = self.search_segments_sync(query, fetch_limit, false, None)?;
 
         let results = apply_result_offset(merged, fetch_limit, offset);
         Ok((results, total_seen))

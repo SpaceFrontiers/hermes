@@ -192,6 +192,13 @@ message MatchQuery {
   float proximity_weight = 4;
   // Unordered window size; 0 = 8.
   uint32 proximity_window = 5;
+  // Approximate MaxScore: scale the pruning threshold by 1/heap_factor
+  // (0 or 1 = exact, rank-safe; 1.5 prunes more aggressively at some
+  // recall cost). Same semantics as SparseVectorQuery.heap_factor.
+  float heap_factor = 6;
+  // Long queries: keep only the `max_terms` rarest (highest idf) tokens for
+  // scoring; 0 = all tokens. Approximate.
+  uint32 max_terms = 7;
 }
 
 // Phrase query - text is tokenized server-side with the field's tokenizer
@@ -243,6 +250,11 @@ message SearchRequest {
   // First-stage candidate pool. 0 uses offset + limit; explicit values must
   // be between offset + limit and the 2x ceiling.
   uint32 candidate_limit = 7;
+  // Anytime mode: wall-clock budget in milliseconds for the scoring phase.
+  // Text (BM25) MaxScore executors stop at the deadline and return the best
+  // results found so far; `SearchResponse.truncated` reports that it fired.
+  // 0 = unbounded (exact top-k).
+  uint64 time_budget_ms = 8;
 }
 
 // Unique document address: segment + local doc_id
@@ -299,6 +311,9 @@ message SearchResponse {
   uint64 total_hits = 2;
   uint64 took_ms = 3;
   SearchTimings timings = 4;
+  // True when `time_budget_ms` expired before every candidate was scored;
+  // the hits are then the best-so-far, not the exact top-k.
+  bool truncated = 5;
 }
 
 // Detailed timing breakdown for search phases (all values in microseconds)

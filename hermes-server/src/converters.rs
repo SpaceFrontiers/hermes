@@ -230,6 +230,12 @@ pub fn convert_query(
                     match_query.proximity_window,
                 ));
             }
+            if match_query.heap_factor > 1.0 {
+                query = query.with_text_heap_factor(match_query.heap_factor);
+            }
+            if match_query.max_terms > 0 {
+                query = query.with_max_terms(match_query.max_terms as usize);
+            }
             Ok(Box::new(query))
         }
         Some(ProtoQueryType::Phrase(phrase_query)) => {
@@ -1464,6 +1470,8 @@ mod tests {
                 tokenizer_hint: hint.to_string(),
                 proximity_weight: 0.0,
                 proximity_window: 0,
+                heap_factor: 0.0,
+                max_terms: 0,
             })),
         }
     }
@@ -1732,6 +1740,8 @@ mod tests {
                 tokenizer_hint: String::new(),
                 proximity_weight: 0.0,
                 proximity_window: 0,
+                heap_factor: 0.0,
+                max_terms: 0,
             })),
         };
         let explicit_empty_prefix = proto::Query {
@@ -1863,6 +1873,8 @@ mod tests {
                     tokenizer_hint: String::new(),
                     proximity_weight: 0.5,
                     proximity_window: 0,
+                    heap_factor: 0.0,
+                    max_terms: 0,
                 })),
             },
             &schema,
@@ -1873,6 +1885,28 @@ mod tests {
         .unwrap();
         let rendered = query.to_string();
         assert!(rendered.contains("~proximity(0.5, 8)"), "{rendered}");
+
+        let tuned = convert_query(
+            &proto::Query {
+                query: Some(ProtoQueryType::Match(proto::MatchQuery {
+                    field: "body".to_string(),
+                    text: "running foxes jump".to_string(),
+                    tokenizer_hint: String::new(),
+                    proximity_weight: 0.0,
+                    proximity_window: 0,
+                    heap_factor: 1.5,
+                    max_terms: 2,
+                })),
+            },
+            &schema,
+            None,
+            None,
+            &shape(),
+        )
+        .unwrap()
+        .to_string();
+        assert!(tuned.contains("~heap(1.5)"), "{tuned}");
+        assert!(tuned.contains("~max_terms(2)"), "{tuned}");
         let off = convert_query(
             &match_proto("body", "running foxes", ""),
             &schema,
@@ -1931,6 +1965,8 @@ mod tests {
                 tokenizer_hint: String::new(),
                 proximity_weight: 0.0,
                 proximity_window: 0,
+                heap_factor: 0.0,
+                max_terms: 0,
             })),
         };
         let error = convert_query(&query, &schema, None, None, &QueryShapeLimits::default())

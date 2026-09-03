@@ -216,18 +216,30 @@ segment is still readable and is converted by its first merge.
   instead of its top `limit`, which a MUST constraint requires.
 - **Phrase as a scoring clause.** Still open: a `PhraseQuery` in SHOULD is a
   verifier; its block bound would be the minimum of its terms' bounds.
-- **Approximate and anytime modes.** Reuse the sparse `heap_factor`
-  threshold scaling for text, and add a postings-or-time budget that
-  evaluates BP-clustered virtual-id ranges in order of their superblock bound and
-  stops at the deadline (Mackenzie, Petri, Moffat, "Anytime Ranking on
-  Document-Ordered Indexes", TOIS 2022). The ~4–10% corpus budget in
-  arXiv:2608.00229 (Hierarchical BM25) recovers 0.85–0.92 of the exhaustive
-  score on a topically ordered corpus; that is the same knob without a
-  second cluster index.
-- **Long queries.** Beyond ~24 terms MaxScore's essential set collapses;
-  cap by idf-ranked static query pruning and, if measured to matter, run
-  Block-Max WAND for the residual (Ding & Suel, SIGIR 2011; variable-sized
-  blocks, Mallia et al., SIGIR 2017).
+- **Approximate and anytime modes** (implemented 2026-09-03).
+  `MatchQuery.heap_factor` (> 1) reuses the sparse threshold scaling for the
+  text executors: the collector's floor is divided by the factor, so
+  candidates that cannot beat `threshold / heap_factor` are skipped and the
+  result is a subset of the exact top-k with exact scores. An approximate
+  pass neither seeds from nor publishes to the segment-shared threshold, so
+  it can never lower an exact clause's floor. `SearchRequest.time_budget_ms`
+  is the anytime knob: the deadline travels on `SharedThreshold`, every text
+  MaxScore executor reads the clock once per 4,096 loop iterations and stops
+  at expiry with the results collected so far, and `SearchResponse.truncated`
+  reports that it fired. Because the field-level BP pass clusters similar
+  chunks, document order already approximates "best ranges first" (Mackenzie,
+  Petri, Moffat, "Anytime Ranking on Document-Ordered Indexes", TOIS 2022);
+  ordering the traversal by superblock bound instead of position is the
+  remaining refinement, to be decided from measurements. The ~4–10% corpus
+  budget in arXiv:2608.00229 (Hierarchical BM25) recovers 0.85–0.92 of the
+  exhaustive score on a topically ordered corpus; that is the same knob
+  without a second cluster index.
+- **Long queries** (implemented 2026-09-03). `MatchQuery.max_terms` caps a
+  match at its highest-idf terms (static query pruning, query order kept;
+  `cap_terms` runs before each text finisher). Beyond ~24 terms MaxScore's
+  essential set collapses; whether the residual deserves Block-Max WAND
+  (Ding & Suel, SIGIR 2011; variable-sized blocks, Mallia et al., SIGIR 2017)
+  is a measurement question on a real generation.
 - Query term de-duplication with query tf weighting, and per-term boosts
   from the request (needed by the search-api field weighting).
 
@@ -386,7 +398,8 @@ unicode`).
    the same cursors, to be decided from measurements on a real generation.
 5. Field-level BP reordering of chunked text fields through their chunk maps
    (done for the standalone/optimizer pass; merge-time pass open).
-6. Anytime/budgeted BM25 and long-query handling.
+6. Anytime/budgeted BM25 and long-query handling (done: `heap_factor`,
+   `max_terms`, `time_budget_ms` + `truncated`; bound-ordered traversal open).
 7. Cross-shard DF with broker phase 2.
 
 ## Evaluation

@@ -85,6 +85,8 @@ pub(super) fn finish_text_maxscore<'a>(
     predicate: Option<DocPredicate<'a>>,
     params: super::Bm25Params,
     proximity: Option<(super::ProximityConfig, Vec<Vec<u8>>)>,
+    heap_factor: f32,
+    budget: Option<&super::SharedThreshold>,
 ) -> crate::Result<Box<dyn Scorer + 'a>> {
     if posting_lists.is_empty() {
         return Ok(Box::new(EmptyScorer) as Box<dyn Scorer + 'a>);
@@ -107,6 +109,7 @@ pub(super) fn finish_text_maxscore<'a>(
         executor_limit,
         lengths,
         params,
+        heap_factor,
     )
     .with_metric_labels(
         reader.schema().index_label(),
@@ -115,8 +118,11 @@ pub(super) fn finish_text_maxscore<'a>(
     if let Some(predicate) = predicate {
         executor = executor.with_predicate(predicate);
     }
+    executor = executor.with_budget(budget.cloned());
+    // An approximate pass neither consumes nor publishes the exact floor.
+    let exact = heap_factor <= 1.0;
     let initial = shared_threshold.get();
-    if initial > 0.0 && proximity.is_none() {
+    if initial > 0.0 && proximity.is_none() && exact {
         executor.seed_threshold(initial);
     }
     let mut results = executor.execute_sync()?;
@@ -139,13 +145,50 @@ pub(super) fn finish_text_maxscore<'a>(
                 .then(a.doc_id.cmp(&b.doc_id))
         });
         results.truncate(limit);
-    } else if results.len() >= limit
+    } else if exact
+        && results.len() >= limit
         && let Some(last) = results.last()
         && last.score > shared_threshold.get()
     {
         shared_threshold.set(last.score);
     }
     Ok(Box::new(TopKResultScorer::new(results)) as Box<dyn Scorer + 'a>)
+}
+
+/// Long-query cap: keep the `max_terms` rarest terms (highest idf) of a
+/// field group, in their original order, dropping the rest. `0` keeps all.
+pub(super) fn cap_terms(
+    posting_lists: &mut Vec<(crate::structures::BlockPostingList, f32)>,
+    term_bytes: &mut Vec<Vec<u8>>,
+    max_terms: usize,
+) {
+    if max_terms == 0 || posting_lists.len() <= max_terms {
+        return;
+    }
+    let mut by_idf: Vec<(usize, f32)> = posting_lists
+        .iter()
+        .enumerate()
+        .map(|(i, (_, idf))| (i, *idf))
+        .collect();
+    by_idf.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    let mut keep = vec![false; posting_lists.len()];
+    for (i, _) in by_idf.into_iter().take(max_terms) {
+        keep[i] = true;
+    }
+    let mut index = 0;
+    posting_lists.retain(|_| {
+        let kept = keep[index];
+        index += 1;
+        kept
+    });
+    if term_bytes.len() == keep.len() {
+        let mut index = 0;
+        term_bytes.retain(|_| {
+            let kept = keep[index];
+            index += 1;
+            kept
+        });
+    }
 }
 
 /// Over-fetch factor for chunked text MaxScore: the executor ranks chunks and
@@ -185,6 +228,7 @@ pub(super) fn text_maxscore_allowed(
 /// score)` pairs — the same shape sparse vectors produce. Cross-segment
 /// threshold seeding is deliberately not applied: the k-th chunk score of a
 /// full heap is not a document-level floor after `Max` folding.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn finish_chunked_text_maxscore<'a>(
     posting_lists: Vec<(crate::structures::BlockPostingList, f32)>,
     limit: usize,
@@ -192,6 +236,8 @@ pub(crate) fn finish_chunked_text_maxscore<'a>(
     field: crate::Field,
     predicate: Option<DocPredicate<'a>>,
     proximity: Option<(super::ProximityConfig, Vec<Vec<u8>>)>,
+    heap_factor: f32,
+    budget: Option<&super::SharedThreshold>,
 ) -> crate::Result<Box<dyn Scorer + 'a>> {
     if posting_lists.is_empty() {
         return Ok(Box::new(EmptyScorer) as Box<dyn Scorer + 'a>);
@@ -220,6 +266,7 @@ pub(crate) fn finish_chunked_text_maxscore<'a>(
         executor_limit,
         chunk_map,
         params,
+        heap_factor,
     )
     .with_metric_labels(
         reader.schema().index_label(),
@@ -229,6 +276,7 @@ pub(crate) fn finish_chunked_text_maxscore<'a>(
         // The executor walks virtual chunk ids; filters are per document.
         executor = executor.with_predicate(Box::new(move |vid| predicate(chunk_map.doc_id(vid))));
     }
+    executor = executor.with_budget(budget.cloned());
     let mut raw = executor.execute_sync()?;
     if let Some((config, terms)) = proximity {
         let terms: Vec<(Vec<u8>, f32)> = terms.into_iter().zip(idfs).collect();

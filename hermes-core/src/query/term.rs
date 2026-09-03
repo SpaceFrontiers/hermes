@@ -136,6 +136,8 @@ macro_rules! term_plan {
                     field,
                     None,
                     None,
+                    1.0,
+                    None,
                 )
             }
             Some(posting_list) => {

@@ -305,6 +305,11 @@ pub struct SharedThreshold {
     /// Result-window depth the floor is valid for. `usize::MAX` means the
     /// depth is unknown; reading stays safe, publishing is disabled.
     k: usize,
+    /// Wall-clock budget of the whole query (anytime mode): executors that
+    /// honour it stop scoring once it passes and flag the result truncated.
+    deadline: Option<std::time::Instant>,
+    /// Set by any executor that stopped early because of `deadline`.
+    truncated: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Default for SharedThreshold {
@@ -331,7 +336,38 @@ impl SharedThreshold {
             // 0.0_f32.to_bits() == 0, matching AtomicU32::default().
             floor: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0)),
             k,
+            deadline: None,
+            truncated: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
+    }
+
+    /// Attach a wall-clock budget (`None` = unbounded).
+    pub fn with_deadline(mut self, deadline: Option<std::time::Instant>) -> Self {
+        self.deadline = deadline;
+        self
+    }
+
+    /// The query's deadline, if any.
+    pub fn deadline(&self) -> Option<std::time::Instant> {
+        self.deadline
+    }
+
+    /// Whether the deadline has passed.
+    #[inline]
+    pub fn expired(&self) -> bool {
+        self.deadline
+            .is_some_and(|deadline| std::time::Instant::now() >= deadline)
+    }
+
+    /// Record that an executor stopped early because the deadline passed.
+    pub fn mark_truncated(&self) {
+        self.truncated
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Whether any executor of this query stopped early.
+    pub fn truncated(&self) -> bool {
+        self.truncated.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// True when a full heap of `heap_depth` distinct documents backs a valid
@@ -402,6 +438,9 @@ pub struct MaxScoreExecutor<'a> {
     collector: ScoreCollector,
     inv_heap_factor: f32,
     predicate: Option<super::DocPredicate<'a>>,
+    /// Query-global budget: checked every few thousand loop iterations;
+    /// an expired deadline ends traversal with the results so far.
+    budget: Option<SharedThreshold>,
 }
 
 /// Where a text cursor reads the length of a scoring unit: chunk lengths of a
@@ -1080,8 +1119,25 @@ macro_rules! bms_execute_loop {
 
         let inv_heap_factor = $self.inv_heap_factor;
         let mut adjusted_threshold = $self.collector.threshold() * inv_heap_factor - 1e-6;
+        let mut iterations: u64 = 0;
 
         loop {
+            // Anytime budget: a coarse deadline check (one clock read per
+            // 4096 iterations); the results collected so far are returned
+            // and the query is flagged truncated.
+            iterations += 1;
+            if iterations & 0xFFF == 0
+                && let Some(budget) = &$self.budget
+                && budget.expired()
+            {
+                budget.mark_truncated();
+                log::debug!(
+                    "MaxScoreExecutor: deadline reached after {} iterations, {} scored",
+                    iterations,
+                    docs_scored
+                );
+                break;
+            }
             let partition = $self.find_partition();
             if partition >= n {
                 break;
@@ -1407,9 +1463,16 @@ impl<'a> MaxScoreExecutor<'a> {
             collector: ScoreCollector::new(k),
             inv_heap_factor: 1.0 / clamped_heap_factor,
             predicate: None,
+            budget: None,
             metric_index: "unknown",
             metric_field: "unknown",
         }
+    }
+
+    /// Attach the query's wall-clock budget (anytime mode).
+    pub fn with_budget(mut self, budget: Option<SharedThreshold>) -> Self {
+        self.budget = budget.filter(|b| b.deadline().is_some());
+        self
     }
 
     /// Attach (index, field) labels for the metrics this executor emits.
@@ -1455,6 +1518,7 @@ impl<'a> MaxScoreExecutor<'a> {
         k: usize,
         lengths: Option<&'a crate::segment::chunk_map::DocLengths>,
         params: super::Bm25Params,
+        heap_factor: f32,
     ) -> Self {
         let cursors: Vec<TermCursor<'a>> = posting_lists
             .into_iter()
@@ -1468,7 +1532,7 @@ impl<'a> MaxScoreExecutor<'a> {
                 )
             })
             .collect();
-        Self::new(cursors, k, 1.0)
+        Self::new(cursors, k, heap_factor)
     }
 
     /// Executor for BM25 over a chunked text field: posting ids are virtual
@@ -1480,6 +1544,7 @@ impl<'a> MaxScoreExecutor<'a> {
         k: usize,
         lengths: &'a crate::segment::chunk_map::ChunkMap,
         params: super::Bm25Params,
+        heap_factor: f32,
     ) -> Self {
         let cursors: Vec<TermCursor<'a>> = posting_lists
             .into_iter()
@@ -1493,7 +1558,7 @@ impl<'a> MaxScoreExecutor<'a> {
                 )
             })
             .collect();
-        Self::new(cursors, k, 1.0)
+        Self::new(cursors, k, heap_factor)
     }
 
     #[inline]

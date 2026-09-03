@@ -769,6 +769,11 @@ impl SearchService for SearchServiceImpl {
         let start = Instant::now();
         let t_search = Instant::now();
         let query_desc;
+        // Anytime mode: text executors stop at the deadline and the response
+        // says so; 0 keeps the exact top-k.
+        let deadline = (req.time_budget_ms > 0)
+            .then(|| Instant::now() + std::time::Duration::from_millis(req.time_budget_ms));
+        let mut truncated = false;
         let (results, total_seen, rerank_config) =
             if let Some(crate::proto::query::Query::Fusion(fusion)) = &query.query {
                 // Fusion: run each sub-query independently and fuse the ranked
@@ -876,16 +881,22 @@ impl SearchService for SearchServiceImpl {
                 );
 
                 if let Some(config) = rerank_setup {
-                    let (candidates, seen) = searcher
-                        .search_with_count(core_query.as_ref(), candidate_limit)
+                    let (candidates, seen, hit_budget) = searcher
+                        .search_with_count_budgeted(core_query.as_ref(), candidate_limit, deadline)
                         .await
                         .map_err(crate::error::hermes_error_to_status)?;
+                    truncated = hit_budget;
                     (candidates, seen, Some((config, limit)))
                 } else {
-                    let (results, seen) = searcher
-                        .search_with_positions(core_query.as_ref(), candidate_limit)
+                    let (results, seen, hit_budget) = searcher
+                        .search_with_positions_budgeted(
+                            core_query.as_ref(),
+                            candidate_limit,
+                            deadline,
+                        )
                         .await
                         .map_err(crate::error::hermes_error_to_status)?;
+                    truncated = hit_budget;
                     (results, seen, None)
                 }
             };
@@ -1042,6 +1053,7 @@ impl SearchService for SearchServiceImpl {
                 load_us,
                 total_us,
             }),
+            truncated,
         }))
             }
         .await;
@@ -1637,6 +1649,8 @@ mod tests {
                 tokenizer_hint: String::new(),
                 proximity_weight: 0.0,
                 proximity_window: 0,
+                heap_factor: 0.0,
+                max_terms: 0,
             })),
         });
         assert_eq!(
@@ -1670,6 +1684,8 @@ mod tests {
                 tokenizer_hint: "en,".repeat(limits().shape.max_query_text_bytes),
                 proximity_weight: 0.0,
                 proximity_window: 0,
+                heap_factor: 0.0,
+                max_terms: 0,
             })),
         });
         assert_eq!(

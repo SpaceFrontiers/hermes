@@ -1209,6 +1209,146 @@ async fn proximity_rescoring_prefers_adjacent_terms() {
     }
 }
 
+/// Long-query cap and approximate mode: `max_terms` keeps the rarest terms
+/// (the result equals the query over those terms alone), and a heap factor
+/// above one returns a subset of the exact top-k with exact scores.
+#[tokio::test]
+async fn text_maxscore_honours_max_terms_and_heap_factor() {
+    use crate::query::{BooleanQuery, TermQuery};
+
+    let mut schema_builder = SchemaBuilder::default();
+    let body = schema_builder.add_text_field_with_tokenizer("body", true, false, "simple");
+    let schema = schema_builder.build();
+    let dir = RamDirectory::new();
+    let config = IndexConfig::default();
+    let mut writer = IndexWriter::create(dir.clone(), schema.clone(), config.clone())
+        .await
+        .unwrap();
+    let mut seed = 0x7A3B_11C9_55D2_0F01u64;
+    let mut rng = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed
+    };
+    // "common" is in almost every document, "rare" in a few, "mid" between.
+    for _ in 0..3000 {
+        let mut words = vec!["common"; (rng() % 3 + 1) as usize];
+        if rng() % 3 == 0 {
+            words.push("mid");
+        }
+        if rng() % 40 == 0 {
+            words.push("rare");
+        }
+        words.extend(std::iter::repeat_n("pad", (rng() % 40) as usize));
+        let mut doc = Document::new();
+        doc.add_text(body, words.join(" "));
+        writer.add_document(doc).unwrap();
+    }
+    writer.commit().await.unwrap();
+    let index = Index::open(dir, config).await.unwrap();
+    let ids = |response: crate::query::SearchResponse| -> Vec<(u32, i64)> {
+        response
+            .hits
+            .iter()
+            .map(|h| (h.address.doc_id, (h.score * 1e4).round() as i64))
+            .collect()
+    };
+
+    // max_terms 1 keeps "rare" only.
+    let capped = BooleanQuery::new()
+        .should(TermQuery::text(body, "common"))
+        .should(TermQuery::text(body, "mid"))
+        .should(TermQuery::text(body, "rare"))
+        .with_max_terms(1);
+    let only_rare = BooleanQuery::new().should(TermQuery::text(body, "rare"));
+    assert_eq!(
+        ids(index.search(&capped, 20).await.unwrap()),
+        ids(index.search(&only_rare, 20).await.unwrap())
+    );
+
+    // Approximate mode: a subset of the exact top-k, scores unchanged.
+    let full = BooleanQuery::new()
+        .should(TermQuery::text(body, "common"))
+        .should(TermQuery::text(body, "mid"))
+        .should(TermQuery::text(body, "rare"));
+    let exact = ids(index.search(&full, 30).await.unwrap());
+    let approx = ids(index
+        .search(&full.clone().with_text_heap_factor(1.5), 30)
+        .await
+        .unwrap());
+    assert!(!approx.is_empty());
+    for hit in &approx {
+        assert!(exact.contains(hit), "{hit:?} not in exact top-30");
+    }
+}
+
+/// Anytime mode: a deadline that has already passed makes the text
+/// executor stop after its first budget check and flag the response
+/// truncated; a generous deadline changes nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn text_maxscore_stops_at_the_deadline() {
+    use crate::query::{BooleanQuery, TermQuery};
+    use std::time::{Duration, Instant};
+
+    let mut schema_builder = SchemaBuilder::default();
+    let body = schema_builder.add_text_field_with_tokenizer("body", true, false, "simple");
+    let schema = schema_builder.build();
+    let dir = RamDirectory::new();
+    let config = IndexConfig::default();
+    let mut writer = IndexWriter::create(dir.clone(), schema.clone(), config.clone())
+        .await
+        .unwrap();
+    // Every document matches both terms: the executor cannot skip, so the
+    // loop runs once per document and crosses the 4096-iteration check.
+    for i in 0..20_000u32 {
+        let make = || {
+            let mut doc = Document::new();
+            let padding = " pad".repeat((i % 7) as usize);
+            doc.add_text(body, format!("alpha beta{padding}"));
+            doc
+        };
+        // The writer queue is bounded; wait for the workers to drain it.
+        while let Err(crate::Error::QueueFull) = writer.add_document(make()) {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    }
+    writer.commit().await.unwrap();
+    let index = Index::open(dir, config).await.unwrap();
+    let reader = index.reader().await.unwrap();
+    let searcher = reader.searcher().await.unwrap();
+    let query = BooleanQuery::new()
+        .should(TermQuery::text(body, "alpha"))
+        .should(TermQuery::text(body, "beta"));
+    let ids = |results: &[crate::query::SearchResult]| -> Vec<(u32, i64)> {
+        results
+            .iter()
+            .map(|r| (r.doc_id, (r.score * 1e4).round() as i64))
+            .collect()
+    };
+
+    let (exact, exact_seen) = searcher.search_with_positions(&query, 10).await.unwrap();
+    assert_eq!(exact.len(), 10);
+
+    let (unhurried, seen, truncated) = searcher
+        .search_with_positions_budgeted(&query, 10, Some(Instant::now() + Duration::from_secs(600)))
+        .await
+        .unwrap();
+    assert!(!truncated);
+    assert_eq!(seen, exact_seen);
+    assert_eq!(ids(&unhurried), ids(&exact));
+
+    let (partial, _, truncated) = searcher
+        .search_with_positions_budgeted(&query, 10, Some(Instant::now() - Duration::from_secs(1)))
+        .await
+        .unwrap();
+    assert!(truncated, "an expired deadline must flag the response");
+    assert!(partial.len() <= 10);
+    assert!(!partial.is_empty(), "best-so-far results are returned");
+    // Best-so-far stays a valid ranking: scores are exact and descending.
+    assert!(partial.windows(2).all(|w| w[0].score >= w[1].score));
+}
+
 /// Stop words dropped at index time leave their positions behind, so a
 /// phrase keeps the original word distances: `"quantum of the art"` is
 /// `quantum@0 art@3` on both sides and never matches `quantum art`.

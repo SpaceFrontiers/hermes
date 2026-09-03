@@ -8,8 +8,8 @@ use crate::{DocId, Score};
 
 use super::planner::{
     build_combined_bitset, build_sparse_bmp_results, build_sparse_bmp_results_filtered,
-    build_sparse_maxscore_executor, chain_predicates, combine_sparse_results, compute_idf,
-    extract_all_sparse_infos, finish_chunked_text_maxscore, finish_text_maxscore,
+    build_sparse_maxscore_executor, cap_terms, chain_predicates, combine_sparse_results,
+    compute_idf, extract_all_sparse_infos, finish_chunked_text_maxscore, finish_text_maxscore,
     prepare_per_field_grouping, prepare_text_maxscore, text_maxscore_allowed,
 };
 use super::{CountFuture, EmptyScorer, GlobalStats, Query, Scorer, ScorerFuture};
@@ -18,7 +18,7 @@ use super::{CountFuture, EmptyScorer, GlobalStats, Query, Scorer, ScorerFuture};
 ///
 /// When all clauses are SHOULD term queries on the same field, automatically
 /// uses MaxScore optimization for efficient top-k retrieval.
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct BooleanQuery {
     pub must: Vec<Arc<dyn Query>>,
     pub should: Vec<Arc<dyn Query>>,
@@ -28,6 +28,12 @@ pub struct BooleanQuery {
     /// Proximity rescoring of the text MaxScore result (SHOULD terms in
     /// query order); `None` = off.
     proximity: Option<super::ProximityConfig>,
+    /// Approximate text MaxScore: threshold scaled by `1 / heap_factor`
+    /// (> 1 prunes beyond rank safety). 1.0 = exact.
+    text_heap_factor: f32,
+    /// Keep only the rarest `max_terms` SHOULD text terms of a field group
+    /// (0 = all): long-query cap.
+    max_terms: usize,
 }
 
 fn shared_or_extract_sparse_infos<'a>(
@@ -78,7 +84,27 @@ impl std::fmt::Display for BooleanQuery {
         if let Some(proximity) = &self.proximity {
             write!(f, " ~proximity({}, {})", proximity.weight, proximity.window)?;
         }
+        if self.text_heap_factor > 1.0 {
+            write!(f, " ~heap({})", self.text_heap_factor)?;
+        }
+        if self.max_terms > 0 {
+            write!(f, " ~max_terms({})", self.max_terms)?;
+        }
         write!(f, ")")
+    }
+}
+
+impl Default for BooleanQuery {
+    fn default() -> Self {
+        Self {
+            must: Vec::new(),
+            should: Vec::new(),
+            must_not: Vec::new(),
+            global_stats: None,
+            proximity: None,
+            text_heap_factor: 1.0,
+            max_terms: 0,
+        }
     }
 }
 
@@ -115,6 +141,20 @@ impl BooleanQuery {
         self.proximity = config.is_active().then_some(config);
         self
     }
+
+    /// Approximate text MaxScore (threshold × `1 / heap_factor`); values
+    /// at or below 1 keep the exact, rank-safe traversal.
+    pub fn with_text_heap_factor(mut self, heap_factor: f32) -> Self {
+        self.text_heap_factor = if heap_factor > 1.0 { heap_factor } else { 1.0 };
+        self
+    }
+
+    /// Cap the text terms scored per field group to the `max_terms` rarest
+    /// (highest idf) ones; 0 = no cap.
+    pub fn with_max_terms(mut self, max_terms: usize) -> Self {
+        self.max_terms = max_terms;
+        self
+    }
 }
 
 /// Build a SHOULD-only scorer from a vec of optimized scorers.
@@ -149,7 +189,7 @@ fn build_should_scorer<'a>(scorers: Vec<Box<dyn Scorer + 'a>>) -> Box<dyn Scorer
 //   3. Filter push-down → predicate-aware sparse MaxScore | PredicatedScorer
 //   4. Standard BooleanScorer fallback
 macro_rules! boolean_plan {
-    ($must:expr, $should:expr, $must_not:expr, $global_stats:expr, $proximity:expr,
+    ($must:expr, $should:expr, $must_not:expr, $global_stats:expr, $proximity:expr, $text_tuning:expr,
      $reader:expr, $limit:expr, $scorer_options:expr,
      $scorer_fn:ident, $get_postings_fn:ident, $execute_fn:ident
      $(, $aw:tt)*) => {{
@@ -231,11 +271,14 @@ macro_rules! boolean_plan {
                         term_bytes.push(info.term.clone());
                     }
                 }
+                cap_terms(&mut posting_lists, &mut term_bytes, $text_tuning.1);
                 // Chunked field: score chunks, fold to documents with ordinals.
                 if reader.is_chunked_field(text_field) {
                     return finish_chunked_text_maxscore(
                         posting_lists, limit, reader, text_field, None,
                         $proximity.map(|config| (config, term_bytes)),
+                        $text_tuning.0,
+                        scorer_options.shared_threshold.as_ref(),
                     );
                 }
                 // Seed from the cross-segment floor: this path scores final
@@ -255,6 +298,8 @@ macro_rules! boolean_plan {
                     None,
                     super::Bm25Params::for_field(reader.schema(), text_field),
                     $proximity.map(|config| (config, term_bytes)),
+                    $text_tuning.0,
+                    scorer_options.shared_threshold.as_ref(),
                 );
             }
 
@@ -303,6 +348,7 @@ macro_rules! boolean_plan {
                         term_bytes.push(info.term.clone());
                         }
                     }
+                    cap_terms(&mut posting_lists, &mut term_bytes, $text_tuning.1);
                     if reader.is_chunked_field(*field) {
                         scorers.push(finish_chunked_text_maxscore(
                             posting_lists,
@@ -311,6 +357,8 @@ macro_rules! boolean_plan {
                             *field,
                             None,
                             $proximity.map(|config| (config, term_bytes)),
+                            $text_tuning.0,
+                            scorer_options.shared_threshold.as_ref(),
                         )?);
                     } else if !posting_lists.is_empty() {
                         scorers.push(finish_text_maxscore(
@@ -324,6 +372,8 @@ macro_rules! boolean_plan {
                             None,
                             super::Bm25Params::for_field(reader.schema(), *field),
                             $proximity.map(|config| (config, term_bytes)),
+                            $text_tuning.0,
+                            scorer_options.shared_threshold.as_ref(),
                         )?);
                     }
                 }
@@ -416,6 +466,7 @@ macro_rules! boolean_plan {
                         term_bytes.push(info.term.clone());
                         }
                     }
+                    cap_terms(&mut posting_lists, &mut term_bytes, $text_tuning.1);
                     let filter = bitset.clone();
                     let predicate: super::DocPredicate<'_> =
                         Box::new(move |doc_id| filter.contains(doc_id));
@@ -423,6 +474,8 @@ macro_rules! boolean_plan {
                         finish_chunked_text_maxscore(
                             posting_lists, group_limit, reader, field, Some(predicate),
                             $proximity.map(|config| (config, term_bytes)),
+                            $text_tuning.0,
+                            scorer_options.shared_threshold.as_ref(),
                         )?
                     } else {
                         finish_text_maxscore(
@@ -436,6 +489,8 @@ macro_rules! boolean_plan {
                             Some(predicate),
                             super::Bm25Params::for_field(reader.schema(), field),
                             $proximity.map(|config| (config, term_bytes)),
+                            $text_tuning.0,
+                            scorer_options.shared_threshold.as_ref(),
                         )?
                     };
                     let hits = scorer.size_hint();
@@ -625,6 +680,8 @@ macro_rules! boolean_plan {
                     must_not: Vec::new(),
                     global_stats: global_stats.cloned(),
                     proximity: $proximity,
+                    text_heap_factor: $text_tuning.0,
+                    max_terms: $text_tuning.1,
                 };
                 sub.$scorer_fn(reader, should_limit, should_options) $(. $aw)* ?
             };
@@ -707,6 +764,7 @@ impl Query for BooleanQuery {
         let must_not = self.must_not.clone();
         let global_stats = self.global_stats.clone();
         let proximity = self.proximity;
+        let text_tuning = (self.text_heap_factor, self.max_terms);
         Box::pin(async move {
             boolean_plan!(
                 must,
@@ -714,6 +772,7 @@ impl Query for BooleanQuery {
                 must_not,
                 global_stats.as_ref(),
                 proximity,
+                text_tuning,
                 reader,
                 limit,
                 options,
@@ -747,6 +806,7 @@ impl Query for BooleanQuery {
             self.must_not,
             self.global_stats.as_ref(),
             self.proximity,
+            (self.text_heap_factor, self.max_terms),
             reader,
             limit,
             options,
