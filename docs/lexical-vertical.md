@@ -187,11 +187,23 @@ segment is still readable and is converted by its first merge.
 
 - Keep Block-Max MaxScore as the rank-safe default. Add the L1 skip to the
   block-skip branch (skip 8 blocks at once when the superblock bound fails).
-- **Phrase as a MaxScore clause.** A phrase's block upper bound is the
-  minimum of its terms' block bounds (phrase frequency ≤ min tf), so a
-  `PhraseQuery` can be an essential or non-essential cursor of the same
-  executor instead of a verifier in `BooleanScorer`; the position check runs
-  only for documents that pass the doc-level bound.
+- **Filters and phrases as executor predicates** (implemented 2026-09-03).
+  The query shape clients send is `MUST [phrases, filters] + SHOULD
+[terms]`. When every SHOULD clause is a text term and the MUST/MUST_NOT
+  clauses combine into one document bitset (`build_combined_bitset`:
+  narrowest clause materialised, the rest probed; `PhraseQuery::as_doc_bitset`
+  drains the phrase, resolving chunk ids to documents), the text MaxScore
+  executors run with the bitset as their predicate (`finish_text_maxscore`,
+  `finish_chunked_text_maxscore`), one group per field. The top-k is exact
+  over the filtered documents because a filter never changes a bound, and
+  documents matching only the filters fill the tail with score 0
+  (`BitsetFillScorer`) when fewer than `limit` scored documents survive.
+  Before this, text SHOULD went through an over-fetched unfiltered top-k and
+  a `PredicatedScorer`, which could lose phrase matches that ranked below the
+  candidate budget. A chunked phrase now keeps every matching document
+  instead of its top `limit`, which a MUST constraint requires.
+- **Phrase as a scoring clause.** Still open: a `PhraseQuery` in SHOULD is a
+  verifier; its block bound would be the minimum of its terms' bounds.
 - **Approximate and anytime modes.** Reuse the sparse `heap_factor`
   threshold scaling for text, and add a postings-or-time budget that
   evaluates BP-clustered virtual-id ranges in order of their superblock bound and
@@ -343,8 +355,8 @@ per-list clustering (all need a bounded vocabulary).
    text-bearing index generation.
 3. UAX #29 tokenizer, folding, CJK bigrams (done, opt-in `segmenter:
 unicode`).
-4. L1 superblock maxima, phrase-as-MaxScore clause, phrase-frequency scoring,
-   proximity rescoring, per-field k1/b.
+4. Filters and phrases as executor predicates (done); L1 superblock maxima,
+   phrase-frequency scoring, proximity rescoring, per-field k1/b (open).
 5. Field-level BP reordering of chunked text fields through their chunk maps.
 6. Anytime/budgeted BM25 and long-query handling.
 7. Cross-shard DF with broker phase 2.

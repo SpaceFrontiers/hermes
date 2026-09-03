@@ -170,8 +170,12 @@ fn build_chunked_phrase_scorer<'a>(
         raw.push((doc_id, ordinal, scorer.score()));
         scorer.advance();
     }
+    // Every matching document is kept: a phrase is also used as a MUST
+    // constraint (verifier or bitset), where truncating to `limit` would
+    // silently reject documents that do contain the phrase.
+    let _ = limit;
     let combined =
-        crate::segment::combine_ordinal_results(raw, super::MultiValueCombiner::Max, limit.max(1));
+        crate::segment::combine_ordinal_results(raw, super::MultiValueCombiner::Max, usize::MAX);
     Ok(Box::new(super::vector::VectorResultScorer::new(combined, field.0)) as Box<dyn Scorer + 'a>)
 }
 
@@ -339,6 +343,52 @@ impl Query for PhraseQuery {
             reader,
             self.field,
         ))
+    }
+
+    /// Every document containing the phrase, as a bitset (documents, also
+    /// for chunked fields). Lets the planner push a quoted span into the
+    /// MaxScore executors as an O(1) predicate instead of a verifier.
+    #[cfg(feature = "sync")]
+    fn as_doc_bitset(&self, reader: &SegmentReader) -> Option<super::DocBitset> {
+        if self.terms.is_empty() {
+            return None;
+        }
+        let mut bitset = super::DocBitset::new(reader.num_docs());
+        if self.terms.len() == 1 {
+            // A one-term phrase is the term itself; walk its postings and
+            // resolve chunk ids to documents where needed.
+            let list = reader
+                .get_postings_sync(self.field, &self.terms[0])
+                .ok()??;
+            let chunk_map = reader.chunk_map(self.field);
+            let mut it = list.iterator();
+            while it.doc() != TERMINATED {
+                let doc = chunk_map.map_or(it.doc(), |map| map.doc_id(it.doc()));
+                bitset.set(doc);
+                it.advance();
+            }
+            return Some(bitset);
+        }
+        let mut scorer = self
+            .scorer_sync_with_options(reader, usize::MAX, super::ScorerOptions::with_positions())
+            .ok()?;
+        while scorer.doc() != TERMINATED {
+            bitset.set(scorer.doc());
+            scorer.advance();
+        }
+        Some(bitset)
+    }
+
+    /// Matches are at most the rarest term's postings; the planner only
+    /// needs the order of magnitude to pick which clause to materialize.
+    #[cfg(feature = "sync")]
+    fn bitset_cardinality_estimate(&self, reader: &SegmentReader) -> Option<u64> {
+        let mut min = u64::MAX;
+        for term in &self.terms {
+            let list = reader.get_postings_sync(self.field, term).ok()??;
+            min = min.min(u64::from(list.doc_count()));
+        }
+        Some((min / 10).max(1))
     }
 
     fn count_estimate<'a>(&self, reader: &'a SegmentReader) -> CountFuture<'a> {

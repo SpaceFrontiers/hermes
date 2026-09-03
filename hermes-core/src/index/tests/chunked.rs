@@ -360,6 +360,83 @@ async fn chunked_match_composes_with_document_filters() {
     assert_eq!(ordinals(by_doc(&results, 2)), vec![0]);
 }
 
+/// MUST phrases and filters become one document bitset that the chunked
+/// text MaxScore executor applies as a predicate: the scored top-k is exact
+/// over the filtered documents, documents matching only the filters fill the
+/// tail with score 0, and chunk ordinals are still reported.
+#[tokio::test]
+async fn filters_and_phrases_push_into_chunked_text_maxscore() {
+    let f = chunked_schema();
+    let dir = RamDirectory::new();
+    let mut writer = IndexWriter::create(dir.clone(), f.schema.clone(), IndexConfig::default())
+        .await
+        .unwrap();
+    for (kind, chunks) in [
+        ("article", vec!["quick brown fox", "lazy dog"]),
+        ("book", vec!["quick brown fox jumps", "over the lazy dog"]),
+        ("book", vec!["brown fox", "quick dog"]),
+        ("article", vec!["quick brown", "fox"]),
+        ("book", vec!["nothing here"]),
+    ] {
+        writer.add_document(doc(&f, kind, &chunks)).unwrap();
+    }
+    writer.commit().await.unwrap();
+    let index = open(dir).await;
+    let reader = index.reader().await.unwrap();
+    let searcher = reader.searcher().await.unwrap();
+    let phrase = |text: &str| {
+        PhraseQuery::new(
+            f.content,
+            text.split(' ').map(|t| t.as_bytes().to_vec()).collect(),
+        )
+    };
+    let ids = |results: &[SearchResult]| {
+        let mut ids: Vec<u32> = results.iter().map(|r| r.doc_id).collect();
+        ids.sort_unstable();
+        ids
+    };
+
+    // Phrase constraint: doc 3 has "brown" and "fox" in different chunks.
+    let query = BooleanQuery::new()
+        .must(phrase("brown fox"))
+        .should(TermQuery::text(f.content, "quick"))
+        .should(TermQuery::text(f.content, "dog"));
+    let (results, _) = searcher.search_with_positions(&query, 10).await.unwrap();
+    assert_eq!(ids(&results), vec![0, 1, 2], "{results:?}");
+    assert!(results.iter().all(|r| r.score > 0.0));
+    assert_eq!(ordinals(by_doc(&results, 0)), vec![0, 1]);
+    assert_eq!(ordinals(by_doc(&results, 2)), vec![1]);
+
+    // Plus a fast-field filter.
+    let query = BooleanQuery::new()
+        .must(phrase("brown fox"))
+        .must(TermQuery::text(f.kind, "book"))
+        .should(TermQuery::text(f.content, "quick"))
+        .should(TermQuery::text(f.content, "dog"));
+    let (results, _) = searcher.search_with_positions(&query, 10).await.unwrap();
+    assert_eq!(ids(&results), vec![1, 2], "{results:?}");
+
+    // An OR of phrases (the shape a client uses to try several fields or
+    // hints) is one bitset; a document matching only the phrases and none
+    // of the scored terms is still returned, with score 0.
+    let either = BooleanQuery::new()
+        .should(phrase("brown fox"))
+        .should(phrase("nothing here"));
+    let query = BooleanQuery::new()
+        .must(either)
+        .should(TermQuery::text(f.content, "quick"))
+        .should(TermQuery::text(f.content, "dog"));
+    let (results, _) = searcher.search_with_positions(&query, 10).await.unwrap();
+    assert_eq!(ids(&results), vec![0, 1, 2, 4], "{results:?}");
+    assert_eq!(by_doc(&results, 4).score, 0.0);
+    assert!(by_doc(&results, 1).score > 0.0);
+
+    // With a small limit only scored documents make the cut.
+    let (results, _) = searcher.search_with_positions(&query, 2).await.unwrap();
+    assert_eq!(results.len(), 2);
+    assert!(results.iter().all(|r| r.score > 0.0));
+}
+
 #[tokio::test]
 async fn chunked_field_rejects_prefix_queries_loudly() {
     let f = chunked_schema();

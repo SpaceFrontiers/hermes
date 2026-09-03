@@ -73,6 +73,7 @@ pub(super) fn prepare_text_maxscore(
 /// per-segment cell here caused cross-query threshold leaks under
 /// concurrent searches (one query's threshold wrongly pruning another's
 /// results).
+#[allow(clippy::too_many_arguments)]
 pub(super) fn finish_text_maxscore<'a>(
     posting_lists: Vec<(crate::structures::BlockPostingList, f32)>,
     avg_field_len: f32,
@@ -81,12 +82,16 @@ pub(super) fn finish_text_maxscore<'a>(
     shared_threshold: &std::cell::Cell<f32>,
     index_label: &str,
     field_label: &str,
+    predicate: Option<DocPredicate<'a>>,
 ) -> crate::Result<Box<dyn Scorer + 'a>> {
     if posting_lists.is_empty() {
         return Ok(Box::new(EmptyScorer) as Box<dyn Scorer + 'a>);
     }
     let mut executor = MaxScoreExecutor::text(posting_lists, avg_field_len, limit, lengths)
         .with_metric_labels(index_label, field_label);
+    if let Some(predicate) = predicate {
+        executor = executor.with_predicate(predicate);
+    }
     let initial = shared_threshold.get();
     if initial > 0.0 {
         executor.seed_threshold(initial);
@@ -141,8 +146,9 @@ pub(super) fn text_maxscore_allowed(
 pub(crate) fn finish_chunked_text_maxscore<'a>(
     posting_lists: Vec<(crate::structures::BlockPostingList, f32)>,
     limit: usize,
-    reader: &SegmentReader,
+    reader: &'a SegmentReader,
     field: crate::Field,
+    predicate: Option<DocPredicate<'a>>,
 ) -> crate::Result<Box<dyn Scorer + 'a>> {
     if posting_lists.is_empty() {
         return Ok(Box::new(EmptyScorer) as Box<dyn Scorer + 'a>);
@@ -157,7 +163,7 @@ pub(crate) fn finish_chunked_text_maxscore<'a>(
     let executor_limit = bounded_sparse_executor_limit(limit, CHUNKED_TEXT_OVER_FETCH_FACTOR)
         .min(chunk_map.num_chunks() as usize)
         .max(1);
-    let executor = MaxScoreExecutor::text_chunked(
+    let mut executor = MaxScoreExecutor::text_chunked(
         posting_lists,
         chunk_map.avg_len(),
         executor_limit,
@@ -167,6 +173,10 @@ pub(crate) fn finish_chunked_text_maxscore<'a>(
         reader.schema().index_label(),
         reader.schema().get_field_name(field).unwrap_or("?"),
     );
+    if let Some(predicate) = predicate {
+        // The executor walks virtual chunk ids; filters are per document.
+        executor = executor.with_predicate(Box::new(move |vid| predicate(chunk_map.doc_id(vid))));
+    }
     let raw = executor.execute_sync()?;
     let combined = crate::segment::combine_ordinal_results(
         raw.into_iter().map(|hit| {
@@ -639,6 +649,101 @@ pub(super) fn build_combined_bitset(
 }
 
 // ── Result scorers ───────────────────────────────────────────────────────
+
+/// Union of a scored result stream with the documents of a filter bitset:
+/// documents the stream does not produce are yielded with score 0. Used when
+/// a filtered text MaxScore pass finds fewer than `limit` scored documents,
+/// so documents matching only the MUST clauses still fill the result list
+/// (Boolean semantics: SHOULD is optional once a MUST clause exists).
+pub(super) struct BitsetFillScorer<'a> {
+    inner: Box<dyn Scorer + 'a>,
+    bitset: std::sync::Arc<super::DocBitset>,
+    /// Next bitset document not yet consumed.
+    next_bit: Option<DocId>,
+    current: DocId,
+    on_inner: bool,
+}
+
+impl<'a> BitsetFillScorer<'a> {
+    pub(super) fn new(
+        inner: Box<dyn Scorer + 'a>,
+        bitset: std::sync::Arc<super::DocBitset>,
+    ) -> Self {
+        let next_bit = bitset.next_set_bit(0);
+        let mut scorer = Self {
+            inner,
+            bitset,
+            next_bit,
+            current: 0,
+            on_inner: false,
+        };
+        scorer.settle();
+        scorer
+    }
+
+    /// Position on the smaller of the two heads.
+    fn settle(&mut self) {
+        let inner_doc = self.inner.doc();
+        let bit_doc = self.next_bit.unwrap_or(TERMINATED);
+        self.current = inner_doc.min(bit_doc);
+        self.on_inner = inner_doc == self.current && inner_doc != TERMINATED;
+    }
+}
+
+impl super::docset::DocSet for BitsetFillScorer<'_> {
+    fn doc(&self) -> DocId {
+        self.current
+    }
+
+    fn advance(&mut self) -> DocId {
+        if self.current == TERMINATED {
+            return TERMINATED;
+        }
+        if self.on_inner {
+            self.inner.advance();
+        }
+        if self.next_bit == Some(self.current) {
+            self.next_bit = self
+                .current
+                .checked_add(1)
+                .and_then(|d| self.bitset.next_set_bit(d));
+        }
+        self.settle();
+        self.current
+    }
+
+    fn seek(&mut self, target: DocId) -> DocId {
+        if target <= self.current {
+            return self.current;
+        }
+        self.inner.seek(target);
+        self.next_bit = self.bitset.next_set_bit(target);
+        self.settle();
+        self.current
+    }
+
+    fn size_hint(&self) -> u32 {
+        self.bitset.count().max(self.inner.size_hint())
+    }
+}
+
+impl Scorer for BitsetFillScorer<'_> {
+    fn score(&self) -> Score {
+        if self.on_inner {
+            self.inner.score()
+        } else {
+            0.0
+        }
+    }
+
+    fn matched_positions(&self) -> Option<super::MatchedPositions> {
+        if self.on_inner {
+            self.inner.matched_positions()
+        } else {
+            None
+        }
+    }
+}
 
 /// Scorer that iterates over pre-computed top-k results
 pub(super) struct TopKResultScorer {

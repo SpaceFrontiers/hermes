@@ -216,7 +216,9 @@ macro_rules! boolean_plan {
                 }
                 // Chunked field: score chunks, fold to documents with ordinals.
                 if reader.is_chunked_field(text_field) {
-                    return finish_chunked_text_maxscore(posting_lists, limit, reader, text_field);
+                    return finish_chunked_text_maxscore(
+                        posting_lists, limit, reader, text_field, None,
+                    );
                 }
                 // Seed from the cross-segment floor: this path scores final
                 // per-doc BM25 into a top-`limit` heap, so a floor carried from
@@ -232,6 +234,7 @@ macro_rules! boolean_plan {
                     &shared_threshold,
                     reader.schema().index_label(),
                     reader.schema().get_field_name(text_field).unwrap_or("?"),
+                    None,
                 );
             }
 
@@ -284,6 +287,7 @@ macro_rules! boolean_plan {
                             grouping.per_field_limit,
                             reader,
                             *field,
+                            None,
                         )?);
                     } else if !posting_lists.is_empty() {
                         scorers.push(finish_text_maxscore(
@@ -294,6 +298,7 @@ macro_rules! boolean_plan {
                             &shared_threshold,
                             reader.schema().index_label(),
                             reader.schema().get_field_name(*field).unwrap_or("?"),
+                            None,
                         )?);
                     }
                 }
@@ -315,6 +320,118 @@ macro_rules! boolean_plan {
         // theirs. Only the posting-list bitset shortcut is skipped when
         // positions are requested, because a bitset cannot report them.
         if !should.is_empty() && !must.is_empty() {
+            // ── 3-text. Text SHOULD with materializable filters ──────────
+            //
+            // When every SHOULD clause is a text term and the MUST/MUST_NOT
+            // clauses combine into one document bitset (term filters, ranges,
+            // quoted phrases via `PhraseQuery::as_doc_bitset`), the text
+            // MaxScore executors run with the bitset as a predicate: the
+            // top-k is exact over the filtered documents (bounds are unaffected
+            // by a filter), instead of an over-fetched unfiltered top-k that a
+            // PredicatedScorer thins out afterwards. Documents matching only
+            // the filters (score 0) fill the tail when fewer than `limit`
+            // scored documents survive, keeping Boolean semantics.
+            let text_groups: Option<Vec<(crate::Field, Vec<super::TermQueryInfo>)>> = {
+                let mut groups: Vec<(crate::Field, Vec<super::TermQueryInfo>)> = Vec::new();
+                let mut all_text = true;
+                for q in should {
+                    match q.decompose() {
+                        super::QueryDecomposition::TextTerm(info)
+                            if text_maxscore_allowed(
+                                reader, info.field, scorer_options.collect_positions,
+                            ) =>
+                        {
+                            match groups.iter_mut().find(|(f, _)| *f == info.field) {
+                                Some((_, infos)) => infos.push(info),
+                                None => groups.push((info.field, vec![info])),
+                            }
+                        }
+                        _ => {
+                            all_text = false;
+                            break;
+                        }
+                    }
+                }
+                all_text.then_some(groups)
+            };
+            if let Some(groups) = text_groups
+                && let Some(bitset) = build_combined_bitset(must, must_not, reader)
+            {
+                let bitset = std::sync::Arc::new(bitset);
+                let single_field = groups.len() == 1;
+                let group_limit = if single_field {
+                    limit
+                } else {
+                    super::max_candidate_limit(limit)
+                        .min(reader.num_docs() as usize)
+                        .max(1)
+                };
+                // Cross-segment floor only when the group score is the final
+                // document score (single field); per-field partial scores
+                // start at 0.0 like path 2c.
+                let shared_threshold = std::cell::Cell::new(if single_field {
+                    scorer_options.initial_threshold
+                } else {
+                    0.0
+                });
+                let mut scorers: Vec<Box<dyn Scorer + '_>> = Vec::new();
+                let mut found = 0u32;
+                let mut complete = true;
+                for (field, infos) in groups {
+                    let corpus_size = reader.text_corpus_size(field);
+                    let avg_field_len = global_stats
+                        .map(|s| s.avg_field_len(field))
+                        .unwrap_or_else(|| reader.avg_field_len(field));
+                    let mut posting_lists = Vec::with_capacity(infos.len());
+                    for info in &infos {
+                        if let Some(pl) = reader.$get_postings_fn(field, &info.term) $(. $aw)* ? {
+                            let idf = compute_idf(&pl, field, &info.term, corpus_size, global_stats);
+                            posting_lists.push((pl, idf));
+                        }
+                    }
+                    let filter = bitset.clone();
+                    let predicate: super::DocPredicate<'_> =
+                        Box::new(move |doc_id| filter.contains(doc_id));
+                    let scorer = if reader.is_chunked_field(field) {
+                        finish_chunked_text_maxscore(
+                            posting_lists, group_limit, reader, field, Some(predicate),
+                        )?
+                    } else {
+                        finish_text_maxscore(
+                            posting_lists,
+                            avg_field_len,
+                            reader.doc_lengths(field),
+                            group_limit,
+                            &shared_threshold,
+                            reader.schema().index_label(),
+                            reader.schema().get_field_name(field).unwrap_or("?"),
+                            Some(predicate),
+                        )?
+                    };
+                    let hits = scorer.size_hint();
+                    found = found.saturating_add(hits);
+                    if hits as usize >= group_limit {
+                        complete = false;
+                    }
+                    scorers.push(scorer);
+                }
+                log::debug!(
+                    "BooleanQuery planner: bitset-aware text MaxScore, {} field group(s), \
+                     {} filtered docs, {} scored hits",
+                    scorers.len(),
+                    bitset.count(),
+                    found
+                );
+                let should_scorer = build_should_scorer(scorers);
+                if complete && (found as usize) < limit && bitset.count() > found {
+                    return Ok(Box::new(super::planner::BitsetFillScorer::new(
+                        should_scorer,
+                        bitset,
+                    )));
+                }
+                return Ok(should_scorer);
+            }
+
             // Pre-check: is SHOULD all-sparse? This determines whether we can
             // use bitset fallback for MUST clauses that lack fast-field predicates.
             // For sparse SHOULD, the predicate is pushed into BMP/MaxScore traversal

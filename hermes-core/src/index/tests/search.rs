@@ -829,6 +829,78 @@ async fn plain_field_lengths_survive_merges() {
     assert!(expected_short > expected_long);
 }
 
+/// Plain fields: a MUST phrase plus a fast-field filter run as a bitset
+/// predicate inside text MaxScore, and documents matching only the MUST
+/// clauses fill the tail with score 0.
+#[tokio::test]
+async fn filtered_text_maxscore_keeps_boolean_semantics_on_plain_fields() {
+    use crate::dsl::PositionMode;
+    use crate::query::{BooleanQuery, PhraseQuery, TermQuery};
+
+    let mut schema_builder = SchemaBuilder::default();
+    let body = schema_builder.add_text_field_with_tokenizer("body", true, false, "simple");
+    schema_builder.set_positions(body, PositionMode::TokenPosition);
+    let kind = schema_builder.add_text_field_with_tokenizer("kind", true, true, "raw_ci");
+    schema_builder.set_fast(kind, true);
+    let schema = schema_builder.build();
+
+    let dir = RamDirectory::new();
+    let config = IndexConfig::default();
+    let mut writer = IndexWriter::create(dir.clone(), schema.clone(), config.clone())
+        .await
+        .unwrap();
+    for (text, k) in [
+        ("solid state physics review", "a"),
+        ("state of the solid art", "b"),
+        ("solid state devices", "b"),
+        ("physics review", "a"),
+    ] {
+        let mut doc = Document::new();
+        doc.add_text(body, text);
+        doc.add_text(kind, k);
+        writer.add_document(doc).unwrap();
+    }
+    writer.commit().await.unwrap();
+    let index = Index::open(dir, config).await.unwrap();
+    let phrase = PhraseQuery::new(body, vec![b"solid".to_vec(), b"state".to_vec()]);
+    let by_doc = |response: &crate::query::SearchResponse| -> Vec<(u32, f32)> {
+        let mut hits: Vec<(u32, f32)> = response
+            .hits
+            .iter()
+            .map(|h| (h.address.doc_id, h.score))
+            .collect();
+        hits.sort_by_key(|(d, _)| *d);
+        hits
+    };
+
+    let query = BooleanQuery::new()
+        .must(phrase.clone())
+        .should(TermQuery::text(body, "physics"))
+        .should(TermQuery::text(body, "review"));
+    let hits = by_doc(&index.search(&query, 10).await.unwrap());
+    assert_eq!(hits.iter().map(|(d, _)| *d).collect::<Vec<_>>(), vec![0, 2]);
+    assert!(hits[0].1 > 0.0, "{hits:?}");
+    assert_eq!(hits[1].1, 0.0, "doc 2 matches only the phrase: {hits:?}");
+
+    let query = BooleanQuery::new()
+        .must(phrase)
+        .must(TermQuery::text(kind, "b"))
+        .should(TermQuery::text(body, "physics"))
+        .should(TermQuery::text(body, "review"));
+    let hits = by_doc(&index.search(&query, 10).await.unwrap());
+    assert_eq!(hits, vec![(2, 0.0)]);
+
+    // A tight limit keeps only scored documents.
+    let query = BooleanQuery::new()
+        .must(TermQuery::text(body, "state"))
+        .should(TermQuery::text(body, "physics"))
+        .should(TermQuery::text(body, "review"));
+    let hits = by_doc(&index.search(&query, 1).await.unwrap());
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].0, 0);
+    assert!(hits[0].1 > 0.0);
+}
+
 /// Stop words dropped at index time leave their positions behind, so a
 /// phrase keeps the original word distances: `"quantum of the art"` is
 /// `quantum@0 art@3` on both sides and never matches `quantum art`.

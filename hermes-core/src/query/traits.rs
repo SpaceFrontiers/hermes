@@ -114,6 +114,25 @@ impl DocBitset {
         }
     }
 
+    /// First set bit at or after `from`, if any.
+    pub fn next_set_bit(&self, from: DocId) -> Option<DocId> {
+        let mut word = from as usize / 64;
+        if word >= self.bits.len() {
+            return None;
+        }
+        let mut bits = self.bits[word] & (u64::MAX << (from % 64));
+        loop {
+            if bits != 0 {
+                return Some((word * 64 + bits.trailing_zeros() as usize) as DocId);
+            }
+            word += 1;
+            if word >= self.bits.len() {
+                return None;
+            }
+            bits = self.bits[word];
+        }
+    }
+
     /// Test if `doc_id` is in the bitset.
     #[inline(always)]
     pub fn contains(&self, doc_id: u32) -> bool {
