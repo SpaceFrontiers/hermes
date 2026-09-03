@@ -1055,18 +1055,27 @@ macro_rules! bms_execute_loop {
             // which cursors are at min_doc (avoids redundant re-checks in
             // conjunction, block-max, predicate, and scoring passes).
             let mut min_doc = u32::MAX;
+            // Smallest essential doc after min_doc: the first doc where a
+            // cursor not at min_doc can contribute, hence the farthest a
+            // block skip may safely go.
+            let mut next_other = u32::MAX;
             let mut at_min_mask = 0u64; // bitset of cursor indices at min_doc
             for i in partition..n {
                 let doc = $self.cursors[i].doc();
                 match doc.cmp(&min_doc) {
                     std::cmp::Ordering::Less => {
+                        next_other = min_doc;
                         min_doc = doc;
                         at_min_mask = 1u64 << (i as u32);
                     }
                     std::cmp::Ordering::Equal => {
                         at_min_mask |= 1u64 << (i as u32);
                     }
-                    _ => {}
+                    std::cmp::Ordering::Greater => {
+                        if doc < next_other {
+                            next_other = doc;
+                        }
+                    }
                 }
             }
             if min_doc == u32::MAX {
@@ -1113,11 +1122,25 @@ macro_rules! bms_execute_loop {
                 }
 
                 if block_max_sum + non_essential_upper < adjusted_threshold {
+                    // Block-Max MaxScore skip: every document before
+                    // `next_other` is covered only by the cursors at min_doc
+                    // (plus non-essential ones), whose block bounds cannot
+                    // reach the threshold. A document at or after
+                    // `next_other` may also receive another essential
+                    // cursor's score, so no cursor jumps past it: skip the
+                    // block when it ends before `next_other`, otherwise seek
+                    // to `next_other` inside the block.
                     let mut mask = at_min_mask;
                     while mask != 0 {
                         let i = mask.trailing_zeros() as usize;
-                        $self.cursors[i].skip_to_next_block();
-                        $self.cursors[i].$ensure() $($aw)* ?;
+                        let block_end =
+                            $self.cursors[i].block_last_doc($self.cursors[i].block_idx);
+                        if next_other > block_end {
+                            $self.cursors[i].skip_to_next_block();
+                            $self.cursors[i].$ensure() $($aw)* ?;
+                        } else {
+                            $self.cursors[i].$seek(next_other) $($aw)* ?;
+                        }
                         mask &= mask - 1;
                     }
                     blocks_skipped += 1;

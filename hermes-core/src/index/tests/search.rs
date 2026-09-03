@@ -901,6 +901,147 @@ async fn filtered_text_maxscore_keeps_boolean_semantics_on_plain_fields() {
     assert!(hits[0].1 > 0.0);
 }
 
+/// A phrase scores by its own frequency (occurrences of the phrase in the
+/// unit) with the summed idf of its terms and the unit's real length.
+#[tokio::test]
+async fn phrase_scores_by_phrase_frequency() {
+    use crate::dsl::PositionMode;
+    use crate::query::{PhraseQuery, bm25_idf, bm25_score};
+
+    let mut schema_builder = SchemaBuilder::default();
+    let body = schema_builder.add_text_field_with_tokenizer("body", true, false, "simple");
+    schema_builder.set_positions(body, PositionMode::TokenPosition);
+    let schema = schema_builder.build();
+    let dir = RamDirectory::new();
+    let config = IndexConfig::default();
+    let mut writer = IndexWriter::create(dir.clone(), schema.clone(), config.clone())
+        .await
+        .unwrap();
+    // Same length, same term frequencies: doc 0 has the phrase twice, doc 1
+    // once (its other "brown" and "fox" are apart), doc 2 not at all.
+    let texts = [
+        "brown fox brown fox pad",
+        "brown fox pad fox brown",
+        "brown pad fox pad pad",
+    ];
+    for text in texts {
+        let mut doc = Document::new();
+        doc.add_text(body, text);
+        writer.add_document(doc).unwrap();
+    }
+    writer.commit().await.unwrap();
+    let index = Index::open(dir, config).await.unwrap();
+
+    let phrase = PhraseQuery::new(body, vec![b"brown".to_vec(), b"fox".to_vec()]);
+    let response = index.search(&phrase, 10).await.unwrap();
+    let mut hits: Vec<(u32, f32)> = response
+        .hits
+        .iter()
+        .map(|h| (h.address.doc_id, h.score))
+        .collect();
+    hits.sort_by_key(|(d, _)| *d);
+    assert_eq!(hits.iter().map(|(d, _)| *d).collect::<Vec<_>>(), vec![0, 1]);
+    assert!(hits[0].1 > hits[1].1, "{hits:?}");
+
+    let idf = bm25_idf(3.0, 3.0) + bm25_idf(3.0, 3.0);
+    let avg = 5.0;
+    assert!(
+        (hits[0].1 - bm25_score(2.0, idf, 5.0, avg)).abs() < 1e-4,
+        "{hits:?}"
+    );
+    assert!(
+        (hits[1].1 - bm25_score(1.0, idf, 5.0, avg)).abs() < 1e-4,
+        "{hits:?}"
+    );
+}
+
+/// Block-Max MaxScore regression: an essential cursor that fails the
+/// block-max check at the minimum document must not skip past a document
+/// another essential cursor still holds inside that block, or the document
+/// loses the skipped cursor's contribution and a true top-k hit is dropped.
+///
+/// Shape: "cc" is in every document (non-essential). "aa" and "bb" are rare
+/// with one tf-30 document each, so both stay essential once the threshold
+/// is set by docs 0 and 1 (cc + aa + bb, tf 1 each). At doc 2 only "aa" is
+/// at the minimum and its first block (tf 1) cannot beat the threshold; "bb"
+/// waits at doc 100, inside that block, with tf 6: the true top hit.
+#[tokio::test]
+async fn block_max_skip_never_jumps_over_another_essential_cursor() {
+    use crate::query::{BooleanQuery, TermQuery, bm25_idf, bm25_score};
+
+    let mut schema_builder = SchemaBuilder::default();
+    let body = schema_builder.add_text_field_with_tokenizer("body", true, false, "simple");
+    let schema = schema_builder.build();
+    let dir = RamDirectory::new();
+    let config = IndexConfig::default();
+    let mut writer = IndexWriter::create(dir.clone(), schema.clone(), config.clone())
+        .await
+        .unwrap();
+    const LEN: usize = 32;
+    let make = |aa: usize, bb: usize| -> String {
+        let mut words: Vec<&str> = vec!["cc"];
+        words.extend(std::iter::repeat_n("aa", aa));
+        words.extend(std::iter::repeat_n("bb", bb));
+        words.extend(std::iter::repeat_n("ff", LEN - 1 - aa - bb));
+        words.join(" ")
+    };
+    // Segment doc ids follow insertion order: index i below is doc i. Both
+    // rare terms have df 129 (equal idf) and one tf-30 document, so both are
+    // essential once docs 0 and 1 set the threshold; "aa" fills docs 0..=127
+    // (one block) and "bb" waits at doc 100 with tf 6.
+    let total = 4000usize;
+    let mut tfs: Vec<(u32, u32)> = vec![(0, 0); total];
+    tfs[..=127].fill((1, 0));
+    tfs[0] = (1, 1);
+    tfs[1] = (1, 1);
+    tfs[100] = (1, 6);
+    tfs[150] = (30, 0);
+    tfs[201] = (0, 30);
+    tfs[2000..2125].fill((0, 1));
+    for &(aa, bb) in &tfs {
+        let mut doc = Document::new();
+        doc.add_text(body, make(aa as usize, bb as usize));
+        writer.add_document(doc).unwrap();
+    }
+    writer.commit().await.unwrap();
+    let index = Index::open(dir, config).await.unwrap();
+
+    let n = tfs.len() as f32;
+    let idf_c = bm25_idf(n, n);
+    let idf_a = bm25_idf(tfs.iter().filter(|(a, _)| *a > 0).count() as f32, n);
+    let idf_b = bm25_idf(tfs.iter().filter(|(_, b)| *b > 0).count() as f32, n);
+    let score = |doc: usize| {
+        let (a, b) = tfs[doc];
+        let mut s = bm25_score(1.0, idf_c, LEN as f32, LEN as f32);
+        if a > 0 {
+            s += bm25_score(a as f32, idf_a, LEN as f32, LEN as f32);
+        }
+        if b > 0 {
+            s += bm25_score(b as f32, idf_b, LEN as f32, LEN as f32);
+        }
+        s
+    };
+    let mut expected: Vec<(u32, f32)> = (0..tfs.len()).map(|d| (d as u32, score(d))).collect();
+    expected.sort_by(|x, y| y.1.partial_cmp(&x.1).unwrap().then(x.0.cmp(&y.0)));
+    assert_eq!(expected[0].0, 100, "{:?}", &expected[..4]);
+
+    let query = BooleanQuery::new()
+        .should(TermQuery::text(body, "cc"))
+        .should(TermQuery::text(body, "aa"))
+        .should(TermQuery::text(body, "bb"));
+    let response = index.search(&query, 2).await.unwrap();
+    let got: Vec<u32> = response.hits.iter().map(|h| h.address.doc_id).collect();
+    assert_eq!(
+        got.first(),
+        Some(&100),
+        "got {got:?}, expected {:?}",
+        &expected[..4]
+    );
+    for (hit, (_, s)) in response.hits.iter().zip(&expected) {
+        assert!((hit.score - s).abs() < 1e-4, "{} vs {s}", hit.score);
+    }
+}
+
 /// Stop words dropped at index time leave their positions behind, so a
 /// phrase keeps the original word distances: `"quantum of the art"` is
 /// `quantum@0 art@3` on both sides and never matches `quantum art`.

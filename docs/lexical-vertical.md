@@ -185,8 +185,15 @@ segment is still readable and is converted by its first merge.
 
 ## Pruning
 
-- Keep Block-Max MaxScore as the rank-safe default. Add the L1 skip to the
-  block-skip branch (skip 8 blocks at once when the superblock bound fails).
+- Keep Block-Max MaxScore as the rank-safe default. Fixed on the way
+  (2026-09-03): the block-skip branch moved every cursor at the minimum
+  document to its next block even when another essential cursor still held
+  a document inside that block, so that document lost the skipped cursors'
+  scores and could drop out of the top-k (regression test
+  `block_max_skip_never_jumps_over_another_essential_cursor`; the same loop
+  serves sparse MaxScore). The skip is now bounded by the next essential
+  document, the Block-Max MaxScore rule. Still open: the L1 skip in the same
+  branch (skip 8 blocks at once when the superblock bound fails).
 - **Filters and phrases as executor predicates** (implemented 2026-09-03).
   The query shape clients send is `MUST [phrases, filters] + SHOULD
 [terms]`. When every SHOULD clause is a text term and the MUST/MUST_NOT
@@ -306,7 +313,8 @@ the map lookup per hit that chunked fields already pay.
   formulation as default (Kamphuis et al., "Which BM25 Do You Mean?", ECIR
   2020: the variants are practically equivalent, so keep the common one).
 - Phrase score = BM25 over the **phrase frequency** (number of matched
-  occurrences) with the phrase's summed idf, not `1.5 × BM25(Σ tf)`.
+  occurrences) with the phrase's summed idf, not `1.5 × BM25(Σ tf)`
+  (implemented 2026-09-03).
 - **Proximity rescoring.** Optional second stage over the top-k of the
   MaxScore pass: sequential-dependence ordered and unordered window counts
   for adjacent query term pairs (Metzler & Croft, SIGIR 2005; proximity
@@ -355,8 +363,8 @@ per-list clustering (all need a bounded vocabulary).
    text-bearing index generation.
 3. UAX #29 tokenizer, folding, CJK bigrams (done, opt-in `segmenter:
 unicode`).
-4. Filters and phrases as executor predicates (done); L1 superblock maxima,
-   phrase-frequency scoring, proximity rescoring, per-field k1/b (open).
+4. Filters and phrases as executor predicates, phrase-frequency scoring
+   (done); L1 superblock maxima, proximity rescoring, per-field k1/b (open).
 5. Field-level BP reordering of chunked text fields through their chunk maps.
 6. Anytime/budgeted BM25 and long-query handling.
 7. Cross-shard DF with broker phase 2.
