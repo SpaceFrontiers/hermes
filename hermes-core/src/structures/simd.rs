@@ -3570,6 +3570,7 @@ pub fn batch_cosine_scores_precomp(
     // through a loop-carried enum was measurably slower on Sapphire Rapids;
     // these arms preserve a direct target-feature call without repeating CPU
     // detection for every stored vector.
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     macro_rules! score_simd_rows {
         ($kernel:path) => {{
             for i in 0..n {
