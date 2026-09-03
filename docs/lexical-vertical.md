@@ -222,10 +222,12 @@ lookups). Reordering a text field therefore means:
   field's own postings, terms restricted to a mid-df band. Each reordered
   field computes its own order; several text or sparse fields never have
   to agree.
-- Output: postings and positions re-encoded in the permuted virtual-id
-  order (the same rewrite a BP pass does for a BMP blob), `.chunks` written
-  in that order with `(doc_id, ordinal, length)` per virtual id. Position
-  blocks are intra-chunk deltas and are copied, not re-encoded.
+- Output: postings re-encoded in the permuted virtual-id order (the same
+  rewrite a BP pass does for a BMP blob), `.chunks` written in that order
+  with `(doc_id, ordinal, length)` per virtual id, and the position stream
+  re-packed with each chunk's run of values moved to its new place. The
+  runs are intra-chunk deltas, so no delta decoding is needed, but the
+  128-value blocks and the cursors are rebuilt.
 - Merge: with `reorder_on_merge`, BP runs inside the merge over the
   concatenated field; otherwise virtual ids are concatenated with per-source
   offsets as now.
