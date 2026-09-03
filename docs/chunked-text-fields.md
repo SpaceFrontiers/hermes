@@ -40,7 +40,8 @@ Each chunked field owns a segment-local, dense **virtual id** space. The
 order) gets virtual id `n`; documents are added in doc-id order, so virtual
 ids are sorted by `(doc_id, ordinal)`. Term postings and position lists of a
 chunked field are keyed by virtual id and use the existing
-`BlockPostingList` / `PositionPostingList` formats unchanged. Token positions
+`BlockPostingList` format and the cursor-addressed position stream of
+`docs/lexical-vertical.md` ("Position list format v2"). Token positions
 restart at 0 in every chunk, so a `PhraseQuery` can never match across a chunk
 boundary.
 

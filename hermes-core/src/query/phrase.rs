@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::dsl::Field;
 use crate::segment::SegmentReader;
-use crate::structures::{BlockPostingIterator, BlockPostingList, PositionPostingList, TERMINATED};
+use crate::structures::{BlockPostingIterator, BlockPostingList, TERMINATED, TermPositions};
 use crate::{DocId, Score};
 
 use super::{CountFuture, EmptyScorer, GlobalStats, Query, Scorer, ScorerFuture};
@@ -139,7 +139,7 @@ impl PhraseQuery {
 /// The phrase is a conjunction, so draining the positional scorer costs one
 /// pass over the matching chunks only.
 fn build_chunked_phrase_scorer<'a>(
-    term_data: Vec<(BlockPostingList, PositionPostingList)>,
+    term_data: Vec<(BlockPostingList, TermPositions)>,
     offsets: &[u32],
     slop: u32,
     reader: &SegmentReader,
@@ -177,7 +177,7 @@ fn build_chunked_phrase_scorer<'a>(
 
 /// Build a PhraseScorer from already-fetched term data.
 fn build_phrase_scorer<'a>(
-    term_data: Vec<(BlockPostingList, PositionPostingList)>,
+    term_data: Vec<(BlockPostingList, TermPositions)>,
     offsets: &[u32],
     slop: u32,
     reader: &SegmentReader,
@@ -305,7 +305,7 @@ impl Query for PhraseQuery {
 
         // Parallel fetch across all terms via rayon
         use rayon::prelude::*;
-        let pairs: crate::Result<Vec<Option<(BlockPostingList, PositionPostingList)>>> = self
+        let pairs: crate::Result<Vec<Option<(BlockPostingList, TermPositions)>>> = self
             .terms
             .par_iter()
             .map(|term| {
@@ -373,8 +373,10 @@ impl Query for PhraseQuery {
 struct PhraseScorer {
     /// Posting iterators for each term
     posting_iters: Vec<BlockPostingIterator<'static>>,
-    /// Position iterators for each term
-    position_lists: Vec<PositionPostingList>,
+    /// Positions of each term (legacy list or cursor-addressed stream)
+    position_lists: Vec<TermPositions>,
+    /// One decoded position block, reused across documents and terms
+    position_scratch: Vec<u32>,
     /// Required distance of each term from the first one (`offsets[i] -
     /// offsets[0]`); `deltas[0]` is 0.
     deltas: Vec<u32>,
@@ -396,7 +398,7 @@ struct PhraseScorer {
 impl PhraseScorer {
     fn new(
         posting_lists: Vec<BlockPostingList>,
-        position_lists: Vec<PositionPostingList>,
+        position_lists: Vec<TermPositions>,
         offsets: &[u32],
         slop: u32,
         idf: f32,
@@ -417,6 +419,7 @@ impl PhraseScorer {
         let mut scorer = Self {
             posting_iters,
             position_lists,
+            position_scratch: Vec::new(),
             deltas,
             slop,
             current_doc: 0,
@@ -489,9 +492,19 @@ impl PhraseScorer {
 
     /// Check if positions form a valid phrase for the given document
     fn check_phrase_positions(&mut self, doc_id: DocId) -> bool {
-        // Get positions for each term into reusable buffers (zero allocation)
-        for (i, pos_list) in self.position_lists.iter().enumerate() {
-            if !pos_list.get_positions_into(doc_id, &mut self.position_bufs[i]) {
+        // Get positions for each term into reusable buffers (zero allocation).
+        // The doc-posting iterator of every term is parked on `doc_id`, so
+        // its cursor and term frequency address the term's position stream.
+        for i in 0..self.position_lists.len() {
+            let cursor = self.posting_iters[i].position_cursor();
+            let tf = self.posting_iters[i].term_freq();
+            if !self.position_lists[i].positions_into(
+                doc_id,
+                cursor,
+                tf,
+                &mut self.position_scratch,
+                &mut self.position_bufs[i],
+            ) {
                 return false;
             }
         }

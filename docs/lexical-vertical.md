@@ -80,6 +80,8 @@ doc_freq, position_offset, position_len }`. FST or raw mmap index. Not in
 
 ## Position list format v2
 
+Status: implemented (2026-09-03), `structures/postings/positions_v2.rs`.
+
 Goal: positions cost bytes only where they exist, and a phrase query touches
 only the positions of documents that survived the doc-level conjunction.
 
@@ -89,63 +91,64 @@ One position stream per term, addressed through the doc postings instead of
 through its own skip list:
 
 ```text
-.pos  per term:  [pos block 0][pos block 1]...   (footer-less; length in TermInfo)
-pos block:       [count u8/u16][bits u8][packed deltas: count × bits]
-                 128 positions per block, last block partial
+.pos  per term:  [block 0]...[block n-1][block offsets: u32 × n]
+                 [footer: n u32, total_positions u64, magic "POS2"]
+block:           [count u16][bits u8][pad u8][packed values: count × bytes(bits)]
+                 128 values per block, the last one partial
 ```
 
-- Positions are **deltas**: the first position of a document is stored
-  relative to 0, the rest relative to the previous position in the same
-  document. For a chunked field positions restart per chunk and the virtual
-  id already carries the ordinal, so there are no ordinal bits. For a
-  non-chunked multi-valued field the ordinal boundary is one large delta
-  (`(ordinal << 20)` step), which the exception mechanism of the packer
-  absorbs; keep the 12/20 split for those fields only.
-- The packer is the existing rounded-width or OptPFD block codec
-  (`structures/postings/opt_p4d.rs`, `simd.rs`), so decode is the same SIMD
-  unpack used for doc deltas.
-- Doc postings gain one `u64 pos_cursor` per L0 block: the number of
-  positions before the block's first document (cumulative tf). Inside a
-  block the position of document _j_ is `pos_cursor + Σ tf[0..j]`, a prefix
-  sum over the tfs that MaxScore decodes anyway. `pos_cursor / 128` is the
-  pos block, `pos_cursor % 128` the offset in it.
-- `TermInfo::External.position_len` stays; `position_offset` points at the
-  first pos block.
+- Values are **deltas**: a document's positions are sorted, the first is
+  stored as is, the rest relative to the previous one. For a chunked field
+  positions restart per chunk and the virtual id already carries the
+  ordinal, so there are no ordinal bits. A non-chunked multi-valued field
+  keeps the `(ordinal << 20) | position` values; the ordinal step is one
+  large delta that widens that block only.
+- The packer is the rounded-width codec of the doc blocks (`simd::
+pack_rounded`, 0/8/16/32 bits), so decode is the same SIMD widening.
+  OptPFD-style exception packing would shave another 30–40% and is the
+  next codec step once sizes are measured on a real generation.
+- Doc postings gain one `u64` cursor per L0 block: the number of values
+  before the block's first document (cumulative tf). Inside a block the
+  position of document _j_ is `cursor + Σ tf[0..j]`, which the iterator
+  keeps as a running prefix (`BlockPostingIterator::position_cursor`).
+  `cursor / 128` is the block, `cursor % 128` the offset in it.
+- The doc-posting footer grew by `total_positions u64 + flags u32 + magic
+u32` ("BPL2"); a list ending in the magic has the extension, a legacy
+  list ends with its `max_tf` (≤ 65 535 by the builder's u16 tf), so both
+  stay readable. `TermInfo` is unchanged.
 
 ### Query execution
 
-`PhraseScorer` becomes: conjunction over doc postings (unchanged), and for a
-candidate document, for each term, load the one or two pos blocks covering
-`[cursor, cursor + tf)` from the mmap, decode, prefix-sum, and run the
-ordered sliding match with per-term offsets (see stop words). No heap copy
-of anything but the 128-entry decode buffers. `MADV_RANDOM` on `.pos`, and a
-bounded `WILLNEED` on the candidate's pos ranges as soon as the conjunction
-finds it, so the I/O of the next candidate overlaps the current match.
+`PhraseScorer` runs the conjunction over doc postings as before and, for a
+candidate, asks each term's `TermPositions` for
+`[cursor, cursor + tf)`: one or two blocks decoded from the mmap into a
+reused scratch buffer, delta-summed into the term's buffer, then the
+offset-aware sliding match. Nothing is copied to the heap up front.
+`TermPositions::Legacy` wraps the pre-v2 list for segments written before
+the change. Still to do: `MADV_RANDOM` on `.pos` and a bounded `WILLNEED`
+on the candidate's ranges.
 
 ### Size
 
-With stop words removed and per-chunk restarts, in-document position deltas
-are roughly `chunk_len / tf`, so `log2` of a few dozen: 5–8 bits per position
-plus packer overhead, against 2–3 bytes of absolute vint today. Expect
-roughly a 3× reduction of the position files (azeroth estimated 1–1.5 TB at
-67.5M scholarly documents for the current format) and the removal of the
-20 B/block position skip entries. The `u64 pos_cursor` costs 8 B per 128
-postings.
+With stop words removed and per-chunk restarts, in-document deltas are
+roughly `chunk_len / tf`, so most blocks use 8-bit values: about 1 byte per
+position plus 4 bytes per 128, against 2–3 bytes of absolute vint plus a
+count per document and 20 B of skip entry per 128 documents before. The
+`u64` cursor costs 8 B per 128 postings.
 
 ### Merge
 
-Pos blocks are doc-id independent (deltas restart per document), so a merge
-concatenates the sources' pos streams byte-for-byte, allowing a partial
-block at each source boundary, and rebases `pos_cursor` by the sources'
-cumulative position counts exactly as doc blocks are rebased by doc offsets
-(`BlockPostingList::concatenate_blocks`). `PositionPostingList::
-concatenate_streaming` and the 128-document position block disappear.
+Values are doc-agnostic, so a merge re-packs every source's blocks into one
+fresh stream (`PositionStreamEncoder::push_values`), and the block copy of
+the doc postings shifts each source's cursors by the values of the sources
+before it (`Footer::total_positions`). A legacy source is decoded per
+document and re-encoded, and its doc postings take the decode-and-rebuild
+path so the merged term always addresses a v2 stream.
 
 ### Compatibility
 
-Hermes rebuilds indexes on format changes and no production index carries
-text fields yet; ship this before the first `documents_*`/`social_*`
-generation with `short_document`/`content`, so no migration is ever needed.
+No production index carries positioned text fields yet; a legacy positioned
+segment is still readable and is converted by its first merge.
 
 ## Doc postings and skip metadata
 
@@ -326,8 +329,8 @@ per-list clustering (all need a bounded vocabulary).
 
 1. `stop_words` spec + gap-preserving positions + `PhraseQuery` offsets.
    Small; unblocks azeroth's templates.
-2. Position format v2 + lazy phrase scorer + `(max_tf, min_len)` block
-   bounds + norms for non-chunked fields. Format bump; must precede the
+2. Position format v2 + lazy phrase scorer (done); `(max_tf, min_len)`
+   block bounds + norms for non-chunked fields (next). Must precede the
    first text-bearing index generation.
 3. UAX #29 tokenizer, folding, CJK bigrams. Index-time change: bundle with 2
    so there is one rebuild.

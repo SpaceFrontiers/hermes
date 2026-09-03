@@ -272,8 +272,13 @@ pub(super) fn build_postings_streaming(
         }
 
         let mut posting_bytes = Vec::new();
-        let block_list =
-            crate::structures::BlockPostingList::from_posting_list(&full_postings)?;
+        // Terms with positions carry a position cursor per block so the
+        // stream written by `build_positions_streaming` is addressable.
+        let block_list = if has_positions {
+            crate::structures::BlockPostingList::from_posting_list_with_positions(&full_postings)?
+        } else {
+            crate::structures::BlockPostingList::from_posting_list(&full_postings)?
+        };
         block_list.serialize(&mut posting_bytes)?;
         let result = SerializedPosting::External {
             bytes: posting_bytes,
@@ -338,7 +343,7 @@ pub(super) fn build_positions_streaming(
     term_interner: &Rodeo,
     writer: &mut dyn Write,
 ) -> Result<FxHashMap<Vec<u8>, (u64, u64)>> {
-    use crate::structures::PositionPostingList;
+    use crate::structures::PositionStreamEncoder;
 
     let mut position_offsets: FxHashMap<Vec<u8>, (u64, u64)> = FxHashMap::default();
 
@@ -360,18 +365,21 @@ pub(super) fn build_positions_streaming(
     let mut buf = Vec::new();
 
     for (key, pos_builder) in entries {
-        let mut pos_list = PositionPostingList::with_capacity(pos_builder.postings.len());
-        for (doc_id, positions) in pos_builder.postings {
-            pos_list.push(doc_id, positions);
-        }
-
-        // Serialize to reusable buffer, then write
+        // Encode to a reusable buffer, then write. Positions per document are
+        // capped like the u16 term frequency of the doc postings so the two
+        // stay in step (the cursor of every later block depends on it).
         buf.clear();
-        pos_list.serialize(&mut buf).map_err(crate::Error::Io)?;
+        let mut encoder = PositionStreamEncoder::new(&mut buf);
+        for (_doc_id, mut positions) in pos_builder.postings {
+            positions.truncate(u16::MAX as usize);
+            encoder.push_doc(&mut positions).map_err(crate::Error::Io)?;
+        }
+        let (_total, len) = encoder.finish().map_err(crate::Error::Io)?;
+        debug_assert_eq!(len as usize, buf.len());
         writer.write_all(&buf)?;
 
-        position_offsets.insert(key, (current_offset, buf.len() as u64));
-        current_offset += buf.len() as u64;
+        position_offsets.insert(key, (current_offset, len));
+        current_offset += len;
     }
 
     Ok(position_offsets)

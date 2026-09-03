@@ -3562,7 +3562,7 @@ impl SegmentReader {
         &self,
         field: Field,
         term: &[u8],
-    ) -> Result<Option<crate::structures::PositionPostingList>> {
+    ) -> Result<Option<crate::structures::TermPositions>> {
         // Get positions handle
         let handle = match &self.positions_handle {
             Some(h) => h,
@@ -3590,13 +3590,10 @@ impl SegmentReader {
         // the term dictionary. Direct `offset + length` can wrap in release
         // builds and alias an unrelated range.
         let range = checked_file_range(offset, length, handle.len(), "position list")?;
-        let slice = handle.slice(range);
-        let data = slice.read_bytes().await?;
-
-        // Deserialize
-        let pos_list = crate::structures::PositionPostingList::deserialize(data.as_slice())?;
-
-        Ok(Some(pos_list))
+        // Zero-copy on mmap directories: a v2 stream is decoded per block
+        // on demand, only for the documents a scorer asks about.
+        let data = handle.read_bytes_range(range).await?;
+        Ok(Some(crate::structures::TermPositions::open(data)?))
     }
 
     /// Check if positions are available for a field
@@ -3712,7 +3709,7 @@ impl SegmentReader {
         &self,
         field: Field,
         term: &[u8],
-    ) -> Result<Option<crate::structures::PositionPostingList>> {
+    ) -> Result<Option<crate::structures::TermPositions>> {
         let handle = match &self.positions_handle {
             Some(h) => h,
             None => return Ok(None),
@@ -3735,10 +3732,8 @@ impl SegmentReader {
         };
 
         let range = checked_file_range(offset, length, handle.len(), "position list")?;
-        let slice = handle.slice(range);
-        let data = slice.read_bytes_sync()?;
-
-        let pos_list = crate::structures::PositionPostingList::deserialize(data.as_slice())?;
+        let data = handle.read_bytes_range_sync(range)?;
+        let pos_list = crate::structures::TermPositions::open(data)?;
         Ok(Some(pos_list))
     }
 

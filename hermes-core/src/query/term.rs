@@ -296,8 +296,8 @@ struct TermScorer {
     field_boost: f32,
     /// Field ID for position reporting
     field_id: u32,
-    /// Position posting list (if positions are enabled)
-    positions: Option<crate::structures::PositionPostingList>,
+    /// Positions of the term (if positions are enabled)
+    positions: Option<crate::structures::TermPositions>,
 }
 
 impl TermScorer {
@@ -320,7 +320,7 @@ impl TermScorer {
     pub fn with_positions(
         mut self,
         field_id: u32,
-        positions: crate::structures::PositionPostingList,
+        positions: crate::structures::TermPositions,
     ) -> Self {
         self.field_id = field_id;
         self.positions = Some(positions);
@@ -438,7 +438,11 @@ impl Scorer for TermScorer {
     fn matched_positions(&self) -> Option<super::MatchedPositions> {
         let positions = self.positions.as_ref()?;
         let doc_id = self.iterator.doc();
-        let pos = positions.get_positions(doc_id)?;
+        let pos = positions.positions(
+            doc_id,
+            self.iterator.position_cursor(),
+            self.iterator.term_freq(),
+        )?;
         let score = self.score();
         // Each position contributes equally to the term score
         let per_position_score = if pos.is_empty() {
