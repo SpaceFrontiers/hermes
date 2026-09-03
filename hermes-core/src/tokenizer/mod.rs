@@ -177,18 +177,26 @@ fn clean_word(word: &str) -> String {
 /// Used by `SimpleTokenizer` (identity transform) and `StemmerTokenizer` (stem transform).
 /// The transform receives an owned `String` so identity transforms avoid extra allocations.
 fn tokenize_and_clean(text: &str, transform: impl Fn(String) -> String) -> Vec<Token> {
+    tokenize_and_clean_filtered(text, |word| Some(transform(word)))
+}
+
+/// Like [`tokenize_and_clean`], but `transform` may drop a word by returning
+/// `None`. A dropped word still consumes a position, so the surviving tokens
+/// keep their original distances (a phrase indexed as `quantum@0 art@3`
+/// keeps the gap of the two stop words between them).
+fn tokenize_and_clean_filtered(
+    text: &str,
+    transform: impl Fn(String) -> Option<String>,
+) -> Vec<Token> {
     let mut tokens = Vec::with_capacity(text.len() / 5);
     let mut position = 0u32;
     for (offset, word) in split_whitespace_with_offsets(text) {
         if !word.is_empty() {
             let cleaned = clean_word(word);
             if !cleaned.is_empty() {
-                tokens.push(Token::new(
-                    transform(cleaned),
-                    position,
-                    offset,
-                    offset + word.len(),
-                ));
+                if let Some(text) = transform(cleaned) {
+                    tokens.push(Token::new(text, position, offset, offset + word.len()));
+                }
                 position += 1;
             }
         }
@@ -602,6 +610,27 @@ fn with_stemmers<R>(languages: &[Language], f: impl FnOnce(&[&rust_stemmers::Ste
     })
 }
 
+/// Stop words of a language, shared for the process lifetime. `None` for
+/// languages without a list (Tamil).
+fn stop_word_set(language: Language) -> Option<&'static HashSet<String>> {
+    static SETS: std::sync::OnceLock<RwLock<HashMap<Language, &'static HashSet<String>>>> =
+        std::sync::OnceLock::new();
+    if language == Language::Tamil {
+        return None;
+    }
+    let sets = SETS.get_or_init(|| RwLock::new(HashMap::new()));
+    if let Some(set) = sets.read().get(&language) {
+        return Some(set);
+    }
+    let set: &'static HashSet<String> = Box::leak(Box::new(
+        stop_words::get(language.to_stop_words_language())
+            .iter()
+            .map(|word| word.to_string())
+            .collect(),
+    ));
+    Some(*sets.write().entry(language).or_insert(set))
+}
+
 /// Stemmer whose language is selected per call from the tokenizer hint.
 ///
 /// The hint is a comma-separated list of language codes or names (`"ru,en"`).
@@ -613,17 +642,39 @@ fn with_stemmers<R>(languages: &[Language], f: impl FnOnce(&[&rust_stemmers::Ste
 /// Because Snowball stemmers are script-local, one field can hold mixed
 /// Cyrillic/Latin documents and still stem each part correctly.
 ///
-/// Declared in SDL as `text<stem(by: <field>, default: <language|simple>)>`;
+/// With `stop_words` enabled, the stop words of the language a token is
+/// routed to are dropped before stemming. Dropped words keep consuming
+/// positions, so phrase distances are preserved (`"quantum of the art"`
+/// becomes `quantum@0 art@3`).
+///
+/// Declared in SDL as
+/// `text<stem(by: <field>, default: <language|simple>, stop_words: <bool>)>`;
 /// see [`TokenizerSpec`].
 #[derive(Debug, Clone, Default)]
 pub struct DynamicStemmer {
     default: Option<Language>,
+    stop_words: bool,
 }
 
 impl DynamicStemmer {
     /// Create a dynamic stemmer; `default` applies when no hint is present.
+    /// Stop words are kept unless [`DynamicStemmer::with_stop_words`] is set.
     pub fn new(default: Option<Language>) -> Self {
-        Self { default }
+        Self {
+            default,
+            stop_words: false,
+        }
+    }
+
+    /// Drop the routed language's stop words (positions are preserved).
+    pub fn with_stop_words(mut self, enabled: bool) -> Self {
+        self.stop_words = enabled;
+        self
+    }
+
+    /// Whether stop words are dropped.
+    pub fn strips_stop_words(&self) -> bool {
+        self.stop_words
     }
 
     /// Default language used when no hint is given.
@@ -645,31 +696,31 @@ impl DynamicStemmer {
     }
 
     fn tokenize_with_languages(&self, text: &str, languages: &[Language]) -> Vec<Token> {
-        match languages {
-            [] => tokenize_and_clean(text, |s| s),
-            [single] => {
-                let script = single.script();
-                with_stemmers(languages, |stemmers| {
-                    let stemmer = stemmers[0];
-                    tokenize_and_clean(text, |s| {
-                        if Script::of_token(&s) == script {
-                            stem_owned(stemmer, s)
-                        } else {
-                            s
-                        }
-                    })
-                })
-            }
-            many => with_stemmers(many, |stemmers| {
-                tokenize_and_clean(text, |s| {
-                    let script = Script::of_token(&s);
-                    match many.iter().position(|language| language.script() == script) {
-                        Some(index) => stem_owned(stemmers[index], s),
-                        None => s,
-                    }
-                })
-            }),
+        if languages.is_empty() {
+            return tokenize_and_clean(text, |s| s);
         }
+        // Stop lists follow the same script routing as the stemmers: a token
+        // is checked against (and then stemmed with) the first hinted
+        // language of its script.
+        let stops: Vec<Option<&'static HashSet<String>>> = languages
+            .iter()
+            .map(|language| self.stop_words.then(|| stop_word_set(*language)).flatten())
+            .collect();
+        with_stemmers(languages, |stemmers| {
+            tokenize_and_clean_filtered(text, |s| {
+                let script = Script::of_token(&s);
+                let Some(index) = languages
+                    .iter()
+                    .position(|language| language.script() == script)
+                else {
+                    return Some(s);
+                };
+                if stops[index].is_some_and(|set| set.contains(s.as_str())) {
+                    return None;
+                }
+                Some(stem_owned(stemmers[index], s))
+            })
+        })
     }
 }
 
@@ -700,10 +751,11 @@ impl Tokenizer for DynamicStemmer {
 /// Parsed form of a tokenizer name in the schema.
 ///
 /// Plain names refer to a registered tokenizer (`simple`, `en_stem`, ...).
-/// `stem(by: <field>, default: <language|simple>)` declares a
-/// [`DynamicStemmer`] whose per-document hint is read from `<field>` in the
-/// same document. The canonical string form is stored in
-/// `FieldEntry::tokenizer`, so index metadata needs no new field.
+/// `stem(by: <field>, default: <language|simple>, stop_words: <bool>)`
+/// declares a [`DynamicStemmer`] whose per-document hint is read from
+/// `<field>` in the same document. The canonical string form is stored in
+/// `FieldEntry::tokenizer`, so index metadata needs no new field; specs
+/// without `stop_words` render exactly as before.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TokenizerSpec {
     /// A registered tokenizer name.
@@ -714,6 +766,8 @@ pub enum TokenizerSpec {
         by: String,
         /// Language applied when the hint field is absent; `None` = simple.
         default: Option<Language>,
+        /// Drop the routed language's stop words (positions keep their gaps).
+        stop_words: bool,
     },
 }
 
@@ -732,6 +786,7 @@ impl TokenizerSpec {
         };
         let mut by = None;
         let mut default = None;
+        let mut stop_words = false;
         for param in params.split(',') {
             let param = param.trim();
             if param.is_empty() {
@@ -754,6 +809,17 @@ impl TokenizerSpec {
                         })?),
                     };
                 }
+                "stop_words" => {
+                    stop_words = match value {
+                        "true" => true,
+                        "false" => false,
+                        other => {
+                            return Err(format!(
+                                "tokenizer spec '{spec}': 'stop_words' must be true or false, got '{other}'"
+                            ));
+                        }
+                    };
+                }
                 other => {
                     return Err(format!(
                         "tokenizer spec '{spec}': unknown parameter '{other}'"
@@ -762,7 +828,11 @@ impl TokenizerSpec {
             }
         }
         let by = by.ok_or_else(|| format!("tokenizer spec '{spec}' requires 'by: <field>'"))?;
-        Ok(TokenizerSpec::DynamicStem { by, default })
+        Ok(TokenizerSpec::DynamicStem {
+            by,
+            default,
+            stop_words,
+        })
     }
 
     /// Field whose values hint the tokenizer, for dynamic specs.
@@ -777,9 +847,13 @@ impl TokenizerSpec {
     pub fn dynamic_tokenizer(&self) -> Option<BoxedTokenizer> {
         match self {
             TokenizerSpec::Named(_) => None,
-            TokenizerSpec::DynamicStem { default, .. } => {
-                Some(Box::new(DynamicStemmer::new(*default)))
-            }
+            TokenizerSpec::DynamicStem {
+                default,
+                stop_words,
+                ..
+            } => Some(Box::new(
+                DynamicStemmer::new(*default).with_stop_words(*stop_words),
+            )),
         }
     }
 }
@@ -788,12 +862,20 @@ impl std::fmt::Display for TokenizerSpec {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TokenizerSpec::Named(name) => f.write_str(name),
-            TokenizerSpec::DynamicStem { by, default } => {
+            TokenizerSpec::DynamicStem {
+                by,
+                default,
+                stop_words,
+            } => {
                 let default = match default {
                     None => "simple".to_string(),
                     Some(language) => language_code(*language).to_string(),
                 };
-                write!(f, "stem(by: {by}, default: {default})")
+                write!(f, "stem(by: {by}, default: {default}")?;
+                if *stop_words {
+                    write!(f, ", stop_words: true")?;
+                }
+                write!(f, ")")
             }
         }
     }
@@ -1350,6 +1432,47 @@ mod tests {
         tokens.iter().map(|t| t.text.as_str()).collect()
     }
 
+    fn positions(tokens: &[Token]) -> Vec<u32> {
+        tokens.iter().map(|t| t.position).collect()
+    }
+
+    #[test]
+    fn dynamic_stemmer_drops_stop_words_but_keeps_positions() {
+        let stemmer = DynamicStemmer::new(None).with_stop_words(true);
+        let tokens = hinted(&stemmer, "Quantum of the Art", Some("en"));
+        assert_eq!(texts(&tokens), vec!["quantum", "art"]);
+        assert_eq!(positions(&tokens), vec![0, 3]);
+        // Byte offsets still point at the surviving words.
+        assert_eq!(tokens[1].offset_from, "Quantum of the ".len());
+
+        // Stop words are matched before stemming, per script-routed language.
+        let tokens = hinted(&stemmer, "бегущие и собаки the foxes", Some("ru,en"));
+        assert_eq!(texts(&tokens), vec!["бегущ", "собак", "fox"]);
+        assert_eq!(positions(&tokens), vec![0, 2, 4]);
+
+        // Tokens of a script no hinted language covers are untouched.
+        assert_eq!(
+            texts(&hinted(&stemmer, "the 日本語 fox", Some("en"))),
+            vec!["日本語", "fox"]
+        );
+
+        // No hint and no default: nothing is stemmed and nothing is dropped.
+        assert_eq!(
+            texts(&hinted(&stemmer, "the fox", None)),
+            vec!["the", "fox"]
+        );
+        // A default language applies its stop list too.
+        let english = DynamicStemmer::new(Some(Language::English)).with_stop_words(true);
+        assert_eq!(texts(&hinted(&english, "the fox", None)), vec!["fox"]);
+        // Off by default.
+        assert_eq!(
+            texts(&hinted(&DynamicStemmer::new(None), "the fox", Some("en"))),
+            vec!["the", "fox"]
+        );
+        // Only stop words: no tokens at all.
+        assert!(hinted(&stemmer, "to be or not to be", Some("en")).is_empty());
+    }
+
     #[test]
     fn dynamic_stemmer_selects_language_from_hint() {
         let stemmer = DynamicStemmer::new(None);
@@ -1445,7 +1568,8 @@ mod tests {
             spec,
             TokenizerSpec::DynamicStem {
                 by: "languages".to_string(),
-                default: None
+                default: None,
+                stop_words: false,
             }
         );
         assert_eq!(spec.to_string(), "stem(by: languages, default: simple)");
@@ -1457,9 +1581,33 @@ mod tests {
             TokenizerSpec::parse("stem(by: lang)").unwrap(),
             TokenizerSpec::DynamicStem {
                 by: "lang".to_string(),
-                default: None
+                default: None,
+                stop_words: false,
             }
         );
+
+        let spec =
+            TokenizerSpec::parse("stem(by: languages, default: simple, stop_words: true)").unwrap();
+        assert_eq!(
+            spec,
+            TokenizerSpec::DynamicStem {
+                by: "languages".to_string(),
+                default: None,
+                stop_words: true,
+            }
+        );
+        assert_eq!(
+            spec.to_string(),
+            "stem(by: languages, default: simple, stop_words: true)"
+        );
+        // `stop_words: false` is the default and renders as the historic form.
+        assert_eq!(
+            TokenizerSpec::parse("stem(by: lang, stop_words: false)")
+                .unwrap()
+                .to_string(),
+            "stem(by: lang, default: simple)"
+        );
+        assert!(TokenizerSpec::parse("stem(by: lang, stop_words: maybe)").is_err());
 
         assert!(TokenizerSpec::parse("stem(default: en)").is_err());
         assert!(TokenizerSpec::parse("stem(by: lang, default: klingon)").is_err());
@@ -1488,6 +1636,12 @@ mod tests {
                 .get("stem(by: languages, default: klingon)")
                 .is_none()
         );
+        let stopping = registry
+            .get("stem(by: languages, default: simple, stop_words: true)")
+            .expect("stop-word spec resolves");
+        let tokens = stopping.tokenize_hinted("the running foxes", Some("en"));
+        assert_eq!(texts(&tokens), vec!["run", "fox"]);
+        assert_eq!(positions(&tokens), vec![1, 2]);
         // Static tokenizers accept and ignore hints.
         let simple = registry.get("en_stem").unwrap();
         assert_eq!(

@@ -30,9 +30,7 @@ fn validate_token_expansion(kind: &str, count: usize, maximum: usize) -> Result<
     Ok(())
 }
 
-/// Resolve a text field and tokenize query text with the field's configured
-/// tokenizer, so stemmers (static or hinted dynamic ones) match the indexing
-/// path. An empty `tokenizer_hint` means "no hint".
+/// [`field_token_stream`] reduced to the token texts.
 fn field_tokens(
     kind: &str,
     schema: &Schema,
@@ -41,6 +39,23 @@ fn field_tokens(
     tokenizer_hint: &str,
     shape: &QueryShapeLimits,
 ) -> Result<(hermes_core::Field, Vec<String>), String> {
+    let (field, tokens) =
+        field_token_stream(kind, schema, field_name, text, tokenizer_hint, shape)?;
+    Ok((field, tokens.into_iter().map(|t| t.text).collect()))
+}
+
+/// Resolve a text field and tokenize query text with the field's configured
+/// tokenizer, so stemmers (static or hinted dynamic ones) match the indexing
+/// path. An empty `tokenizer_hint` means "no hint". Tokens keep the
+/// positions the tokenizer assigned, including gaps of dropped stop words.
+fn field_token_stream(
+    kind: &str,
+    schema: &Schema,
+    field_name: &str,
+    text: &str,
+    tokenizer_hint: &str,
+    shape: &QueryShapeLimits,
+) -> Result<(hermes_core::Field, Vec<hermes_core::tokenizer::Token>), String> {
     let field = schema
         .get_field(field_name)
         .ok_or_else(|| format!("Field '{field_name}' not found"))?;
@@ -60,13 +75,52 @@ fn field_tokens(
         .get(tokenizer_name)
         .unwrap_or_else(|| Box::new(hermes_core::SimpleTokenizer));
     let hint = Some(tokenizer_hint.trim()).filter(|hint| !hint.is_empty());
-    let tokens: Vec<String> = tokenizer
-        .tokenize_hinted(text, hint)
-        .into_iter()
-        .map(|t| t.text)
-        .collect();
+    let tokens = tokenizer.tokenize_hinted(text, hint);
     validate_token_expansion(kind, tokens.len(), shape.max_text_query_tokens)?;
     Ok((field, tokens))
+}
+
+/// Whether a clause is a phrase (or a Boolean made only of such phrases)
+/// that tokenizes to nothing on its field, typically because every word is a
+/// stop word of the field's tokenizer. Such a constraint can be neither
+/// verified nor refuted from the index, so Boolean conversion drops it.
+fn is_unverifiable_phrase(
+    q: &proto::Query,
+    schema: &Schema,
+    shape: &QueryShapeLimits,
+) -> Result<bool, String> {
+    match &q.query {
+        Some(ProtoQueryType::Phrase(phrase)) => {
+            if phrase.text.strip_suffix('*').is_some() {
+                return Ok(false);
+            }
+            let (_, tokens) = field_token_stream(
+                "PhraseQuery",
+                schema,
+                &phrase.field,
+                &phrase.text,
+                &phrase.tokenizer_hint,
+                shape,
+            )?;
+            Ok(tokens.is_empty())
+        }
+        Some(ProtoQueryType::Boolean(inner)) => {
+            let clauses = inner
+                .must
+                .iter()
+                .chain(&inner.should)
+                .chain(&inner.must_not);
+            let mut any = false;
+            for clause in clauses {
+                any = true;
+                if !is_unverifiable_phrase(clause, schema, shape)? {
+                    return Ok(false);
+                }
+            }
+            Ok(any)
+        }
+        _ => Ok(false),
+    }
 }
 
 /// Convert proto combiner enum to core MultiValueCombiner
@@ -173,7 +227,7 @@ pub fn convert_query(
             Ok(Box::new(query))
         }
         Some(ProtoQueryType::Phrase(phrase_query)) => {
-            let (field, tokens) = field_tokens(
+            let (field, tokens) = field_token_stream(
                 "PhraseQuery",
                 schema,
                 &phrase_query.field,
@@ -183,15 +237,19 @@ pub fn convert_query(
             )?;
             if tokens.is_empty() {
                 return Err(format!(
-                    "No tokens in phrase query text '{}'",
+                    "No tokens in phrase query text '{}' after tokenization (only stop words?)",
                     phrase_query.text
                 ));
             }
             // PhraseQuery itself collapses one term to a TermQuery and, on a
-            // field without positions, degrades to a MUST of the terms.
-            let terms = tokens.into_iter().map(String::into_bytes).collect();
+            // field without positions, degrades to a MUST of the terms. Token
+            // offsets keep the gaps of stop words the tokenizer dropped.
+            let terms = tokens
+                .into_iter()
+                .map(|t| (t.position, t.text.into_bytes()))
+                .collect();
             Ok(Box::new(
-                PhraseQuery::new(field, terms).with_slop(phrase_query.slop),
+                PhraseQuery::with_offsets(field, terms).with_slop(phrase_query.slop),
             ))
         }
         Some(ProtoQueryType::Boolean(bool_query)) => {
@@ -596,15 +654,34 @@ fn convert_boolean_query(
     shape: &QueryShapeLimits,
 ) -> Result<Box<dyn Query>, String> {
     let mut bq = BooleanQuery::new();
+    // A quoted span made only of stop words has no postings to check; as a
+    // MUST it would empty the result set and as a SHOULD it would contribute
+    // nothing, so it is dropped rather than failing the whole request.
+    let skip = |q: &proto::Query| -> Result<bool, String> {
+        let unverifiable = is_unverifiable_phrase(q, schema, shape)?;
+        if unverifiable {
+            warn!("Dropping phrase clause without searchable tokens: {q:?}");
+        }
+        Ok(unverifiable)
+    };
     for q in &bool_query.must {
+        if skip(q)? {
+            continue;
+        }
         let inner = convert_query(q, schema, global_stats, idf_cache_dir, shape)?;
         bq.must.push(inner.into());
     }
     for q in &bool_query.should {
+        if skip(q)? {
+            continue;
+        }
         let inner = convert_query(q, schema, global_stats, idf_cache_dir, shape)?;
         bq.should.push(inner.into());
     }
     for q in &bool_query.must_not {
+        if skip(q)? {
+            continue;
+        }
         let inner = convert_query(q, schema, global_stats, idf_cache_dir, shape)?;
         bq.must_not.push(inner.into());
     }
@@ -1265,8 +1342,94 @@ mod tests {
             false,
             "stem(by: languages, default: simple)",
         );
+        builder.add_text_field_with_tokenizer(
+            "stopped",
+            true,
+            false,
+            "stem(by: languages, default: simple, stop_words: true)",
+        );
         builder.add_u64_field("views", true, false);
         builder.build()
+    }
+
+    fn boolean_proto(must: Vec<proto::Query>, should: Vec<proto::Query>) -> proto::Query {
+        proto::Query {
+            query: Some(ProtoQueryType::Boolean(proto::BooleanQuery {
+                must,
+                should,
+                must_not: vec![],
+            })),
+        }
+    }
+
+    #[test]
+    fn phrase_query_keeps_the_gaps_of_dropped_stop_words() {
+        let schema = stemmed_text_schema();
+        let query = convert_query(
+            &phrase_proto("stopped", "Quantum of the Arts", 0, "en"),
+            &schema,
+            None,
+            None,
+            &shape(),
+        )
+        .unwrap();
+        let rendered = query.to_string();
+        assert!(rendered.contains("quantum@0 art@3"), "{rendered}");
+
+        // Without stop words the same text is four adjacent terms.
+        let plain = convert_query(
+            &phrase_proto("content", "Quantum of the Arts", 0, "en"),
+            &schema,
+            None,
+            None,
+            &shape(),
+        )
+        .unwrap()
+        .to_string();
+        assert!(plain.contains("\"quantum of the art\""), "{plain}");
+    }
+
+    #[test]
+    fn boolean_conversion_drops_phrases_made_only_of_stop_words() {
+        let schema = stemmed_text_schema();
+        let empty = phrase_proto("stopped", "to be or not to be", 0, "en");
+
+        // Standalone: an error, as for any query without tokens.
+        assert!(convert_query(&empty, &schema, None, None, &shape()).is_err());
+
+        // Inside a Boolean the clause disappears and the rest survives, also
+        // when it is wrapped in its own SHOULD-only Boolean (the shape a
+        // client uses to try a phrase under several fields or hints).
+        let wrapped = boolean_proto(vec![], vec![empty.clone(), empty.clone()]);
+        let query = convert_query(
+            &boolean_proto(
+                vec![empty.clone(), wrapped],
+                vec![match_proto("stopped", "hamlet", "en")],
+            ),
+            &schema,
+            None,
+            None,
+            &shape(),
+        )
+        .unwrap();
+        let rendered = query.to_string();
+        assert!(!rendered.contains("Phrase("), "{rendered}");
+        assert!(rendered.contains("hamlet"), "{rendered}");
+
+        // A phrase with surviving terms is kept.
+        let kept = convert_query(
+            &boolean_proto(
+                vec![phrase_proto("stopped", "the origin of species", 0, "en")],
+                vec![],
+            ),
+            &schema,
+            None,
+            None,
+            &shape(),
+        )
+        .unwrap()
+        .to_string();
+        assert!(kept.contains("origin@1 speci@3"), "{kept}");
     }
 
     fn phrase_proto(field: &str, text: &str, slop: u32, hint: &str) -> proto::Query {

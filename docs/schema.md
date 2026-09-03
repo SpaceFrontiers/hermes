@@ -146,13 +146,17 @@ argument of `TermQuery`, `MatchQuery` and `PhraseQuery`:
 
 ```
 field languages: text<raw_ci> [fast]
-field content: text<stem(by: languages, default: simple)> [indexed<token_position>]
+field content: text<stem(by: languages, default: simple, stop_words: true)> [indexed<token_position>]
 ```
 
 - `by` names a text field of the same index; all of its values in a document
   form the hint (`"ru,en"`).
 - `default` is the language used when a document (or query) carries no
   recognised hint; `simple` means no stemming.
+- `stop_words` (default `false`) drops the routed language's stop words
+  before stemming. Surviving tokens keep their positions, so phrase queries
+  keep the original word distances (`"quantum of the art"` is
+  `quantum@0 art@3` on both sides and does not match `quantum art`).
 - Each token is stemmed with the first hinted language whose script matches
   the token (Snowball stemmers are script-local), so Cyrillic and Latin text
   in one document both stem correctly; same-script languages use the first

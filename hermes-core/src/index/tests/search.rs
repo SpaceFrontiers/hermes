@@ -649,6 +649,86 @@ async fn dynamic_stemmer_indexes_per_document_language() {
     assert_eq!(hits(response), vec![3]);
 }
 
+/// Stop words dropped at index time leave their positions behind, so a
+/// phrase keeps the original word distances: `"quantum of the art"` is
+/// `quantum@0 art@3` on both sides and never matches `quantum art`.
+#[tokio::test]
+async fn phrase_query_keeps_the_gaps_of_dropped_stop_words() {
+    use crate::dsl::PositionMode;
+    use crate::query::PhraseQuery;
+    use crate::tokenizer::{DynamicStemmer, Tokenizer};
+
+    let mut schema_builder = SchemaBuilder::default();
+    let languages =
+        schema_builder.add_text_field_with_tokenizer("languages", false, true, "raw_ci");
+    let content = schema_builder.add_text_field_with_tokenizer(
+        "content",
+        true,
+        true,
+        "stem(by: languages, default: simple, stop_words: true)",
+    );
+    schema_builder.set_positions(content, PositionMode::TokenPosition);
+    let schema = schema_builder.build();
+
+    let dir = RamDirectory::new();
+    let config = IndexConfig::default();
+    let mut writer = IndexWriter::create(dir.clone(), schema.clone(), config.clone())
+        .await
+        .unwrap();
+    for text in ["quantum of the art", "quantum art", "the art of quantum"] {
+        let mut doc = Document::new();
+        doc.add_text(languages, "en");
+        doc.add_text(content, text);
+        writer.add_document(doc).unwrap();
+    }
+    writer.commit().await.unwrap();
+    let index = Index::open(dir, config).await.unwrap();
+
+    let stemmer = DynamicStemmer::new(None).with_stop_words(true);
+    let phrase = |text: &str, slop| {
+        let terms = Tokenizer::tokenize_hinted(&stemmer, text, Some("en"))
+            .into_iter()
+            .map(|t| (t.position, t.text.into_bytes()))
+            .collect();
+        PhraseQuery::with_offsets(content, terms).with_slop(slop)
+    };
+    let hits = |response: crate::query::SearchResponse| {
+        let mut ids: Vec<u32> = response.hits.iter().map(|h| h.address.doc_id).collect();
+        ids.sort_unstable();
+        ids
+    };
+
+    let response = index
+        .search(&phrase("quantum of the art", 0), 10)
+        .await
+        .unwrap();
+    assert_eq!(hits(response), vec![0]);
+    let response = index.search(&phrase("quantum art", 0), 10).await.unwrap();
+    assert_eq!(hits(response), vec![1]);
+    // "art of quantum" is art@0 quantum@2 and matches art@1 quantum@3.
+    let response = index
+        .search(&phrase("art of quantum", 0), 10)
+        .await
+        .unwrap();
+    assert_eq!(hits(response), vec![2]);
+    let response = index.search(&phrase("art quantum", 0), 10).await.unwrap();
+    assert_eq!(hits(response), Vec::<u32>::new());
+    // Slop is measured against the gapped expectation.
+    let response = index.search(&phrase("quantum art", 2), 10).await.unwrap();
+    assert_eq!(hits(response), vec![0, 1]);
+    // The removed words are not proven: a different filler still matches.
+    let response = index
+        .search(&phrase("quantum in an art", 0), 10)
+        .await
+        .unwrap();
+    assert_eq!(hits(response), vec![0]);
+    // Field lengths count only surviving tokens.
+    let reader = index.reader().await.unwrap();
+    let searcher = reader.searcher().await.unwrap();
+    let avg: f32 = searcher.segment_readers()[0].avg_field_len(content);
+    assert!((avg - 2.0).abs() < 1e-3, "avg field length {avg}");
+}
+
 /// Wire-level phrase semantics: consecutive stemmed terms on a field with
 /// token positions; slop widens the window; a field without positions
 /// degrades to a MUST of the terms.

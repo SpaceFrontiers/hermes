@@ -187,11 +187,14 @@ message MatchQuery {
 }
 
 // Phrase query - text is tokenized server-side with the field's tokenizer
-// (so stemming matches indexing) and the terms must occur consecutively
-// (slop 0) or within `slop` positions of each other. Requires the field to be
-// indexed with token positions (`indexed<token_position>` or
-// `indexed<positions>`); without positions the engine degrades to a MUST of
-// the terms. Scored with BM25 like MatchQuery.
+// (so stemming matches indexing) and the terms must occur at the distances
+// the tokenizer assigned (consecutively unless the tokenizer dropped stop
+// words between them, whose positions are kept as gaps) or within `slop`
+// positions of that. Requires the field to be indexed with token positions
+// (`indexed<token_position>` or `indexed<positions>`); without positions the
+// engine degrades to a MUST of the terms. Scored with BM25 like MatchQuery.
+// A phrase whose words are all stop words is rejected standalone and dropped
+// (with a server warning) when it is a clause of a BooleanQuery.
 message PhraseQuery {
   string field = 1;
   string text = 2;
