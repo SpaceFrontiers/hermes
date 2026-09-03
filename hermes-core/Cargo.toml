@@ -23,6 +23,7 @@ byteorder = { workspace = true }
 zstd = { workspace = true }
 rustc-hash = { workspace = true }
 parking_lot = { workspace = true }
+smallvec = "1.15"
 arc-swap = "1"
 async-channel = { workspace = true, optional = true }
 num_cpus = { workspace = true, optional = true }
@@ -103,7 +104,19 @@ name = "binary_vectors"
 harness = false
 
 [[bench]]
+name = "scann_vectors"
+harness = false
+
+[[bench]]
+name = "dense_ann"
+harness = false
+
+[[bench]]
 name = "bmp_vs_maxscore"
+harness = false
+
+[[bench]]
+name = "bmp_hot_path"
 harness = false
 
 [[bench]]
@@ -116,6 +129,10 @@ harness = false
 
 [[bench]]
 name = "core_structures"
+harness = false
+
+[[bench]]
+name = "search_pipeline"
 harness = false
 
 [[bench]]
