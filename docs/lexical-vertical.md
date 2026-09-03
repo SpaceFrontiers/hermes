@@ -266,18 +266,17 @@ the map lookup per hit that chunked fields already pay.
   `state art`. A phrase whose tokens are all stop words yields no terms:
   degrade to the plain match of the raw words and report it in the response
   diagnostics rather than failing the request.
-- **Word segmentation.** Replace `tokenize_and_clean` for lexical fields by
-  a UAX #29 word-boundary tokenizer (`unicode-segmentation`) that emits
-  `float`@0 `zero`@1 for `float-zero`, keeps digits inside tokens (`p53`,
-  `co2`), and increments positions across punctuation. Same tokenizer at
-  query time, so `"float-zero"` becomes the phrase `float zero`.
-- **CJK and unsegmented scripts.** Han, Kana, Hangul and Thai runs get
-  character bigrams (Lucene `CJKBigramFilter` semantics) with positions per
-  bigram; unigrams as a fallback for single-character queries. Routed by
-  script exactly like the stemmer.
-- **Folding.** NFKC normalisation and removal of combining marks for Latin,
-  Cyrillic and Greek tokens before stemming (`résumé` ≡ `resume`), applied
-  identically at index and query time. Keep a per-field opt-out.
+- **Word segmentation, CJK, folding** (implemented 2026-09-03 as
+  `segmenter: unicode` of the `stem(...)` spec; `simple` stays the default
+  so existing fields keep their tokenization). UAX #29 word boundaries
+  (`unicode-segmentation`): `float`@0 `zero`@1 for `float-zero`, digits
+  stay inside tokens (`p53`, `co2`, `10.1007`), punctuation inside a word
+  is stripped. Runs of Han, Hiragana and Katakana become character bigrams
+  with one position each (Lucene `CJKBigramFilter` semantics; a lone
+  ideograph stays a unigram); Hangul and Thai are left to UAX #29. NFKD plus
+  removal of combining marks for Latin, Cyrillic and Greek tokens, applied
+  after stemming so Snowball and the stop lists see the original letters.
+  The same segmenter runs at query time.
 - **Stemming.** Snowball stays (18 languages, script-routed). Lemmatisation
   is worth it only for morphologically rich languages (Czech, Estonian,
   Finnish) and needs dictionaries; defer. Decompounding for German, Dutch,
@@ -342,8 +341,8 @@ per-list clustering (all need a bounded vocabulary).
 2. Position format v2 + lazy phrase scorer, `(max_tf, min_len)` block
    bounds, norms for plain fields (all done). Must precede the first
    text-bearing index generation.
-3. UAX #29 tokenizer, folding, CJK bigrams. Index-time change: bundle with 2
-   so there is one rebuild.
+3. UAX #29 tokenizer, folding, CJK bigrams (done, opt-in `segmenter:
+unicode`).
 4. L1 superblock maxima, phrase-as-MaxScore clause, phrase-frequency scoring,
    proximity rescoring, per-field k1/b.
 5. Field-level BP reordering of chunked text fields through their chunk maps.

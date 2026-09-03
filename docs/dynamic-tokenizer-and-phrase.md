@@ -25,8 +25,8 @@ field languages: text<raw_ci> [fast]
 field content: text<stem(by: languages, default: simple, stop_words: true)> [indexed<token_position>]
 ```
 
-`stem(by: <field>, default: <language|simple>, stop_words: <bool>)` is a
-parameterized tokenizer spec. Its canonical string form is stored in the
+`stem(by: <field>, default: <language|simple>, stop_words: <bool>, segmenter: <simple|unicode>)`
+is a parameterized tokenizer spec. Its canonical string form is stored in the
 existing `FieldEntry.tokenizer`, so `metadata.json` has no new field and old
 indexes load unchanged; `stop_words` is omitted from the canonical form when
 false, so specs written before the parameter existed render identically. `parse_sdl` fails loudly when the `by` field is missing or not
@@ -57,8 +57,10 @@ language. No hint (or only unrecognised codes) applies the spec default;
 ### Stop words and phrase gaps
 
 `stop_words: true` drops the stop words of the language a token is routed to
-(the same script routing as the stemmer, lists from the `stop_words` crate;
-Tamil has none). Filtering happens after cleaning and before stemming, so
+(the same script routing as the stemmer). The lists are the NLTK ones from
+the `stop_words` crate (150–250 words per language, all 18 stemmer languages
+covered); the crate's default ISO lists are several times larger and remove
+content words such as `state`, which a scholarly corpus cannot afford. Filtering happens after cleaning and before stemming, so
 inflected stop words are matched by their surface form. Dropped words produce
 no term, posting, term frequency or position, and do not count toward the
 BM25 field or chunk length.
@@ -77,6 +79,20 @@ query it is rejected like any token-less query; inside a `BooleanQuery`
 SHOULD-only Boolean over several fields or hints) the clause is dropped with
 a warning so the rest of the query still runs. `MatchQuery` text made only of
 stop words is still rejected as token-less.
+
+### Word segmentation (`segmenter`)
+
+`simple` (default) splits on whitespace and strips every non-alphanumeric
+character, so `float-zero` becomes `floatzero` and CJK text is one token per
+whitespace run. `unicode` uses UAX #29 word boundaries (`float`, `zero`;
+`p53`, `co2` and `10.1007` stay whole, punctuation inside a word is
+stripped), turns each contiguous run of Han, Hiragana or Katakana into
+character bigrams (`東京都` → `東京@0 京都@1`, a lone ideograph stays a
+unigram), and folds diacritics of Latin, Cyrillic and Greek tokens after
+stemming (`résumé` → `resume`, `ёлка` → `елка`). Stop lists and stemmers see
+the unfolded letters. Query text goes through the same segmenter, so a quoted
+`"東京都"` becomes the bigram phrase and `"float-zero"` the phrase
+`float zero`.
 
 ### Query side
 

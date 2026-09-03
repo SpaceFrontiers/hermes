@@ -157,6 +157,10 @@ field content: text<stem(by: languages, default: simple, stop_words: true)> [ind
   before stemming. Surviving tokens keep their positions, so phrase queries
   keep the original word distances (`"quantum of the art"` is
   `quantum@0 art@3` on both sides and does not match `quantum art`).
+- `segmenter` (default `simple`): `unicode` splits at UAX #29 word
+  boundaries (`float-zero` → `float`, `zero`), bigrams runs of Han, Hiragana
+  and Katakana, and folds diacritics of Latin, Cyrillic and Greek tokens
+  after stemming.
 - Each token is stemmed with the first hinted language whose script matches
   the token (Snowball stemmers are script-local), so Cyrillic and Latin text
   in one document both stem correctly; same-script languages use the first
