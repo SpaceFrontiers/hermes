@@ -40,7 +40,7 @@ fn field_tokens(
     text: &str,
     tokenizer_hint: &str,
     shape: &QueryShapeLimits,
-) -> Result<(hermes_core::Field, Vec<String>), String> {
+) -> Result<(hermes_core::Field, Vec<hermes_core::Token>), String> {
     let field = schema
         .get_field(field_name)
         .ok_or_else(|| format!("Field '{field_name}' not found"))?;
@@ -60,11 +60,7 @@ fn field_tokens(
         .get(tokenizer_name)
         .unwrap_or_else(|| Box::new(hermes_core::SimpleTokenizer));
     let hint = Some(tokenizer_hint.trim()).filter(|hint| !hint.is_empty());
-    let tokens: Vec<String> = tokenizer
-        .tokenize_hinted(text, hint)
-        .into_iter()
-        .map(|t| t.text)
-        .collect();
+    let tokens = tokenizer.tokenize_hinted(text, hint);
     validate_token_expansion(kind, tokens.len(), shape.max_text_query_tokens)?;
     Ok((field, tokens))
 }
@@ -114,11 +110,11 @@ pub fn convert_query(
                 return Err(format!("No tokens in term '{}'", term_query.term));
             }
             if tokens.len() == 1 {
-                Ok(Box::new(TermQuery::text(field, &tokens[0])))
+                Ok(Box::new(TermQuery::text(field, &tokens[0].text)))
             } else {
                 let mut query = BooleanQuery::new();
                 for token in tokens {
-                    query = query.must(TermQuery::text(field, &token));
+                    query = query.must(TermQuery::text(field, &token.text));
                 }
                 Ok(Box::new(query))
             }
@@ -162,13 +158,13 @@ pub fn convert_query(
 
             if tokens.len() == 1 {
                 // Single token - use TermQuery directly
-                return Ok(Box::new(TermQuery::text(field, &tokens[0])));
+                return Ok(Box::new(TermQuery::text(field, &tokens[0].text)));
             }
 
             // Multiple tokens - use BooleanQuery with SHOULD clauses (MaxScore fast path)
             let mut query = BooleanQuery::new();
             for token in tokens {
-                query = query.should(TermQuery::text(field, &token));
+                query = query.should(TermQuery::text(field, &token.text));
             }
             Ok(Box::new(query))
         }
@@ -189,9 +185,12 @@ pub fn convert_query(
             }
             // PhraseQuery itself collapses one term to a TermQuery and, on a
             // field without positions, degrades to a MUST of the terms.
-            let terms = tokens.into_iter().map(String::into_bytes).collect();
+            let terms = tokens
+                .into_iter()
+                .map(|token| (token.position, token.text.into_bytes()))
+                .collect();
             Ok(Box::new(
-                PhraseQuery::new(field, terms).with_slop(phrase_query.slop),
+                PhraseQuery::new_with_offsets(field, terms).with_slop(phrase_query.slop),
             ))
         }
         Some(ProtoQueryType::Boolean(bool_query)) => {
@@ -1367,6 +1366,44 @@ mod tests {
         .unwrap()
         .to_string();
         assert!(static_hint.contains("fox"), "{static_hint}");
+    }
+
+    #[test]
+    fn stop_word_queries_drop_terms_but_keep_phrase_offsets() {
+        let mut builder = hermes_core::SchemaBuilder::default();
+        builder.add_text_field_with_tokenizer("languages", false, false, "raw_ci");
+        builder.add_text_field_with_tokenizer(
+            "content",
+            true,
+            false,
+            "stem(by: languages, default: simple, stop_words: true)",
+        );
+        let schema = builder.build();
+
+        let phrase = convert_query(
+            &phrase_proto("content", "quantum of the art", 0, "en"),
+            &schema,
+            None,
+            None,
+            &shape(),
+        )
+        .unwrap()
+        .to_string();
+        assert!(phrase.contains("quantum@0 art@3"), "{phrase}");
+
+        let matched = convert_query(
+            &match_proto("content", "quantum of the art", "en"),
+            &schema,
+            None,
+            None,
+            &shape(),
+        )
+        .unwrap()
+        .to_string();
+        assert!(matched.contains("quantum"), "{matched}");
+        assert!(matched.contains("art"), "{matched}");
+        assert!(!matched.contains(" of "), "{matched}");
+        assert!(!matched.contains(" the "), "{matched}");
     }
 
     #[test]

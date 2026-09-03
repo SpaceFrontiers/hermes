@@ -15,8 +15,9 @@ pub use hf_tokenizer::{TokenizerCache, tokenizer_cache};
 #[cfg(feature = "native")]
 pub use idf_weights::{IdfWeights, IdfWeightsCache, idf_weights_cache};
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock};
 
 use parking_lot::RwLock;
 use rust_stemmers::Algorithm;
@@ -177,18 +178,27 @@ fn clean_word(word: &str) -> String {
 /// Used by `SimpleTokenizer` (identity transform) and `StemmerTokenizer` (stem transform).
 /// The transform receives an owned `String` so identity transforms avoid extra allocations.
 fn tokenize_and_clean(text: &str, transform: impl Fn(String) -> String) -> Vec<Token> {
+    tokenize_and_clean_filter(text, |token| Some(transform(token)))
+}
+
+/// Shared tokenization logic with optional token suppression.
+///
+/// Positions advance for every non-empty cleaned token, including suppressed
+/// ones. This mirrors Tantivy's filtering behavior: removed tokens have no
+/// posting, while surviving tokens retain gaps for offset-aware phrases.
+fn tokenize_and_clean_filter(
+    text: &str,
+    transform: impl Fn(String) -> Option<String>,
+) -> Vec<Token> {
     let mut tokens = Vec::with_capacity(text.len() / 5);
     let mut position = 0u32;
     for (offset, word) in split_whitespace_with_offsets(text) {
         if !word.is_empty() {
             let cleaned = clean_word(word);
             if !cleaned.is_empty() {
-                tokens.push(Token::new(
-                    transform(cleaned),
-                    position,
-                    offset,
-                    offset + word.len(),
-                ));
+                if let Some(token) = transform(cleaned) {
+                    tokens.push(Token::new(token, position, offset, offset + word.len()));
+                }
                 position += 1;
             }
         }
@@ -256,8 +266,8 @@ impl Language {
         }
     }
 
-    fn to_stop_words_language(self) -> LANGUAGE {
-        match self {
+    fn to_stop_words_language(self) -> Option<LANGUAGE> {
+        Some(match self {
             Language::Arabic => LANGUAGE::Arabic,
             Language::Danish => LANGUAGE::Danish,
             Language::Dutch => LANGUAGE::Dutch,
@@ -274,10 +284,67 @@ impl Language {
             Language::Russian => LANGUAGE::Russian,
             Language::Spanish => LANGUAGE::Spanish,
             Language::Swedish => LANGUAGE::Swedish,
-            Language::Tamil => LANGUAGE::English, // Tamil not supported, fallback to English
+            Language::Tamil => return None,
             Language::Turkish => LANGUAGE::Turkish,
-        }
+        })
     }
+}
+
+static STOP_WORDS: LazyLock<HashMap<Language, HashSet<String>>> = LazyLock::new(|| {
+    [
+        Language::Arabic,
+        Language::Danish,
+        Language::Dutch,
+        Language::English,
+        Language::Finnish,
+        Language::French,
+        Language::German,
+        Language::Greek,
+        Language::Hungarian,
+        Language::Italian,
+        Language::Norwegian,
+        Language::Portuguese,
+        Language::Romanian,
+        Language::Russian,
+        Language::Spanish,
+        Language::Swedish,
+        Language::Turkish,
+    ]
+    .into_iter()
+    .map(|language| {
+        let words = stop_words::get(
+            language
+                .to_stop_words_language()
+                .expect("listed languages have stop-word dictionaries"),
+        )
+        .iter()
+        .map(|word| clean_word(word))
+        .filter(|word| !word.is_empty())
+        .collect();
+        (language, words)
+    })
+    .collect()
+});
+
+static WARNED_UNSUPPORTED_STOP_WORDS: AtomicBool = AtomicBool::new(false);
+
+fn warn_if_stop_words_unsupported(languages: &[Language]) {
+    if languages
+        .iter()
+        .any(|language| language.to_stop_words_language().is_none())
+        && !WARNED_UNSUPPORTED_STOP_WORDS.swap(true, Ordering::Relaxed)
+    {
+        log::warn!(
+            "stop_words is enabled, but no stop-word dictionary exists for Tamil; Tamil tokens will be retained"
+        );
+    }
+}
+
+#[inline]
+fn is_language_stop_word(language: Language, word: &str) -> bool {
+    STOP_WORDS
+        .get(&language)
+        .is_some_and(|words| words.contains(word))
 }
 
 /// Stop word filter tokenizer - wraps another tokenizer and filters out stop words
@@ -289,15 +356,19 @@ pub struct StopWordTokenizer<T: Tokenizer> {
     stop_words: HashSet<String>,
 }
 
-use std::collections::HashSet;
-
 impl<T: Tokenizer> StopWordTokenizer<T> {
     /// Create a new stop word tokenizer wrapping the given tokenizer
     pub fn new(inner: T, language: Language) -> Self {
-        let stop_words: HashSet<String> = stop_words::get(language.to_stop_words_language())
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
+        let stop_words = match language.to_stop_words_language() {
+            Some(language) => stop_words::get(language)
+                .iter()
+                .map(|word| (*word).to_string())
+                .collect(),
+            None => {
+                warn_if_stop_words_unsupported(&[language]);
+                HashSet::new()
+            }
+        };
         Self { inner, stop_words }
     }
 
@@ -613,17 +684,28 @@ fn with_stemmers<R>(languages: &[Language], f: impl FnOnce(&[&rust_stemmers::Ste
 /// Because Snowball stemmers are script-local, one field can hold mixed
 /// Cyrillic/Latin documents and still stem each part correctly.
 ///
-/// Declared in SDL as `text<stem(by: <field>, default: <language|simple>)>`;
+/// Declared in SDL as
+/// `text<stem(by: <field>, default: <language|simple>, stop_words: true)>`;
 /// see [`TokenizerSpec`].
 #[derive(Debug, Clone, Default)]
 pub struct DynamicStemmer {
     default: Option<Language>,
+    stop_words: bool,
 }
 
 impl DynamicStemmer {
     /// Create a dynamic stemmer; `default` applies when no hint is present.
     pub fn new(default: Option<Language>) -> Self {
-        Self { default }
+        Self {
+            default,
+            stop_words: false,
+        }
+    }
+
+    /// Enable or disable language-specific stop-word suppression.
+    pub fn with_stop_words(mut self, enabled: bool) -> Self {
+        self.stop_words = enabled;
+        self
     }
 
     /// Default language used when no hint is given.
@@ -645,30 +727,47 @@ impl DynamicStemmer {
     }
 
     fn tokenize_with_languages(&self, text: &str, languages: &[Language]) -> Vec<Token> {
+        if self.stop_words {
+            warn_if_stop_words_unsupported(languages);
+        }
         match languages {
             [] => tokenize_and_clean(text, |s| s),
             [single] => {
                 let script = single.script();
+                let filter_stop_words = self.stop_words;
                 with_stemmers(languages, |stemmers| {
                     let stemmer = stemmers[0];
-                    tokenize_and_clean(text, |s| {
+                    tokenize_and_clean_filter(text, |s| {
                         if Script::of_token(&s) == script {
-                            stem_owned(stemmer, s)
+                            if filter_stop_words && is_language_stop_word(*single, &s) {
+                                None
+                            } else {
+                                Some(stem_owned(stemmer, s))
+                            }
                         } else {
-                            s
+                            Some(s)
                         }
                     })
                 })
             }
-            many => with_stemmers(many, |stemmers| {
-                tokenize_and_clean(text, |s| {
-                    let script = Script::of_token(&s);
-                    match many.iter().position(|language| language.script() == script) {
-                        Some(index) => stem_owned(stemmers[index], s),
-                        None => s,
-                    }
+            many => {
+                let filter_stop_words = self.stop_words;
+                with_stemmers(many, |stemmers| {
+                    tokenize_and_clean_filter(text, |s| {
+                        let script = Script::of_token(&s);
+                        match many.iter().position(|language| language.script() == script) {
+                            Some(index) => {
+                                if filter_stop_words && is_language_stop_word(many[index], &s) {
+                                    None
+                                } else {
+                                    Some(stem_owned(stemmers[index], s))
+                                }
+                            }
+                            None => Some(s),
+                        }
+                    })
                 })
-            }),
+            }
         }
     }
 }
@@ -700,9 +799,9 @@ impl Tokenizer for DynamicStemmer {
 /// Parsed form of a tokenizer name in the schema.
 ///
 /// Plain names refer to a registered tokenizer (`simple`, `en_stem`, ...).
-/// `stem(by: <field>, default: <language|simple>)` declares a
-/// [`DynamicStemmer`] whose per-document hint is read from `<field>` in the
-/// same document. The canonical string form is stored in
+/// `stem(by: <field>, default: <language|simple>, stop_words: <bool>)`
+/// declares a [`DynamicStemmer`] whose per-document hint is read from `<field>`
+/// in the same document. The canonical string form is stored in
 /// `FieldEntry::tokenizer`, so index metadata needs no new field.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TokenizerSpec {
@@ -714,6 +813,8 @@ pub enum TokenizerSpec {
         by: String,
         /// Language applied when the hint field is absent; `None` = simple.
         default: Option<Language>,
+        /// Whether language-specific stop words are omitted from postings.
+        stop_words: bool,
     },
 }
 
@@ -732,6 +833,7 @@ impl TokenizerSpec {
         };
         let mut by = None;
         let mut default = None;
+        let mut filter_stop_words = false;
         for param in params.split(',') {
             let param = param.trim();
             if param.is_empty() {
@@ -754,6 +856,15 @@ impl TokenizerSpec {
                         })?),
                     };
                 }
+                "stop_words" => match value {
+                    "true" => filter_stop_words = true,
+                    "false" => filter_stop_words = false,
+                    _ => {
+                        return Err(format!(
+                            "tokenizer spec '{spec}': 'stop_words' must be true or false"
+                        ));
+                    }
+                },
                 other => {
                     return Err(format!(
                         "tokenizer spec '{spec}': unknown parameter '{other}'"
@@ -762,7 +873,11 @@ impl TokenizerSpec {
             }
         }
         let by = by.ok_or_else(|| format!("tokenizer spec '{spec}' requires 'by: <field>'"))?;
-        Ok(TokenizerSpec::DynamicStem { by, default })
+        Ok(TokenizerSpec::DynamicStem {
+            by,
+            default,
+            stop_words: filter_stop_words,
+        })
     }
 
     /// Field whose values hint the tokenizer, for dynamic specs.
@@ -777,9 +892,13 @@ impl TokenizerSpec {
     pub fn dynamic_tokenizer(&self) -> Option<BoxedTokenizer> {
         match self {
             TokenizerSpec::Named(_) => None,
-            TokenizerSpec::DynamicStem { default, .. } => {
-                Some(Box::new(DynamicStemmer::new(*default)))
-            }
+            TokenizerSpec::DynamicStem {
+                default,
+                stop_words,
+                ..
+            } => Some(Box::new(
+                DynamicStemmer::new(*default).with_stop_words(*stop_words),
+            )),
         }
     }
 }
@@ -788,12 +907,20 @@ impl std::fmt::Display for TokenizerSpec {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TokenizerSpec::Named(name) => f.write_str(name),
-            TokenizerSpec::DynamicStem { by, default } => {
+            TokenizerSpec::DynamicStem {
+                by,
+                default,
+                stop_words,
+            } => {
                 let default = match default {
                     None => "simple".to_string(),
                     Some(language) => language_code(*language).to_string(),
                 };
-                write!(f, "stem(by: {by}, default: {default})")
+                write!(f, "stem(by: {by}, default: {default}")?;
+                if *stop_words {
+                    f.write_str(", stop_words: true")?;
+                }
+                f.write_str(")")
             }
         }
     }
@@ -976,7 +1103,7 @@ impl TokenizerRegistry {
         tokenizers.insert(name.to_string(), Box::new(tokenizer));
     }
 
-    /// Get a tokenizer by name or by a `stem(by: ..., default: ...)` spec.
+    /// Get a tokenizer by name or by a `stem(by: ..., default: ..., stop_words: ...)` spec.
     ///
     /// Dynamic specs are parsed once per distinct spec string and cached; a
     /// malformed spec is not cached and yields `None` on every call.
@@ -1421,6 +1548,21 @@ mod tests {
     }
 
     #[test]
+    fn dynamic_stemmer_stop_words_preserve_position_gaps() {
+        let stemmer = DynamicStemmer::new(None).with_stop_words(true);
+        let tokens = hinted(&stemmer, "Quantum of the arts", Some("en"));
+
+        assert_eq!(texts(&tokens), vec!["quantum", "art"]);
+        assert_eq!(
+            tokens
+                .iter()
+                .map(|token| token.position)
+                .collect::<Vec<_>>(),
+            vec![0, 3]
+        );
+    }
+
+    #[test]
     fn script_detection_covers_supported_stemmer_scripts() {
         assert_eq!(Script::of_token("hello"), Script::Latin);
         assert_eq!(Script::of_token("straße"), Script::Latin);
@@ -1445,7 +1587,8 @@ mod tests {
             spec,
             TokenizerSpec::DynamicStem {
                 by: "languages".to_string(),
-                default: None
+                default: None,
+                stop_words: false,
             }
         );
         assert_eq!(spec.to_string(), "stem(by: languages, default: simple)");
@@ -1453,11 +1596,26 @@ mod tests {
 
         let spec = TokenizerSpec::parse("stem(by: lang, default: english)").unwrap();
         assert_eq!(spec.to_string(), "stem(by: lang, default: en)");
+        let stop_words =
+            TokenizerSpec::parse("stem(by: lang, default: english, stop_words: true)").unwrap();
+        assert_eq!(
+            stop_words,
+            TokenizerSpec::DynamicStem {
+                by: "lang".to_string(),
+                default: Some(Language::English),
+                stop_words: true,
+            }
+        );
+        assert_eq!(
+            stop_words.to_string(),
+            "stem(by: lang, default: en, stop_words: true)"
+        );
         assert_eq!(
             TokenizerSpec::parse("stem(by: lang)").unwrap(),
             TokenizerSpec::DynamicStem {
                 by: "lang".to_string(),
-                default: None
+                default: None,
+                stop_words: false,
             }
         );
 
@@ -1465,6 +1623,7 @@ mod tests {
         assert!(TokenizerSpec::parse("stem(by: lang, default: klingon)").is_err());
         assert!(TokenizerSpec::parse("stem(by: lang").is_err());
         assert!(TokenizerSpec::parse("stem(by: lang, color: red)").is_err());
+        assert!(TokenizerSpec::parse("stem(by: lang, stop_words: yes)").is_err());
         assert!(TokenizerSpec::parse("en_stem(foo)").is_err());
         assert!(TokenizerSpec::parse("").is_err());
     }
@@ -1482,6 +1641,18 @@ mod tests {
         assert_eq!(
             texts(&tokenizer.tokenize("Running Foxes")),
             vec!["running", "foxes"]
+        );
+        let tokenizer = registry
+            .get("stem(by: languages, default: simple, stop_words: true)")
+            .expect("dynamic stop-word spec resolves without registration");
+        let tokens = tokenizer.tokenize_hinted("Quantum of the art", Some("en"));
+        assert_eq!(texts(&tokens), vec!["quantum", "art"]);
+        assert_eq!(
+            tokens
+                .iter()
+                .map(|token| token.position)
+                .collect::<Vec<_>>(),
+            vec![0, 3]
         );
         assert!(
             registry

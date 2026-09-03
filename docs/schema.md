@@ -146,13 +146,16 @@ argument of `TermQuery`, `MatchQuery` and `PhraseQuery`:
 
 ```
 field languages: text<raw_ci> [fast]
-field content: text<stem(by: languages, default: simple)> [indexed<token_position>]
+field content: text<stem(by: languages, default: simple, stop_words: true)> [indexed<token_position>]
 ```
 
 - `by` names a text field of the same index; all of its values in a document
   form the hint (`"ru,en"`).
 - `default` is the language used when a document (or query) carries no
   recognised hint; `simple` means no stemming.
+- `stop_words` defaults to `false`; when `true`, words from the selected
+  language's list are omitted from postings while later token positions retain
+  their gaps, so phrase queries still enforce the original distances.
 - Each token is stemmed with the first hinted language whose script matches
   the token (Snowball stemmers are script-local), so Cyrillic and Latin text
   in one document both stem correctly; same-script languages use the first
@@ -193,7 +196,7 @@ See `docs/chunked-text-fields.md` for the design.
 | `simple`                  | `default`    | Whitespace split, punctuation stripped, lowercased |
 | `raw`                     |              | Whole value as one token, unchanged                |
 | `raw_ci`                  |              | Whole value as one token, lowercased               |
-| `stem(by: F, default: L)` |              | Dynamic stemmer hinted by field `F` (see above)    |
+| `stem(by: F, default: L, stop_words: true)` |              | Dynamic stemmer with optional stop-word filtering |
 | `en_stem`                 | `english`    | English Snowball stemmer                           |
 | `de_stem`                 | `german`     | German Snowball stemmer                            |
 | `fr_stem`                 | `french`     | French Snowball stemmer                            |

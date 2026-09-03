@@ -188,6 +188,52 @@ async fn chunked_phrase_never_crosses_a_chunk_boundary() {
 }
 
 #[tokio::test]
+async fn chunked_phrase_honours_stop_word_position_gaps() {
+    use crate::tokenizer::TokenizerRegistry;
+
+    let tokenizer_spec = "stem(by: languages, default: simple, stop_words: true)";
+    let mut sb = SchemaBuilder::default();
+    let languages = sb.add_text_field_with_tokenizer("languages", false, true, "raw_ci");
+    let content = sb.add_text_field_with_tokenizer("content", true, false, tokenizer_spec);
+    sb.set_chunked(content, true);
+    sb.set_positions(content, PositionMode::TokenPosition);
+    let schema = sb.build();
+
+    let dir = RamDirectory::new();
+    let mut writer = IndexWriter::create(dir.clone(), schema, IndexConfig::default())
+        .await
+        .unwrap();
+    for chunks in [
+        ["quantum of the art", "unrelated words"],
+        ["quantum art", "quantum of the art"],
+    ] {
+        let mut document = Document::new();
+        document.add_text(languages, "en");
+        for chunk in chunks {
+            document.add_text(content, chunk);
+        }
+        writer.add_document(document).unwrap();
+    }
+    writer.commit().await.unwrap();
+
+    let tokenizer = TokenizerRegistry::new().get(tokenizer_spec).unwrap();
+    let terms = tokenizer
+        .tokenize_hinted("quantum of the art", Some("en"))
+        .into_iter()
+        .map(|token| (token.position, token.text.into_bytes()))
+        .collect();
+    let phrase = PhraseQuery::new_with_offsets(content, terms);
+
+    let index = open(dir).await;
+    let reader = index.reader().await.unwrap();
+    let searcher = reader.searcher().await.unwrap();
+    let (results, _) = searcher.search_with_positions(&phrase, 10).await.unwrap();
+    assert_eq!(results.len(), 2, "{results:?}");
+    assert_eq!(ordinals(by_doc(&results, 0)), vec![0]);
+    assert_eq!(ordinals(by_doc(&results, 1)), vec![1]);
+}
+
+#[tokio::test]
 async fn chunked_bm25_normalises_by_real_chunk_length() {
     let f = chunked_schema();
     let dir = RamDirectory::new();

@@ -734,3 +734,58 @@ async fn phrase_query_matches_consecutive_stemmed_terms() {
         .unwrap();
     assert_eq!(hits(response), vec![0, 1, 2]);
 }
+
+#[tokio::test]
+async fn stop_words_are_not_indexed_and_phrase_offsets_keep_the_gap() {
+    use crate::dsl::PositionMode;
+    use crate::query::{PhraseQuery, TermQuery};
+    use crate::tokenizer::TokenizerRegistry;
+
+    let tokenizer_spec = "stem(by: languages, default: simple, stop_words: true)";
+    let mut schema_builder = SchemaBuilder::default();
+    let languages =
+        schema_builder.add_text_field_with_tokenizer("languages", false, true, "raw_ci");
+    let content =
+        schema_builder.add_text_field_with_tokenizer("content", true, true, tokenizer_spec);
+    schema_builder.set_positions(content, PositionMode::TokenPosition);
+    let schema = schema_builder.build();
+
+    let dir = RamDirectory::new();
+    let config = IndexConfig::default();
+    let mut writer = IndexWriter::create(dir.clone(), schema, config.clone())
+        .await
+        .unwrap();
+    for text in ["quantum of the art", "quantum art", "art of the quantum"] {
+        let mut doc = Document::new();
+        doc.add_text(languages, "en");
+        doc.add_text(content, text);
+        writer.add_document(doc).unwrap();
+    }
+    writer.commit().await.unwrap();
+    let index = Index::open(dir, config).await.unwrap();
+
+    let hits = |response: crate::query::SearchResponse| {
+        let mut ids: Vec<u32> = response.hits.iter().map(|hit| hit.address.doc_id).collect();
+        ids.sort_unstable();
+        ids
+    };
+
+    let stop_word = index
+        .search(&TermQuery::text(content, "of"), 10)
+        .await
+        .unwrap();
+    assert!(
+        stop_word.hits.is_empty(),
+        "stop words must have no postings"
+    );
+
+    let tokenizer = TokenizerRegistry::new().get(tokenizer_spec).unwrap();
+    let terms = tokenizer
+        .tokenize_hinted("quantum of the art", Some("en"))
+        .into_iter()
+        .map(|token| (token.position, token.text.into_bytes()))
+        .collect();
+    let phrase = PhraseQuery::new_with_offsets(content, terms);
+    let response = index.search(&phrase, 10).await.unwrap();
+    assert_eq!(hits(response), vec![0]);
+}

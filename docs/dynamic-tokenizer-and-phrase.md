@@ -22,11 +22,12 @@ body), `DynamicStemmer` interprets it.
 
 ```
 field languages: text<raw_ci> [fast]
-field content: text<stem(by: languages, default: simple)> [indexed<token_position>]
+field content: text<stem(by: languages, default: simple, stop_words: true)> [indexed<token_position>]
 ```
 
-`stem(by: <field>, default: <language|simple>)` is a parameterized tokenizer
-spec. Its canonical string form is stored in the existing
+`stem(by: <field>, default: <language|simple>, stop_words: <true|false>)` is a
+parameterized tokenizer spec (`stop_words` defaults to false). Its canonical
+string form is stored in the existing
 `FieldEntry.tokenizer`, so `metadata.json` has no new field and old indexes
 load unchanged. `parse_sdl` fails loudly when the `by` field is missing or not
 a text field, when the default language is unknown, and (new for all schemas)
@@ -61,6 +62,24 @@ tokenizer_hint`. The server resolves the field's tokenizer as before and calls
 client passes the query language. Static tokenizers ignore the hint, so
 clients may always send it.
 
+### Stop words and phrase offsets
+
+When `stop_words: true`, the dynamic tokenizer removes a cleaned token when it
+is in the stop-word list of the first hinted language for that token's script.
+The token contributes no dictionary term, posting, term frequency, or position
+entry. Unsupported languages (including Tamil in the `stop-words` crate) and
+tokens whose script has no hinted language are retained; Hermes never silently
+borrows another language's list.
+
+Removal does not collapse the positions of later tokens. The phrase query
+converter keeps the surviving tokens' original offsets, and the positional
+scorer compares those offsets rather than assuming every surviving term was
+adjacent. For example, `"quantum of the art"` becomes `quantum@0, art@3` both
+while indexing and while parsing the phrase. As with Tantivy/Lucene-style
+stop-word filters, this proves ordered distance but cannot prove which removed
+stop words occupied the gap. Ordinary `MatchQuery` uses the same filtered
+stream.
+
 ### Merges
 
 Segment merges union term dictionaries and never re-tokenize, so per-document
@@ -74,7 +93,8 @@ message PhraseQuery { string field = 1; string text = 2; uint32 slop = 3; string
 ```
 
 `text` is tokenized server-side with the field's tokenizer (and hint), terms
-must occur consecutively (`slop` 0) or within `slop` positions. Requires
+must occur at their tokenized offsets (`slop` 0) or within `slop` positions.
+Requires
 `indexed<token_position>` or `indexed<positions>`; without positions
 `hermes_core::PhraseQuery` degrades to a MUST of the terms, and a single
 token collapses to a `TermQuery`. Scored with BM25. The query-language parser
@@ -102,4 +122,4 @@ resolution of a `stem(...)` spec is cached per spec string in
 
 - JSON (`SchemaFieldConfig`) schemas: the dynamic spec is SDL-only.
 - Highlighting / matched-position export.
-- Stop-word filtering for dynamic fields.
+- Per-index custom stop-word dictionaries.

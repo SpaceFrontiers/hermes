@@ -299,7 +299,7 @@ fn field_tokens(
     tokenizer_hint: Option<&str>,
     schema: &Schema,
     tokenizers: &TokenizerRegistry,
-) -> Result<(hermes_core::Field, Vec<String>), JsValue> {
+) -> Result<(hermes_core::Field, Vec<hermes_core::Token>), JsValue> {
     let field = schema
         .get_field(field_name)
         .ok_or_else(|| JsValue::from_str(&format!("Unknown field: '{}'", field_name)))?;
@@ -311,11 +311,7 @@ fn field_tokens(
         .get(tokenizer_name)
         .unwrap_or_else(|| Box::new(hermes_core::SimpleTokenizer));
     let hint = tokenizer_hint.map(str::trim).filter(|h| !h.is_empty());
-    let tokens: Vec<String> = tok
-        .tokenize_hinted(text, hint)
-        .into_iter()
-        .map(|t| t.text)
-        .collect();
+    let tokens = tok.tokenize_hinted(text, hint);
     if tokens.is_empty() {
         return Err(JsValue::from_str("No tokens in query"));
     }
@@ -334,14 +330,14 @@ fn tokenize_and_build(
 ) -> Result<Box<dyn Query>, JsValue> {
     let (field, tokens) = field_tokens(field_name, text, tokenizer_hint, schema, tokenizers)?;
     if tokens.len() == 1 {
-        return Ok(Box::new(TermQuery::text(field, &tokens[0])));
+        return Ok(Box::new(TermQuery::text(field, &tokens[0].text)));
     }
     let mut bq = BooleanQuery::new();
     for token in tokens {
         if must {
-            bq = bq.must(TermQuery::text(field, &token));
+            bq = bq.must(TermQuery::text(field, &token.text));
         } else {
-            bq = bq.should(TermQuery::text(field, &token));
+            bq = bq.should(TermQuery::text(field, &token.text));
         }
     }
     Ok(Box::new(bq))
@@ -383,8 +379,13 @@ pub(crate) fn convert_query(
             schema,
             tokenizers,
         )?;
-        let terms = tokens.into_iter().map(String::into_bytes).collect();
-        return Ok(Box::new(PhraseQuery::new(field, terms).with_slop(pq.slop)));
+        let terms = tokens
+            .into_iter()
+            .map(|token| (token.position, token.text.into_bytes()))
+            .collect();
+        return Ok(Box::new(
+            PhraseQuery::new_with_offsets(field, terms).with_slop(pq.slop),
+        ));
     }
 
     if let Some(ref bq) = js.boolean {

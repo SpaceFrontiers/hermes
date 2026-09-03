@@ -18,6 +18,8 @@ pub struct PhraseQuery {
     pub field: Field,
     /// Terms in the phrase, in order
     pub terms: Vec<Vec<u8>>,
+    /// Original tokenizer positions for each surviving term.
+    pub term_offsets: Vec<u32>,
     /// Optional slop (max distance between terms, 0 = exact phrase)
     pub slop: u32,
     /// Optional global statistics for cross-segment IDF
@@ -31,7 +33,21 @@ impl std::fmt::Display for PhraseQuery {
             .iter()
             .map(|t| String::from_utf8_lossy(t))
             .collect();
-        write!(f, "Phrase({}:\"{}\"", self.field.0, terms.join(" "))?;
+        let contiguous = self
+            .term_offsets
+            .windows(2)
+            .all(|offsets| offsets[1] == offsets[0].saturating_add(1));
+        let rendered = if contiguous {
+            terms.join(" ")
+        } else {
+            terms
+                .iter()
+                .zip(&self.term_offsets)
+                .map(|(term, offset)| format!("{term}@{offset}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        write!(f, "Phrase({}:\"{}\"", self.field.0, rendered)?;
         if self.slop > 0 {
             write!(f, "~{}", self.slop)?;
         }
@@ -49,6 +65,7 @@ impl std::fmt::Debug for PhraseQuery {
         f.debug_struct("PhraseQuery")
             .field("field", &self.field)
             .field("terms", &terms)
+            .field("term_offsets", &self.term_offsets)
             .field("slop", &self.slop)
             .finish()
     }
@@ -57,9 +74,27 @@ impl std::fmt::Debug for PhraseQuery {
 impl PhraseQuery {
     /// Create a new exact phrase query
     pub fn new(field: Field, terms: Vec<Vec<u8>>) -> Self {
+        let term_offsets = (0..terms.len() as u32).collect();
         Self {
             field,
             terms,
+            term_offsets,
+            slop: 0,
+            global_stats: None,
+        }
+    }
+
+    /// Create an exact phrase from terms and their original tokenizer positions.
+    ///
+    /// Position gaps are retained when filters suppress tokens, so a query such
+    /// as `quantum of the art` can contain only the indexed terms at offsets 0 and
+    /// 3 while still requiring the same distance between them.
+    pub fn new_with_offsets(field: Field, terms: Vec<(u32, Vec<u8>)>) -> Self {
+        let (term_offsets, terms) = terms.into_iter().unzip();
+        Self {
+            field,
+            terms,
+            term_offsets,
             slop: 0,
             global_stats: None,
         }
@@ -71,17 +106,12 @@ impl PhraseQuery {
     /// the query terms match the indexed stems.
     pub fn text(field: Field, phrase: &str) -> Self {
         use crate::tokenizer::Tokenizer;
-        let terms: Vec<Vec<u8>> = crate::tokenizer::SimpleTokenizer
+        let terms = crate::tokenizer::SimpleTokenizer
             .tokenize(phrase)
             .into_iter()
-            .map(|token| token.text.into_bytes())
+            .map(|token| (token.position, token.text.into_bytes()))
             .collect();
-        Self {
-            field,
-            terms,
-            slop: 0,
-            global_stats: None,
-        }
+        Self::new_with_offsets(field, terms)
     }
 
     /// Set slop (max distance between terms)
@@ -105,6 +135,7 @@ impl PhraseQuery {
 /// pass over the matching chunks only.
 fn build_chunked_phrase_scorer<'a>(
     term_data: Vec<(BlockPostingList, PositionPostingList)>,
+    term_offsets: Vec<u32>,
     slop: u32,
     reader: &SegmentReader,
     field: Field,
@@ -123,8 +154,15 @@ fn build_chunked_phrase_scorer<'a>(
         .map(|(p, _)| super::bm25_idf(p.doc_count() as f32, num_chunks))
         .sum();
     let (postings, positions): (Vec<_>, Vec<_>) = term_data.into_iter().unzip();
-    let mut scorer = PhraseScorer::new(postings, positions, slop, idf, chunk_map.avg_len())
-        .with_chunk_lengths(chunk_map.clone());
+    let mut scorer = PhraseScorer::new(
+        postings,
+        positions,
+        term_offsets,
+        slop,
+        idf,
+        chunk_map.avg_len(),
+    )
+    .with_chunk_lengths(chunk_map.clone());
 
     use super::docset::DocSet as _;
     let mut raw: Vec<(u32, u16, f32)> = Vec::new();
@@ -143,6 +181,7 @@ fn build_chunked_phrase_scorer<'a>(
 /// Build a PhraseScorer from already-fetched term data.
 fn build_phrase_scorer<'a>(
     term_data: Vec<(BlockPostingList, PositionPostingList)>,
+    term_offsets: Vec<u32>,
     slop: u32,
     reader: &SegmentReader,
     field: Field,
@@ -160,6 +199,7 @@ fn build_phrase_scorer<'a>(
     Box::new(PhraseScorer::new(
         postings,
         positions,
+        term_offsets,
         slop,
         idf,
         avg_field_len,
@@ -203,6 +243,7 @@ impl Query for PhraseQuery {
     ) -> ScorerFuture<'a> {
         let field = self.field;
         let terms = self.terms.clone();
+        let term_offsets = self.term_offsets.clone();
         let slop = self.slop;
 
         Box::pin(async move {
@@ -230,9 +271,22 @@ impl Query for PhraseQuery {
             }
 
             if reader.is_chunked_field(field) {
-                return build_chunked_phrase_scorer(term_data, slop, reader, field, limit);
+                return build_chunked_phrase_scorer(
+                    term_data,
+                    term_offsets,
+                    slop,
+                    reader,
+                    field,
+                    limit,
+                );
             }
-            Ok(build_phrase_scorer(term_data, slop, reader, field))
+            Ok(build_phrase_scorer(
+                term_data,
+                term_offsets,
+                slop,
+                reader,
+                field,
+            ))
         })
     }
 
@@ -284,10 +338,21 @@ impl Query for PhraseQuery {
         }
 
         if reader.is_chunked_field(self.field) {
-            return build_chunked_phrase_scorer(term_data, self.slop, reader, self.field, limit);
+            return build_chunked_phrase_scorer(
+                term_data,
+                self.term_offsets.clone(),
+                self.slop,
+                reader,
+                self.field,
+                limit,
+            );
         }
         Ok(build_phrase_scorer(
-            term_data, self.slop, reader, self.field,
+            term_data,
+            self.term_offsets.clone(),
+            self.slop,
+            reader,
+            self.field,
         ))
     }
 
@@ -322,6 +387,8 @@ struct PhraseScorer {
     posting_iters: Vec<BlockPostingIterator<'static>>,
     /// Position iterators for each term
     position_lists: Vec<PositionPostingList>,
+    /// Original tokenizer positions aligned with `position_lists`.
+    term_offsets: Vec<u32>,
     /// Max slop between terms
     slop: u32,
     /// Current matching document
@@ -341,6 +408,7 @@ impl PhraseScorer {
     fn new(
         posting_lists: Vec<BlockPostingList>,
         position_lists: Vec<PositionPostingList>,
+        term_offsets: Vec<u32>,
         slop: u32,
         idf: f32,
         avg_field_len: f32,
@@ -354,6 +422,7 @@ impl PhraseScorer {
         let mut scorer = Self {
             posting_iters,
             position_lists,
+            term_offsets,
             slop,
             current_doc: 0,
             idf,
@@ -454,14 +523,21 @@ impl PhraseScorer {
 
     /// Check if a phrase exists starting from the given position
     fn check_phrase_from_position(&self, start_pos: u32, term_positions: &[Vec<u32>]) -> bool {
-        let mut expected_pos = start_pos;
+        let Some(&first_offset) = self.term_offsets.first() else {
+            return false;
+        };
 
         for (i, positions) in term_positions.iter().enumerate() {
             if i == 0 {
                 continue; // Skip first term, already matched
             }
 
-            expected_pos += 1;
+            let Some(relative_offset) = self.term_offsets[i].checked_sub(first_offset) else {
+                return false;
+            };
+            let Some(expected_pos) = start_pos.checked_add(relative_offset) else {
+                return false;
+            };
 
             // Find a position within slop distance
             let found = positions.iter().any(|&pos| {

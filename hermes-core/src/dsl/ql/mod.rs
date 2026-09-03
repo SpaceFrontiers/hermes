@@ -16,7 +16,7 @@ use super::schema::{Field, Schema};
 use crate::query::{
     BooleanQuery, DEFAULT_DENSE_RERANK_FACTOR, PhraseQuery, PrefixQuery, Query, TermQuery,
 };
-use crate::tokenizer::{BoxedTokenizer, TokenizerRegistry};
+use crate::tokenizer::{BoxedTokenizer, Token, TokenizerRegistry};
 
 #[derive(Parser)]
 #[grammar = "dsl/ql/ql.pest"]
@@ -595,10 +595,13 @@ impl QueryLanguageParser {
         };
 
         let tokenizer = self.get_tokenizer(field_id);
-        let tokens: Vec<String> = tokenizer
+        let tokens: Vec<Token> = tokenizer
             .tokenize(phrase)
             .into_iter()
-            .map(|t| t.text.to_lowercase())
+            .map(|mut token| {
+                token.text = token.text.to_lowercase();
+                token
+            })
             .collect();
 
         if tokens.is_empty() {
@@ -606,13 +609,16 @@ impl QueryLanguageParser {
         }
 
         if tokens.len() == 1 {
-            return Ok(Box::new(TermQuery::text(field_id, &tokens[0])));
+            return Ok(Box::new(TermQuery::text(field_id, &tokens[0].text)));
         }
 
         // Positional phrase query; on a field without positions it degrades to
         // an AND of the terms inside PhraseQuery itself.
-        let phrase_terms = |tokens: &[String]| -> Vec<Vec<u8>> {
-            tokens.iter().map(|t| t.clone().into_bytes()).collect()
+        let phrase_terms = |tokens: &[Token]| -> Vec<(u32, Vec<u8>)> {
+            tokens
+                .iter()
+                .map(|token| (token.position, token.text.clone().into_bytes()))
+                .collect()
         };
 
         // If no field specified and multiple default fields, wrap in OR
@@ -620,20 +626,26 @@ impl QueryLanguageParser {
             let mut outer = BooleanQuery::new();
             for &f in &self.default_fields {
                 let tokenizer = self.get_tokenizer(f);
-                let tokens: Vec<String> = tokenizer
+                let tokens: Vec<Token> = tokenizer
                     .tokenize(phrase)
                     .into_iter()
-                    .map(|t| t.text.to_lowercase())
+                    .map(|mut token| {
+                        token.text = token.text.to_lowercase();
+                        token
+                    })
                     .collect();
                 if tokens.is_empty() {
                     continue;
                 }
-                outer = outer.should(PhraseQuery::new(f, phrase_terms(&tokens)));
+                outer = outer.should(PhraseQuery::new_with_offsets(f, phrase_terms(&tokens)));
             }
             return Ok(Box::new(outer));
         }
 
-        Ok(Box::new(PhraseQuery::new(field_id, phrase_terms(&tokens))))
+        Ok(Box::new(PhraseQuery::new_with_offsets(
+            field_id,
+            phrase_terms(&tokens),
+        )))
     }
 
     fn get_tokenizer(&self, field: Field) -> BoxedTokenizer {
@@ -708,6 +720,26 @@ mod tests {
 
         // Should parse quoted phrase
         let _query = parser.parse("\"hello world\"").unwrap();
+    }
+
+    #[test]
+    fn phrase_query_keeps_offsets_across_filtered_stop_words() {
+        let mut builder = SchemaBuilder::default();
+        let content = builder.add_text_field_with_tokenizer(
+            "content",
+            true,
+            true,
+            "stem(by: languages, default: en, stop_words: true)",
+        );
+        builder.add_text_field_with_tokenizer("languages", false, false, "raw_ci");
+        let parser = QueryLanguageParser::new(
+            Arc::new(builder.build()),
+            vec![content],
+            Arc::new(TokenizerRegistry::default()),
+        );
+
+        let query = parser.parse("content:\"quantum of the art\"").unwrap();
+        assert!(query.to_string().contains("quantum@0 art@3"), "{query}");
     }
 
     #[test]
