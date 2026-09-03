@@ -224,6 +224,12 @@ pub fn convert_query(
             for token in tokens {
                 query = query.should(TermQuery::text(field, &token));
             }
+            if match_query.proximity_weight > 0.0 {
+                query = query.with_proximity(hermes_core::query::ProximityConfig::new(
+                    match_query.proximity_weight,
+                    match_query.proximity_window,
+                ));
+            }
             Ok(Box::new(query))
         }
         Some(ProtoQueryType::Phrase(phrase_query)) => {
@@ -1456,6 +1462,8 @@ mod tests {
                 field: field.to_string(),
                 text: text.to_string(),
                 tokenizer_hint: hint.to_string(),
+                proximity_weight: 0.0,
+                proximity_window: 0,
             })),
         }
     }
@@ -1722,6 +1730,8 @@ mod tests {
                 field: "title".to_string(),
                 text: "*".to_string(),
                 tokenizer_hint: String::new(),
+                proximity_weight: 0.0,
+                proximity_window: 0,
             })),
         };
         let explicit_empty_prefix = proto::Query {
@@ -1843,6 +1853,38 @@ mod tests {
     }
 
     #[test]
+    fn match_query_carries_proximity_rescoring() {
+        let schema = stemmed_text_schema();
+        let query = convert_query(
+            &proto::Query {
+                query: Some(ProtoQueryType::Match(proto::MatchQuery {
+                    field: "body".to_string(),
+                    text: "running foxes".to_string(),
+                    tokenizer_hint: String::new(),
+                    proximity_weight: 0.5,
+                    proximity_window: 0,
+                })),
+            },
+            &schema,
+            None,
+            None,
+            &shape(),
+        )
+        .unwrap();
+        let rendered = query.to_string();
+        assert!(rendered.contains("~proximity(0.5, 8)"), "{rendered}");
+        let off = convert_query(
+            &match_proto("body", "running foxes", ""),
+            &schema,
+            None,
+            None,
+            &shape(),
+        )
+        .unwrap();
+        assert!(!off.to_string().contains("~proximity"), "{off}");
+    }
+
+    #[test]
     fn schema_to_sdl_renders_bm25_parameters() {
         let input = r#"
             index documents {
@@ -1887,6 +1929,8 @@ mod tests {
                 field: "content".to_string(),
                 text: "need*".to_string(),
                 tokenizer_hint: String::new(),
+                proximity_weight: 0.0,
+                proximity_window: 0,
             })),
         };
         let error = convert_query(&query, &schema, None, None, &QueryShapeLimits::default())

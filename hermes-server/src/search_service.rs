@@ -1635,6 +1635,8 @@ mod tests {
                 field: "body".to_owned(),
                 text: "x".repeat(limits().shape.max_query_text_bytes + 1),
                 tokenizer_hint: String::new(),
+                proximity_weight: 0.0,
+                proximity_window: 0,
             })),
         });
         assert_eq!(
@@ -1666,6 +1668,8 @@ mod tests {
                 field: "body".to_owned(),
                 text: "x".to_owned(),
                 tokenizer_hint: "en,".repeat(limits().shape.max_query_text_bytes),
+                proximity_weight: 0.0,
+                proximity_window: 0,
             })),
         });
         assert_eq!(

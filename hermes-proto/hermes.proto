@@ -184,6 +184,14 @@ message MatchQuery {
   // each query token with the first listed language of the token's script.
   // Empty = the tokenizer's default.
   string tokenizer_hint = 3;
+  // Proximity rescoring (sequential dependence): the top candidates of the
+  // BM25 pass gain a bonus for adjacent query terms occurring next to each
+  // other (ordered windows) or within `proximity_window` positions
+  // (unordered windows, half weight), scaled by this weight. 0 = off.
+  // Approximate: the bonus applies to an over-fetched candidate pool.
+  float proximity_weight = 4;
+  // Unordered window size; 0 = 8.
+  uint32 proximity_window = 5;
 }
 
 // Phrase query - text is tokenized server-side with the field's tokenizer

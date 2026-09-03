@@ -1118,6 +1118,97 @@ async fn per_field_bm25_parameters_apply_to_scores() {
     assert!((hits[0].1 - Bm25Params::default().score(1.0, idf, 1.0, avg)).abs() > 1e-3);
 }
 
+/// Proximity rescoring: with equal BM25 scores, adjacent query terms
+/// (ordered window) outrank terms merely within the window, which outrank
+/// distant ones; with the stage off all three tie. Plain and chunked fields.
+#[tokio::test]
+async fn proximity_rescoring_prefers_adjacent_terms() {
+    use crate::dsl::PositionMode;
+    use crate::query::{BooleanQuery, ProximityConfig, TermQuery};
+
+    let mut schema_builder = SchemaBuilder::default();
+    let languages =
+        schema_builder.add_text_field_with_tokenizer("languages", false, true, "raw_ci");
+    let body = schema_builder.add_text_field_with_tokenizer("body", true, false, "simple");
+    schema_builder.set_positions(body, PositionMode::TokenPosition);
+    let content = schema_builder.add_text_field_with_tokenizer(
+        "content",
+        true,
+        false,
+        "stem(by: languages, default: simple)",
+    );
+    schema_builder.set_chunked(content, true);
+    schema_builder.set_positions(content, PositionMode::TokenPosition);
+    let schema = schema_builder.build();
+    let dir = RamDirectory::new();
+    let config = IndexConfig::default();
+    let mut writer = IndexWriter::create(dir.clone(), schema.clone(), config.clone())
+        .await
+        .unwrap();
+    // Same length, same term frequencies; only the distance differs.
+    // doc 0: adjacent (ordered), doc 1: three apart (unordered window),
+    // doc 2: reversed and adjacent (unordered only), doc 3: far apart.
+    let texts = [
+        "alpha beta p1 p2 p3 p4 p5 p6 p7 p8 p9 p10 p11 p12",
+        "alpha p1 p2 beta p3 p4 p5 p6 p7 p8 p9 p10 p11 p12",
+        "beta alpha p1 p2 p3 p4 p5 p6 p7 p8 p9 p10 p11 p12",
+        "alpha p1 p2 p3 p4 p5 p6 p7 p8 p9 p10 p11 p12 beta",
+    ];
+    for text in texts {
+        let mut doc = Document::new();
+        doc.add_text(languages, "en");
+        doc.add_text(body, text);
+        doc.add_text(content, text);
+        writer.add_document(doc).unwrap();
+    }
+    writer.commit().await.unwrap();
+    let index = Index::open(dir, config).await.unwrap();
+    let scores = |response: crate::query::SearchResponse| {
+        let mut v: Vec<(u32, f32)> = response
+            .hits
+            .iter()
+            .map(|h| (h.address.doc_id, h.score))
+            .collect();
+        v.sort_by_key(|(d, _)| *d);
+        v.into_iter().map(|(_, s)| s).collect::<Vec<f32>>()
+    };
+    for field in [body, content] {
+        let plain = BooleanQuery::new()
+            .should(TermQuery::text(field, "alpha"))
+            .should(TermQuery::text(field, "beta"));
+        let base = scores(index.search(&plain, 10).await.unwrap());
+        assert_eq!(base.len(), 4);
+        assert!(
+            base.windows(2).all(|w| (w[0] - w[1]).abs() < 1e-5),
+            "{base:?}"
+        );
+
+        let near = plain.clone().with_proximity(ProximityConfig::new(1.0, 8));
+        let got = scores(index.search(&near, 10).await.unwrap());
+        assert!(got[0] > got[1], "{got:?}");
+        assert!(got[1] > got[3], "{got:?}");
+        assert!((got[1] - got[2]).abs() < 1e-5, "{got:?}");
+        assert!(
+            (got[3] - base[3]).abs() < 1e-5,
+            "far apart: no bonus {got:?}"
+        );
+        // The limit is honoured after rescoring.
+        let top = index.search(&near, 1).await.unwrap();
+        assert_eq!(top.hits.len(), 1);
+        assert_eq!(top.hits[0].address.doc_id, 0);
+
+        // A filter combined with the rescored terms keeps both effects.
+        let filtered = BooleanQuery::new()
+            .must(TermQuery::text(field, "p12"))
+            .should(TermQuery::text(field, "alpha"))
+            .should(TermQuery::text(field, "beta"))
+            .with_proximity(ProximityConfig::new(1.0, 8));
+        let got = scores(index.search(&filtered, 10).await.unwrap());
+        assert_eq!(got.len(), 4);
+        assert!(got[0] > got[3], "{got:?}");
+    }
+}
+
 /// Stop words dropped at index time leave their positions behind, so a
 /// phrase keeps the original word distances: `"quantum of the art"` is
 /// `quantum@0 art@3` on both sides and never matches `quantum art`.

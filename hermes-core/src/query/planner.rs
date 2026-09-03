@@ -77,28 +77,69 @@ pub(super) fn prepare_text_maxscore(
 pub(super) fn finish_text_maxscore<'a>(
     posting_lists: Vec<(crate::structures::BlockPostingList, f32)>,
     avg_field_len: f32,
-    lengths: Option<&crate::segment::chunk_map::DocLengths>,
+    lengths: Option<&'a crate::segment::chunk_map::DocLengths>,
     limit: usize,
     shared_threshold: &std::cell::Cell<f32>,
-    index_label: &str,
-    field_label: &str,
+    reader: &'a SegmentReader,
+    field: crate::Field,
     predicate: Option<DocPredicate<'a>>,
     params: super::Bm25Params,
+    proximity: Option<(super::ProximityConfig, Vec<Vec<u8>>)>,
 ) -> crate::Result<Box<dyn Scorer + 'a>> {
     if posting_lists.is_empty() {
         return Ok(Box::new(EmptyScorer) as Box<dyn Scorer + 'a>);
     }
-    let mut executor = MaxScoreExecutor::text(posting_lists, avg_field_len, limit, lengths, params)
-        .with_metric_labels(index_label, field_label);
+    // Proximity rescoring works on an over-fetched candidate pool and adds
+    // a non-negative bonus, so a BM25 floor from other segments cannot seed
+    // the pass and no floor is published from it.
+    let proximity = proximity.filter(|(config, terms)| config.is_active() && terms.len() >= 2);
+    let executor_limit = if proximity.is_some() {
+        limit
+            .saturating_mul(super::proximity::PROXIMITY_OVER_FETCH)
+            .max(64)
+    } else {
+        limit
+    };
+    let idfs: Vec<f32> = posting_lists.iter().map(|(_, idf)| *idf).collect();
+    let mut executor = MaxScoreExecutor::text(
+        posting_lists,
+        avg_field_len,
+        executor_limit,
+        lengths,
+        params,
+    )
+    .with_metric_labels(
+        reader.schema().index_label(),
+        reader.schema().get_field_name(field).unwrap_or("?"),
+    );
     if let Some(predicate) = predicate {
         executor = executor.with_predicate(predicate);
     }
     let initial = shared_threshold.get();
-    if initial > 0.0 {
+    if initial > 0.0 && proximity.is_none() {
         executor.seed_threshold(initial);
     }
-    let results = executor.execute_sync()?;
-    if results.len() >= limit
+    let mut results = executor.execute_sync()?;
+    if let Some((config, terms)) = proximity {
+        let terms: Vec<(Vec<u8>, f32)> = terms.into_iter().zip(idfs).collect();
+        super::proximity::rescore_sync(
+            reader,
+            field,
+            &terms,
+            params,
+            lengths.map(super::LengthSource::Docs),
+            avg_field_len,
+            config,
+            &mut results,
+        )?;
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.doc_id.cmp(&b.doc_id))
+        });
+        results.truncate(limit);
+    } else if results.len() >= limit
         && let Some(last) = results.last()
         && last.score > shared_threshold.get()
     {
@@ -150,10 +191,12 @@ pub(crate) fn finish_chunked_text_maxscore<'a>(
     reader: &'a SegmentReader,
     field: crate::Field,
     predicate: Option<DocPredicate<'a>>,
+    proximity: Option<(super::ProximityConfig, Vec<Vec<u8>>)>,
 ) -> crate::Result<Box<dyn Scorer + 'a>> {
     if posting_lists.is_empty() {
         return Ok(Box::new(EmptyScorer) as Box<dyn Scorer + 'a>);
     }
+    let proximity = proximity.filter(|(config, terms)| config.is_active() && terms.len() >= 2);
     let Some(chunk_map) = reader.chunk_map(field) else {
         return Err(crate::Error::Corruption(format!(
             "chunked text field '{}' has postings but segment {:016x} carries no chunk map",
@@ -161,15 +204,22 @@ pub(crate) fn finish_chunked_text_maxscore<'a>(
             reader.meta().id,
         )));
     };
-    let executor_limit = bounded_sparse_executor_limit(limit, CHUNKED_TEXT_OVER_FETCH_FACTOR)
+    let over_fetch = if proximity.is_some() {
+        CHUNKED_TEXT_OVER_FETCH_FACTOR * super::proximity::PROXIMITY_OVER_FETCH as f32
+    } else {
+        CHUNKED_TEXT_OVER_FETCH_FACTOR
+    };
+    let executor_limit = bounded_sparse_executor_limit(limit, over_fetch)
         .min(chunk_map.num_chunks() as usize)
         .max(1);
+    let idfs: Vec<f32> = posting_lists.iter().map(|(_, idf)| *idf).collect();
+    let params = super::Bm25Params::for_field(reader.schema(), field);
     let mut executor = MaxScoreExecutor::text_chunked(
         posting_lists,
         chunk_map.avg_len(),
         executor_limit,
         chunk_map,
-        super::Bm25Params::for_field(reader.schema(), field),
+        params,
     )
     .with_metric_labels(
         reader.schema().index_label(),
@@ -179,7 +229,20 @@ pub(crate) fn finish_chunked_text_maxscore<'a>(
         // The executor walks virtual chunk ids; filters are per document.
         executor = executor.with_predicate(Box::new(move |vid| predicate(chunk_map.doc_id(vid))));
     }
-    let raw = executor.execute_sync()?;
+    let mut raw = executor.execute_sync()?;
+    if let Some((config, terms)) = proximity {
+        let terms: Vec<(Vec<u8>, f32)> = terms.into_iter().zip(idfs).collect();
+        super::proximity::rescore_sync(
+            reader,
+            field,
+            &terms,
+            params,
+            Some(super::LengthSource::Chunks(chunk_map)),
+            chunk_map.avg_len(),
+            config,
+            &mut raw,
+        )?;
+    }
     let combined = crate::segment::combine_ordinal_results(
         raw.into_iter().map(|hit| {
             let (doc_id, ordinal) = chunk_map.resolve(hit.doc_id);

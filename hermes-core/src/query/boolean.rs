@@ -25,6 +25,9 @@ pub struct BooleanQuery {
     pub must_not: Vec<Arc<dyn Query>>,
     /// Optional global statistics for cross-segment IDF
     global_stats: Option<Arc<GlobalStats>>,
+    /// Proximity rescoring of the text MaxScore result (SHOULD terms in
+    /// query order); `None` = off.
+    proximity: Option<super::ProximityConfig>,
 }
 
 fn shared_or_extract_sparse_infos<'a>(
@@ -42,6 +45,7 @@ impl std::fmt::Debug for BooleanQuery {
             .field("should_count", &self.should.len())
             .field("must_not_count", &self.must_not.len())
             .field("has_global_stats", &self.global_stats.is_some())
+            .field("proximity", &self.proximity)
             .finish()
     }
 }
@@ -71,6 +75,9 @@ impl std::fmt::Display for BooleanQuery {
             write!(f, "-{}", q)?;
             first = false;
         }
+        if let Some(proximity) = &self.proximity {
+            write!(f, " ~proximity({}, {})", proximity.weight, proximity.window)?;
+        }
         write!(f, ")")
     }
 }
@@ -98,6 +105,14 @@ impl BooleanQuery {
     /// Set global statistics for cross-segment IDF
     pub fn with_global_stats(mut self, stats: Arc<GlobalStats>) -> Self {
         self.global_stats = Some(stats);
+        self
+    }
+
+    /// Rescore the text MaxScore top candidates with term proximity
+    /// (`docs`: `query::proximity`). Applies when the SHOULD clauses are text
+    /// terms of one field, in query order.
+    pub fn with_proximity(mut self, config: super::ProximityConfig) -> Self {
+        self.proximity = config.is_active().then_some(config);
         self
     }
 }
@@ -134,7 +149,7 @@ fn build_should_scorer<'a>(scorers: Vec<Box<dyn Scorer + 'a>>) -> Box<dyn Scorer
 //   3. Filter push-down → predicate-aware sparse MaxScore | PredicatedScorer
 //   4. Standard BooleanScorer fallback
 macro_rules! boolean_plan {
-    ($must:expr, $should:expr, $must_not:expr, $global_stats:expr,
+    ($must:expr, $should:expr, $must_not:expr, $global_stats:expr, $proximity:expr,
      $reader:expr, $limit:expr, $scorer_options:expr,
      $scorer_fn:ident, $get_postings_fn:ident, $execute_fn:ident
      $(, $aw:tt)*) => {{
@@ -206,18 +221,21 @@ macro_rules! boolean_plan {
                 && text_maxscore_allowed(reader, text_field, scorer_options.collect_positions)
             {
                 let mut posting_lists = Vec::with_capacity(infos.len());
+                let mut term_bytes: Vec<Vec<u8>> = Vec::new();
                 for info in infos.drain(..) {
                     if let Some(pl) = reader.$get_postings_fn(info.field, &info.term)
                         $(. $aw)* ?
                     {
                         let idf = compute_idf(&pl, info.field, &info.term, num_docs, global_stats);
                         posting_lists.push((pl, idf));
+                        term_bytes.push(info.term.clone());
                     }
                 }
                 // Chunked field: score chunks, fold to documents with ordinals.
                 if reader.is_chunked_field(text_field) {
                     return finish_chunked_text_maxscore(
                         posting_lists, limit, reader, text_field, None,
+                        $proximity.map(|config| (config, term_bytes)),
                     );
                 }
                 // Seed from the cross-segment floor: this path scores final
@@ -232,10 +250,11 @@ macro_rules! boolean_plan {
                     reader.doc_lengths(text_field),
                     limit,
                     &shared_threshold,
-                    reader.schema().index_label(),
-                    reader.schema().get_field_name(text_field).unwrap_or("?"),
+                    reader,
+                    text_field,
                     None,
                     super::Bm25Params::for_field(reader.schema(), text_field),
+                    $proximity.map(|config| (config, term_bytes)),
                 );
             }
 
@@ -272,6 +291,7 @@ macro_rules! boolean_plan {
                     // Chunked fields: IDF over chunks, not documents.
                     let corpus_size = reader.text_corpus_size(*field);
                     let mut posting_lists = Vec::with_capacity(infos.len());
+                let mut term_bytes: Vec<Vec<u8>> = Vec::new();
                     for info in infos {
                         if let Some(pl) = reader.$get_postings_fn(info.field, &info.term)
                             $(. $aw)* ?
@@ -280,6 +300,7 @@ macro_rules! boolean_plan {
                                 &pl, *field, &info.term, corpus_size, global_stats,
                             );
                             posting_lists.push((pl, idf));
+                        term_bytes.push(info.term.clone());
                         }
                     }
                     if reader.is_chunked_field(*field) {
@@ -289,6 +310,7 @@ macro_rules! boolean_plan {
                             reader,
                             *field,
                             None,
+                            $proximity.map(|config| (config, term_bytes)),
                         )?);
                     } else if !posting_lists.is_empty() {
                         scorers.push(finish_text_maxscore(
@@ -297,10 +319,11 @@ macro_rules! boolean_plan {
                             reader.doc_lengths(*field),
                             grouping.per_field_limit,
                             &shared_threshold,
-                            reader.schema().index_label(),
-                            reader.schema().get_field_name(*field).unwrap_or("?"),
+                            reader,
+                            *field,
                             None,
                             super::Bm25Params::for_field(reader.schema(), *field),
+                            $proximity.map(|config| (config, term_bytes)),
                         )?);
                     }
                 }
@@ -385,10 +408,12 @@ macro_rules! boolean_plan {
                         .map(|s| s.avg_field_len(field))
                         .unwrap_or_else(|| reader.avg_field_len(field));
                     let mut posting_lists = Vec::with_capacity(infos.len());
+                let mut term_bytes: Vec<Vec<u8>> = Vec::new();
                     for info in &infos {
                         if let Some(pl) = reader.$get_postings_fn(field, &info.term) $(. $aw)* ? {
                             let idf = compute_idf(&pl, field, &info.term, corpus_size, global_stats);
                             posting_lists.push((pl, idf));
+                        term_bytes.push(info.term.clone());
                         }
                     }
                     let filter = bitset.clone();
@@ -397,6 +422,7 @@ macro_rules! boolean_plan {
                     let scorer = if reader.is_chunked_field(field) {
                         finish_chunked_text_maxscore(
                             posting_lists, group_limit, reader, field, Some(predicate),
+                            $proximity.map(|config| (config, term_bytes)),
                         )?
                     } else {
                         finish_text_maxscore(
@@ -405,10 +431,11 @@ macro_rules! boolean_plan {
                             reader.doc_lengths(field),
                             group_limit,
                             &shared_threshold,
-                            reader.schema().index_label(),
-                            reader.schema().get_field_name(field).unwrap_or("?"),
+                            reader,
+                            field,
                             Some(predicate),
                             super::Bm25Params::for_field(reader.schema(), field),
+                            $proximity.map(|config| (config, term_bytes)),
                         )?
                     };
                     let hits = scorer.size_hint();
@@ -597,6 +624,7 @@ macro_rules! boolean_plan {
                     should: should.to_vec(),
                     must_not: Vec::new(),
                     global_stats: global_stats.cloned(),
+                    proximity: $proximity,
                 };
                 sub.$scorer_fn(reader, should_limit, should_options) $(. $aw)* ?
             };
@@ -678,12 +706,14 @@ impl Query for BooleanQuery {
         let should = self.should.clone();
         let must_not = self.must_not.clone();
         let global_stats = self.global_stats.clone();
+        let proximity = self.proximity;
         Box::pin(async move {
             boolean_plan!(
                 must,
                 should,
                 must_not,
                 global_stats.as_ref(),
+                proximity,
                 reader,
                 limit,
                 options,
@@ -716,6 +746,7 @@ impl Query for BooleanQuery {
             self.should,
             self.must_not,
             self.global_stats.as_ref(),
+            self.proximity,
             reader,
             limit,
             options,

@@ -323,11 +323,16 @@ the map lookup per hit that chunked fields already pay.
 - Phrase score = BM25 over the **phrase frequency** (number of matched
   occurrences) with the phrase's summed idf, not `1.5 × BM25(Σ tf)`
   (implemented 2026-09-03).
-- **Proximity rescoring.** Optional second stage over the top-k of the
-  MaxScore pass: sequential-dependence ordered and unordered window counts
-  for adjacent query term pairs (Metzler & Croft, SIGIR 2005; proximity
-  BM25 variants, Tao & Zhai 2007) computed from the now-cheap positions.
-  A `proximity_weight` on `MatchQuery`, default 0.
+- **Proximity rescoring** (implemented 2026-09-03, `query/proximity.rs`).
+  `MatchQuery.proximity_weight` (and `proximity_window`, default 8) turn on
+  a second stage over an over-fetched top-k of the MaxScore pass:
+  sequential-dependence ordered and unordered window counts for adjacent
+  query term pairs (Metzler & Croft, SIGIR 2005), each saturated with the
+  field's k1/b and length and weighted by the pair's mean idf, added to the
+  BM25 score. Positions come from the v2 stream through the term cursors.
+  Approximate by design (candidate pool of 4× the limit, no cross-segment
+  threshold seeding for the pass); works on plain and chunked fields and
+  under filters.
 - **Fields.** `short_document` and `content` are fused by RRF today. Inside
   the lexical channel a per-field boost with a doc-level max/sum
   (`bm25f_score` already exists) is the better combination once norms exist
@@ -372,7 +377,7 @@ per-list clustering (all need a bounded vocabulary).
 3. UAX #29 tokenizer, folding, CJK bigrams (done, opt-in `segmenter:
 unicode`).
 4. Filters and phrases as executor predicates, phrase-frequency scoring,
-   L1 superblock maxima, per-field k1/b (done); proximity rescoring (open).
+   L1 superblock maxima, per-field k1/b, proximity rescoring (all done).
    Block-Max WAND as an alternative executor for short queries: possible on
    the same cursors, to be decided from measurements on a real generation.
 5. Field-level BP reordering of chunked text fields through their chunk maps.
