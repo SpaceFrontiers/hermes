@@ -200,6 +200,10 @@ pub struct TermQueryInfo {
     pub field: crate::dsl::Field,
     /// Term bytes (lowercase)
     pub term: Vec<u8>,
+    /// Query-side weight of the term (a boost, or the query term frequency
+    /// of a de-duplicated match); scales the term's idf, hence its scores
+    /// and bounds alike. 1.0 = plain.
+    pub weight: f32,
 }
 
 /// Info for MaxScore-optimizable sparse term queries

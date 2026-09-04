@@ -300,6 +300,7 @@ impl Query for TermQuery {
 
     fn decompose(&self) -> super::QueryDecomposition {
         super::QueryDecomposition::TextTerm(TermQueryInfo {
+            weight: 1.0,
             field: self.field,
             term: self.term.clone(),
         })

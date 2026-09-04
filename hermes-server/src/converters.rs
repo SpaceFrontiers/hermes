@@ -214,15 +214,37 @@ pub fn convert_query(
                 ));
             }
 
-            if tokens.len() == 1 {
+            // Query term de-duplication: a repeated token becomes one clause
+            // weighted by its query term frequency (same score as the
+            // repeated clauses, one cursor instead of several).
+            let mut distinct: Vec<(String, f32)> = Vec::with_capacity(tokens.len());
+            for token in tokens {
+                match distinct.iter_mut().find(|(t, _)| *t == token) {
+                    Some((_, count)) => *count += 1.0,
+                    None => distinct.push((token, 1.0)),
+                }
+            }
+            let term_clause = |token: &str, count: f32| -> Box<dyn Query> {
+                if count > 1.0 {
+                    Box::new(hermes_core::query::BoostQuery::new(
+                        TermQuery::text(field, token),
+                        count,
+                    ))
+                } else {
+                    Box::new(TermQuery::text(field, token))
+                }
+            };
+
+            if distinct.len() == 1 {
                 // Single token - use TermQuery directly
-                return Ok(Box::new(TermQuery::text(field, &tokens[0])));
+                let (token, count) = &distinct[0];
+                return Ok(term_clause(token, *count));
             }
 
             // Multiple tokens - use BooleanQuery with SHOULD clauses (MaxScore fast path)
             let mut query = BooleanQuery::new();
-            for token in tokens {
-                query = query.should(TermQuery::text(field, &token));
+            for (token, count) in &distinct {
+                query = query.should(term_clause(token, *count));
             }
             if match_query.proximity_weight > 0.0 {
                 query = query.with_proximity(hermes_core::query::ProximityConfig::new(
@@ -1399,6 +1421,30 @@ pub fn text_stats_from_proto(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn match_query_deduplicates_repeated_tokens() {
+        let mut builder = hermes_core::SchemaBuilder::default();
+        builder.add_text_field_with_tokenizer("body", true, false, "simple");
+        let schema = builder.build();
+        let query = proto::Query {
+            query: Some(ProtoQueryType::Match(proto::MatchQuery {
+                field: "body".to_string(),
+                text: "needle needle haystack needle".to_string(),
+                tokenizer_hint: String::new(),
+                proximity_weight: 0.0,
+                proximity_window: 0,
+                heap_factor: 0.0,
+                max_terms: 0,
+            })),
+        };
+        let shape = QueryShapeLimits::default();
+        let converted = convert_query(&query, &schema, None, None, &shape).unwrap();
+        let rendered = converted.to_string();
+        assert_eq!(rendered.matches("needle").count(), 1, "{rendered}");
+        assert!(rendered.contains("haystack"), "{rendered}");
+        assert!(rendered.contains('3'), "boost of 3 expected: {rendered}");
+    }
+
     #[test]
     fn text_stats_round_trip_through_proto() {
         use hermes_core::query::GlobalStatsBuilder;

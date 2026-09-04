@@ -1447,6 +1447,60 @@ async fn text_scores_use_searcher_wide_statistics_across_segments() {
     );
 }
 
+/// A boosted term clause scores like the same term repeated `boost` times
+/// (query term frequency), on the text MaxScore path.
+#[tokio::test]
+async fn boosted_term_scores_like_a_repeated_term() {
+    use crate::query::{BooleanQuery, BoostQuery, TermQuery};
+
+    let mut schema_builder = SchemaBuilder::default();
+    let body = schema_builder.add_text_field_with_tokenizer("body", true, false, "simple");
+    let schema = schema_builder.build();
+    let dir = RamDirectory::new();
+    let config = IndexConfig::default();
+    let mut writer = IndexWriter::create(dir.clone(), schema.clone(), config.clone())
+        .await
+        .unwrap();
+    for i in 0..500u32 {
+        let mut doc = Document::new();
+        let text = match i % 5 {
+            0 => "needle haystack".to_string(),
+            1 => format!("needle {}", "pad ".repeat(i as usize % 17)),
+            2 => "haystack haystack".to_string(),
+            _ => format!("needle needle {}", "haystack ".repeat(i as usize % 3)),
+        };
+        doc.add_text(body, text);
+        writer.add_document(doc).unwrap();
+    }
+    writer.commit().await.unwrap();
+    let index = Index::open(dir, config).await.unwrap();
+    // Every document is returned, ordered by id: tie order between equal
+    // scores is not part of the contract.
+    let ids = |response: crate::query::SearchResponse| -> Vec<(u32, i64)> {
+        let mut hits: Vec<(u32, i64)> = response
+            .hits
+            .iter()
+            .map(|h| (h.address.doc_id, (h.score * 1e3).round() as i64))
+            .collect();
+        hits.sort_unstable();
+        hits
+    };
+    let repeated = BooleanQuery::new()
+        .should(TermQuery::text(body, "needle"))
+        .should(TermQuery::text(body, "needle"))
+        .should(TermQuery::text(body, "needle"))
+        .should(TermQuery::text(body, "haystack"));
+    let boosted = BooleanQuery::new()
+        .should(BoostQuery::new(TermQuery::text(body, "needle"), 3.0))
+        .should(TermQuery::text(body, "haystack"));
+    let repeated_hits = ids(index.search(&repeated, 500).await.unwrap());
+    assert_eq!(repeated_hits.len(), 500);
+    assert_eq!(
+        repeated_hits,
+        ids(index.search(&boosted, 500).await.unwrap())
+    );
+}
+
 /// Stop words dropped at index time leave their positions behind, so a
 /// phrase keeps the original word distances: `"quantum of the art"` is
 /// `quantum@0 art@3` on both sides and never matches `quantum art`.

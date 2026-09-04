@@ -266,7 +266,7 @@ macro_rules! boolean_plan {
                     if let Some(pl) = reader.$get_postings_fn(info.field, &info.term)
                         $(. $aw)* ?
                     {
-                        let idf = compute_idf(&pl, info.field, &info.term, num_docs, global_stats);
+                        let idf = compute_idf(&pl, info.field, &info.term, num_docs, global_stats) * info.weight;
                         posting_lists.push((pl, idf));
                         term_bytes.push(info.term.clone());
                     }
@@ -343,7 +343,7 @@ macro_rules! boolean_plan {
                         {
                             let idf = compute_idf(
                                 &pl, *field, &info.term, corpus_size, global_stats,
-                            );
+                            ) * info.weight;
                             posting_lists.push((pl, idf));
                         term_bytes.push(info.term.clone());
                         }
@@ -461,7 +461,7 @@ macro_rules! boolean_plan {
                 let mut term_bytes: Vec<Vec<u8>> = Vec::new();
                     for info in &infos {
                         if let Some(pl) = reader.$get_postings_fn(field, &info.term) $(. $aw)* ? {
-                            let idf = compute_idf(&pl, field, &info.term, corpus_size, global_stats);
+                            let idf = compute_idf(&pl, field, &info.term, corpus_size, global_stats) * info.weight;
                             posting_lists.push((pl, idf));
                         term_bytes.push(info.term.clone());
                         }
