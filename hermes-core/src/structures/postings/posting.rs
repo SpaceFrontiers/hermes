@@ -728,6 +728,12 @@ impl BlockPostingList {
         self.l1_docs.get(block_idx / L1_INTERVAL).copied()
     }
 
+    /// Whether `block_idx` opens an L1 group.
+    #[inline]
+    pub fn is_group_start(&self, block_idx: usize) -> bool {
+        block_idx.is_multiple_of(L1_INTERVAL)
+    }
+
     /// Index of the first block after the L1 group containing `block_idx`
     /// (clamped to the block count).
     #[inline]

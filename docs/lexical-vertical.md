@@ -199,6 +199,26 @@ segment is still readable and is converted by its first merge.
   merge), and when the at-minimum cursors' group bounds cannot reach the
   threshold either, each jumps to its next group, bounded by the same next
   essential document. Sparse cursors keep single-block skips.
+- **Windowed execution for text** (implemented 2026-09-03). Text cursors
+  (in-memory lists, synchronous decode) run `MaxScoreExecutor::execute_windowed`
+  instead of the document-at-a-time loop, which the sparse cursors keep. The
+  id space is walked in windows of at most 4,096 ids that start at the first
+  id a globally essential cursor can reach and end at the smallest current
+  block end among them. Per window: every cursor's bound over the window is
+  read from its L0/L1 words without decoding (`window_upper_bound`), the
+  cursors are re-partitioned by those bounds (the block-max partition of
+  Lucene's `partitionScorers`), a window whose bounds cannot reach the
+  threshold is skipped by all cursors (`skip_past_sync`, no decode), each
+  essential cursor scores all of its postings in the window in one pass over
+  its decoded block into a dense score buffer plus a match bitset
+  (`score_window_sync`; turbopuffer's batched iterator advancement), the
+  candidates are filtered branch-free against the threshold minus the
+  remaining bounds (`filter_competitive`, Lucene `filterByScore`), and each
+  non-essential cursor is sought to the survivors in id order, strongest
+  bound first. Rank-safe by the same argument as the loop; the parity test
+  `windowed_text_maxscore_matches_exhaustive_and_doc_at_a_time` checks it
+  against an exhaustive scorer and the loop over random corpora, lengths on
+  and off, predicates, and seeded floors.
 - **Filters and phrases as executor predicates** (implemented 2026-09-03).
   The query shape clients send is `MUST [phrases, filters] + SHOULD
 [terms]`. When every SHOULD clause is a text term and the MUST/MUST_NOT

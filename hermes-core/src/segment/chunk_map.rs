@@ -166,6 +166,20 @@ pub struct DocLengths {
 }
 
 impl DocLengths {
+    /// In-memory lengths column (tests).
+    #[cfg(test)]
+    pub(crate) fn from_lengths(lengths: &[u16]) -> Self {
+        let mut bytes = Vec::with_capacity(lengths.len() * 2);
+        for len in lengths {
+            bytes.extend_from_slice(&len.to_le_bytes());
+        }
+        Self {
+            lengths: OwnedBytes::new(bytes),
+            num_docs: lengths.len() as u32,
+            total_tokens: lengths.iter().map(|&l| u64::from(l)).sum(),
+        }
+    }
+
     pub fn num_docs(&self) -> u32 {
         self.num_docs
     }
