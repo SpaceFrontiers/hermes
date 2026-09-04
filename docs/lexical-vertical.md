@@ -371,10 +371,23 @@ text<stem(by: <field>, default: <language|simple>, stop_words: <bool>,
   `TermQuery` → written form).
 - Stop words: NLTK lists (`stop-words` crate, `nltk` feature) routed like
   the stemmers; dropped words keep their positions as gaps.
-- Open: Japanese lemmas and Korean particle stripping through dictionaries
-  (lindera `unidic`/`ko-dic`, tens of MB each, behind a feature),
-  traditional-to-simplified Chinese (`opencc-fmmseg`), dictionary
-  lemmatization with simplemma data for the long tail, decompounding.
+- **Japanese and Korean morphology** (`morph: true`, `cjk-dict` feature,
+  `tokenizer/cjk_morph.rs`): lindera with UniDic and ko-dic embedded in the
+  binary (about 200 MB; hermes-server builds with the feature, the broker and
+  wasm do not, and a `morph` spec fails to parse in a binary without it so
+  index and query tokenization can never diverge). Hangul runs always go
+  through ko-dic, kana runs through UniDic, Han runs through UniDic only
+  when the document or query is hinted `ja` (otherwise ICU's Chinese
+  dictionary). Particles, auxiliaries, endings and suffixes are dropped and
+  keep their positions; content morphemes are indexed as written with the
+  dictionary base form (`食べ` → `食べる`) as a same-position variant and,
+  for three or more characters, their bigrams; match queries use the base
+  form, phrases the surface. Korean gains the most: UAX #29 leaves particles
+  attached to nouns (`학교에서`), which the dictionary separates (`학교`).
+- Open: dictionary lemmatization for the long tail (no Rust source;
+  simplemma's data is Python-side and CC BY-SA, and the literature finds
+  no significant retrieval difference to light stemming), decompounding
+  (needs per-language word lists).
 
 ## Scoring
 

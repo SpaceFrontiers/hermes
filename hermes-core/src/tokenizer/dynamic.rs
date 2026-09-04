@@ -4,7 +4,8 @@
 //! ```text
 //! text<stem(by: <field>, default: <language|simple>, stop_words: <bool>,
 //!           segmenter: <simple|unicode|icu>, stem: <none|light|snowball>,
-//!           keep_original: <bool>, fold: <bool>, max_token_length: <n>)>
+//!           keep_original: <bool>, fold: <bool>, max_token_length: <n>,
+//!           t2s: <bool>, morph: <bool>)>
 //! ```
 //!
 //! Three layers, identical at index and query time:
@@ -41,11 +42,11 @@ use std::collections::{HashMap, HashSet};
 
 use parking_lot::RwLock;
 
-use super::light_stem;
 use super::{
     Language, Script, Token, Tokenizer, clean_word, language_code, parse_language_opt,
     split_whitespace_with_offsets, with_stemmers,
 };
+use super::{cjk_morph, light_stem};
 
 /// Default `max_token_length`: longer "words" are hashes, sequences and
 /// URLs, which no query types and which bloat the dictionary.
@@ -118,6 +119,11 @@ pub struct DynamicStemmer {
     /// Convert Han tokens to simplified Chinese (OpenCC `t2s`), index and
     /// query alike, so traditional and simplified spellings meet.
     t2s: bool,
+    /// Japanese and Korean morphology through dictionaries (`cjk-dict`
+    /// feature): Korean text always, Japanese text when hinted `ja` (kana
+    /// runs regardless); content morphemes carry their base form as a
+    /// variant, particles and endings are dropped like stop words.
+    morph: bool,
 }
 
 impl Default for DynamicStemmer {
@@ -142,7 +148,19 @@ impl DynamicStemmer {
             fold: true,
             max_token_length: DEFAULT_MAX_TOKEN_LENGTH,
             t2s: false,
+            morph: false,
         }
+    }
+
+    /// Japanese and Korean dictionary morphology (see [`cjk_morph`]).
+    pub fn with_morph(mut self, enabled: bool) -> Self {
+        self.morph = enabled;
+        self
+    }
+
+    /// Whether Japanese and Korean dictionary morphology is on.
+    pub fn morphs_cjk(&self) -> bool {
+        self.morph
     }
 
     /// Convert Han tokens to simplified Chinese (index and query alike),
@@ -255,6 +273,25 @@ impl DynamicStemmer {
         languages
     }
 
+    /// Whether the hint names Japanese (`ja`) or Korean (`ko`); these are
+    /// not Snowball languages, so they ride next to `languages_for`.
+    fn cjk_hints_for(&self, hint: Option<&str>) -> CjkHints {
+        let mut hints = CjkHints::default();
+        if self.ignore_hints {
+            return hints;
+        }
+        if let Some(hint) = hint {
+            for part in hint.split(',') {
+                match part.trim().to_ascii_lowercase().as_str() {
+                    "ja" | "jpn" | "japanese" => hints.japanese = true,
+                    "ko" | "kor" | "korean" => hints.korean = true,
+                    _ => {}
+                }
+            }
+        }
+        hints
+    }
+
     fn languages_for(&self, hint: Option<&str>) -> Vec<Language> {
         if !self.ignore_hints
             && let Some(hint) = hint.map(str::trim).filter(|hint| !hint.is_empty())
@@ -267,7 +304,7 @@ impl DynamicStemmer {
         self.default.into_iter().collect()
     }
 
-    fn run(&self, text: &str, languages: &[Language], emit: Emit) -> Vec<Token> {
+    fn run(&self, text: &str, languages: &[Language], cjk: CjkHints, emit: Emit) -> Vec<Token> {
         let stops: Vec<Option<&'static HashSet<String>>> = languages
             .iter()
             .map(|language| self.stop_words.then(|| stop_word_set(*language)).flatten())
@@ -278,6 +315,7 @@ impl DynamicStemmer {
                 languages,
                 stops: &stops,
                 stemmers: &[],
+                cjk,
             };
             self.walk(text, &ctx, emit)
         } else {
@@ -286,6 +324,7 @@ impl DynamicStemmer {
                     languages,
                     stops: &stops,
                     stemmers,
+                    cjk,
                 };
                 self.walk(text, &ctx, emit)
             })
@@ -322,20 +361,20 @@ impl DynamicStemmer {
                 }
             }
             Segmenter::Icu => {
-                let segmenter = icu_word_segmenter();
-                let mut start = 0usize;
-                for (end, kind) in segmenter.segment_str(text).iter_with_word_type() {
-                    let segment = &text[start..end];
-                    let offset = start;
-                    start = end;
-                    if !kind.is_word_like() {
-                        continue;
+                if self.morph {
+                    for (start, end, kind) in morph_spans(text, ctx.cjk) {
+                        match kind {
+                            SpanKind::Japanese => {
+                                emitter.morph_run(start, &text[start..end], cjk_morph::japanese)
+                            }
+                            SpanKind::Korean => {
+                                emitter.morph_run(start, &text[start..end], cjk_morph::korean)
+                            }
+                            SpanKind::Icu => emitter.icu_span(start, &text[start..end]),
+                        }
                     }
-                    if segment.chars().all(is_cjk_char) {
-                        emitter.cjk_word(offset, segment);
-                    } else {
-                        emitter.word(offset, segment);
-                    }
+                } else {
+                    emitter.icu_span(0, text);
                 }
             }
         }
@@ -347,18 +386,18 @@ impl DynamicStemmer {
 impl Tokenizer for DynamicStemmer {
     fn tokenize(&self, text: &str) -> Vec<Token> {
         let languages: Vec<Language> = self.default.into_iter().collect();
-        self.run(text, &languages, Emit::Index)
+        self.run(text, &languages, CjkHints::default(), Emit::Index)
     }
 
     fn tokenize_hinted(&self, text: &str, hint: Option<&str>) -> Vec<Token> {
         let languages = self.languages_for(hint);
-        self.run(text, &languages, Emit::Index)
+        self.run(text, &languages, self.cjk_hints_for(hint), Emit::Index)
     }
 
     fn tokenize_query(&self, text: &str, hint: Option<&str>, exact: bool) -> Vec<Token> {
         let languages = self.languages_for(hint);
         let emit = if exact { Emit::Exact } else { Emit::Match };
-        self.run(text, &languages, emit)
+        self.run(text, &languages, self.cjk_hints_for(hint), emit)
     }
 }
 
@@ -369,6 +408,62 @@ struct Ctx<'a> {
     /// Snowball stemmers aligned with `languages` (empty unless the mode is
     /// Snowball).
     stemmers: &'a [&'a rust_stemmers::Stemmer],
+    cjk: CjkHints,
+}
+
+/// Japanese / Korean flags of a hint.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct CjkHints {
+    japanese: bool,
+    korean: bool,
+}
+
+/// How a span of text is segmented under `morph`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SpanKind {
+    Japanese,
+    Korean,
+    Icu,
+}
+
+#[inline]
+fn is_hangul(c: char) -> bool {
+    matches!(c as u32, 0xAC00..=0xD7AF | 0x1100..=0x11FF | 0x3130..=0x318F | 0xA960..=0xA97F | 0xD7B0..=0xD7FF)
+}
+
+#[inline]
+fn is_kana(c: char) -> bool {
+    matches!(c as u32, 0x3040..=0x30FF | 0x31F0..=0x31FF | 0xFF66..=0xFF9F)
+}
+
+/// Split `text` into maximal spans: Hangul runs go to the Korean
+/// dictionary, kana runs (plus Han when the document or query is hinted
+/// Japanese) to the Japanese one, everything else to ICU. Whitespace ends a
+/// run, so each Japanese sentence or Korean word group is analysed whole.
+fn morph_spans(text: &str, cjk: CjkHints) -> Vec<(usize, usize, SpanKind)> {
+    let classify = |c: char| {
+        if is_hangul(c) {
+            SpanKind::Korean
+        } else if is_kana(c) || (cjk.japanese && is_han_char(c)) {
+            SpanKind::Japanese
+        } else {
+            SpanKind::Icu
+        }
+    };
+    let mut spans: Vec<(usize, usize, SpanKind)> = Vec::new();
+    for (offset, c) in text.char_indices() {
+        let kind = classify(c);
+        let end = offset + c.len_utf8();
+        match spans.last_mut() {
+            Some((_, last_end, last_kind)) if *last_kind == kind && *last_end == offset => {
+                *last_end = end;
+            }
+            _ => spans.push((offset, end, kind)),
+        }
+    }
+    // Merge every non-morph span with its neighbours of the same kind (the
+    // loop above already does), and let ICU see runs whole.
+    spans
 }
 
 struct Emitter<'a> {
@@ -383,6 +478,74 @@ struct Emitter<'a> {
 }
 
 impl Emitter<'_> {
+    /// Segment `text` (at byte `base` of the document) with ICU and emit
+    /// its words.
+    fn icu_span(&mut self, base: usize, text: &str) {
+        let segmenter = icu_word_segmenter();
+        let mut start = 0usize;
+        for (end, kind) in segmenter.segment_str(text).iter_with_word_type() {
+            let segment = &text[start..end];
+            let offset = base + start;
+            start = end;
+            if !kind.is_word_like() {
+                continue;
+            }
+            if segment.chars().all(is_cjk_char) {
+                self.cjk_word(offset, segment);
+            } else {
+                self.word(offset, segment);
+            }
+        }
+    }
+
+    /// Morphemes of a Japanese or Korean run: function morphemes keep
+    /// their position and are dropped; content morphemes are emitted with
+    /// their base form (and, when indexing, their bigrams) as variants.
+    fn morph_run(&mut self, base: usize, text: &str, analyse: fn(&str) -> Vec<cjk_morph::Morph>) {
+        self.flush_run();
+        for morph in analyse(text) {
+            if !morph.content {
+                self.position += 1;
+                continue;
+            }
+            use unicode_normalization::UnicodeNormalization;
+            let surface: String = morph.surface.nfkc().collect();
+            if self.cfg.max_token_length > 0 && surface.chars().count() > self.cfg.max_token_length
+            {
+                self.position += 1;
+                continue;
+            }
+            let (from, to) = (base + morph.start, base + morph.end);
+            let position = self.position;
+            match self.emit {
+                Emit::Index => {
+                    let chars: Vec<char> = surface.chars().collect();
+                    self.tokens
+                        .push(Token::new(surface.clone(), position, from, to));
+                    if let Some(lemma) = morph.lemma.filter(|lemma| *lemma != surface) {
+                        self.tokens.push(Token::variant(lemma, position, from, to));
+                    }
+                    if chars.len() >= 3 && chars.iter().all(|c| is_cjk_char(*c)) {
+                        for pair in chars.windows(2) {
+                            let mut bigram = String::with_capacity(6);
+                            bigram.push(pair[0]);
+                            bigram.push(pair[1]);
+                            self.tokens.push(Token::variant(bigram, position, from, to));
+                        }
+                    }
+                }
+                Emit::Match => {
+                    let form = morph.lemma.unwrap_or(surface);
+                    self.tokens.push(Token::new(form, position, from, to));
+                }
+                Emit::Exact => {
+                    self.tokens.push(Token::new(surface, position, from, to));
+                }
+            }
+            self.position += 1;
+        }
+    }
+
     /// A word from the segmenter (non-CJK).
     fn word(&mut self, offset: usize, raw: &str) {
         self.flush_run();
@@ -694,6 +857,8 @@ pub enum TokenizerSpec {
         max_token_length: usize,
         /// Convert Han tokens to simplified Chinese.
         t2s: bool,
+        /// Japanese and Korean dictionary morphology (`cjk-dict` feature).
+        morph: bool,
     },
 }
 
@@ -719,6 +884,7 @@ impl TokenizerSpec {
         let mut fold = true;
         let mut max_token_length = DEFAULT_MAX_TOKEN_LENGTH;
         let mut t2s = false;
+        let mut morph = false;
         let parse_bool = |key: &str, value: &str| -> Result<bool, String> {
             match value {
                 "true" => Ok(true),
@@ -754,6 +920,14 @@ impl TokenizerSpec {
                 "keep_original" => keep_original = parse_bool(key, value)?,
                 "fold" => fold = parse_bool(key, value)?,
                 "t2s" => t2s = parse_bool(key, value)?,
+                "morph" => {
+                    morph = parse_bool(key, value)?;
+                    if morph && !cjk_morph::available() {
+                        return Err(format!(
+                            "tokenizer spec '{spec}': 'morph' needs a build with the cjk-dict feature (Japanese and Korean dictionaries)"
+                        ));
+                    }
+                }
                 "segmenter" => {
                     segmenter = match value {
                         "simple" => Segmenter::Simple,
@@ -802,6 +976,7 @@ impl TokenizerSpec {
             fold,
             max_token_length,
             t2s,
+            morph,
         })
     }
 
@@ -837,6 +1012,7 @@ impl TokenizerSpec {
                 fold,
                 max_token_length,
                 t2s,
+                morph,
             } => Some(Box::new(
                 DynamicStemmer::new(*default)
                     .with_stop_words(*stop_words)
@@ -846,7 +1022,8 @@ impl TokenizerSpec {
                     .with_keep_original(*keep_original)
                     .with_fold(*fold)
                     .with_max_token_length(*max_token_length)
-                    .with_t2s(*t2s),
+                    .with_t2s(*t2s)
+                    .with_morph(*morph),
             )),
         }
     }
@@ -866,6 +1043,7 @@ impl std::fmt::Display for TokenizerSpec {
                 fold,
                 max_token_length,
                 t2s,
+                morph,
             } => {
                 let default = match default {
                     None => "simple".to_string(),
@@ -899,6 +1077,9 @@ impl std::fmt::Display for TokenizerSpec {
                 }
                 if *t2s {
                     write!(f, ", t2s: true")?;
+                }
+                if *morph {
+                    write!(f, ", morph: true")?;
                 }
                 write!(f, ")")
             }
@@ -1055,6 +1236,7 @@ mod tests {
             max_token_length,
             segmenter,
             t2s,
+            morph,
             ..
         } = spec
         else {
@@ -1064,7 +1246,7 @@ mod tests {
         assert!(keep_original && !fold);
         assert_eq!(max_token_length, 32);
         assert_eq!(segmenter, Segmenter::Icu);
-        assert!(t2s);
+        assert!(t2s && !morph);
         // Defaults are not rendered.
         assert_eq!(
             TokenizerSpec::parse("stem(by: languages, default: simple, stem: snowball, fold: true, max_token_length: 64)")
@@ -1109,5 +1291,66 @@ mod tests {
             .map(|t| t.text)
             .collect();
         assert_eq!(kana, vec!["コンピュータ"]);
+    }
+
+    #[cfg(feature = "cjk-dict")]
+    #[test]
+    fn morph_indexes_japanese_lemmas_and_korean_stems() {
+        let tokenizer = DynamicStemmer::new(None)
+            .with_segmenter(Segmenter::Icu)
+            .with_morph(true);
+        // Japanese needs the `ja` hint for Han runs; kana runs always go
+        // through the dictionary.
+        let ja = tokenizer.tokenize_hinted("研究を食べました", Some("ja"));
+        assert_eq!(
+            texts(&ja),
+            vec![
+                (0, "研究".to_string(), false),
+                (2, "食べ".to_string(), false),
+                (2, "食べる".to_string(), true),
+            ]
+        );
+        let matched = tokenizer.tokenize_query("食べました", Some("ja"), false);
+        assert_eq!(texts(&matched), vec![(0, "食べる".to_string(), false)]);
+        let exact = tokenizer.tokenize_query("食べました", Some("ja"), true);
+        assert_eq!(texts(&exact), vec![(0, "食べ".to_string(), false)]);
+
+        // Korean needs no hint: particles and endings keep their positions.
+        let ko = tokenizer.tokenize("학교에서 친구들과 공부했습니다");
+        assert_eq!(
+            texts(&ko),
+            vec![
+                (0, "학교".to_string(), false),
+                (2, "친구".to_string(), false),
+                (5, "공부".to_string(), false),
+            ]
+        );
+        // Mixed text: Latin words still go through ICU and the stemmers.
+        let mixed = DynamicStemmer::new(Some(Language::English))
+            .with_segmenter(Segmenter::Icu)
+            .with_stem(StemMode::Light)
+            .with_keep_original(true)
+            .with_morph(true)
+            .tokenize("cells 학교에서");
+        assert_eq!(
+            texts(&mixed),
+            vec![
+                (0, "cells".to_string(), false),
+                (0, "cell".to_string(), true),
+                (1, "학교".to_string(), false),
+            ]
+        );
+    }
+
+    #[test]
+    fn morph_spec_requires_the_feature() {
+        let parsed = TokenizerSpec::parse("stem(default: simple, segmenter: icu, morph: true)");
+        assert_eq!(parsed.is_ok(), cjk_morph::available());
+        if let Ok(spec) = parsed {
+            assert_eq!(
+                spec.to_string(),
+                "stem(default: simple, segmenter: icu, morph: true)"
+            );
+        }
     }
 }
