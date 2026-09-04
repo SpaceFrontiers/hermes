@@ -61,6 +61,68 @@ use super::{
 /// URLs, which no query types and which bloat the dictionary.
 pub const DEFAULT_MAX_TOKEN_LENGTH: usize = 64;
 
+/// Segmenters see the text in windows of at most this many characters.
+///
+/// ICU's dictionary segmentation of Han text is quadratic in the length of
+/// the run it is handed: one 2.4 MB Chinese book took 105 s as a single
+/// call and 0.2 s in windows. A window ends at the first whitespace or
+/// punctuation after `SEGMENT_WINDOW_SOFT` characters, or unconditionally at
+/// `SEGMENT_WINDOW_HARD` (text with neither in thousands of characters is not
+/// prose; a split there costs at most one word boundary).
+const SEGMENT_WINDOW_SOFT: usize = 1024;
+const SEGMENT_WINDOW_HARD: usize = 4096;
+
+/// Windows of `text` as (byte offset, slice), contiguous and covering.
+fn segment_windows(text: &str) -> Vec<(usize, &str)> {
+    let mut windows = Vec::new();
+    let mut start = 0usize;
+    let mut chars_in_window = 0usize;
+    for (offset, c) in text.char_indices() {
+        chars_in_window += 1;
+        let cut = chars_in_window >= SEGMENT_WINDOW_HARD
+            || (chars_in_window >= SEGMENT_WINDOW_SOFT && (c.is_whitespace() || is_break_punct(c)));
+        if cut {
+            let end = offset + c.len_utf8();
+            windows.push((start, &text[start..end]));
+            start = end;
+            chars_in_window = 0;
+        }
+    }
+    if start < text.len() || windows.is_empty() {
+        windows.push((start, &text[start..]));
+    }
+    windows
+}
+
+/// Punctuation that ends a segmentation window: ASCII sentence and clause
+/// marks plus their CJK full-width forms.
+fn is_break_punct(c: char) -> bool {
+    matches!(
+        c,
+        '.' | ','
+            | ';'
+            | ':'
+            | '!'
+            | '?'
+            | ')'
+            | ']'
+            | '}'
+            | '。'
+            | '，'
+            | '、'
+            | '；'
+            | '：'
+            | '！'
+            | '？'
+            | '」'
+            | '』'
+            | '）'
+            | '】'
+            | '〉'
+            | '》'
+    )
+}
+
 /// Word segmentation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Segmenter {
@@ -472,18 +534,23 @@ impl LexTokenizer {
             }
             Segmenter::Icu if self.options.cjk == CjkMode::Dictionary => {
                 for (start, end, kind) in morph_spans(text, ctx.hints) {
-                    match kind {
-                        SpanKind::Japanese => {
-                            emitter.morph_run(start, &text[start..end], cjk_morph::japanese)
+                    for (offset, window) in segment_windows(&text[start..end]) {
+                        let base = start + offset;
+                        match kind {
+                            SpanKind::Japanese => {
+                                emitter.morph_run(base, window, cjk_morph::japanese)
+                            }
+                            SpanKind::Korean => emitter.morph_run(base, window, cjk_morph::korean),
+                            SpanKind::Icu => emitter.icu_span(base, window),
                         }
-                        SpanKind::Korean => {
-                            emitter.morph_run(start, &text[start..end], cjk_morph::korean)
-                        }
-                        SpanKind::Icu => emitter.icu_span(start, &text[start..end]),
                     }
                 }
             }
-            Segmenter::Icu => emitter.icu_span(0, text),
+            Segmenter::Icu => {
+                for (offset, window) in segment_windows(text) {
+                    emitter.icu_span(offset, window);
+                }
+            }
         }
         emitter.flush_run();
         emitter.tokens
@@ -947,6 +1014,56 @@ mod tests {
 
     fn lex(spec: &str) -> LexTokenizer {
         LexTokenizer::new(LexOptions::parse(spec).unwrap())
+    }
+
+    #[test]
+    fn segment_windows_cut_at_punctuation_after_the_soft_size_and_cover_the_text() {
+        let sentence = "量子计算机的研究进展，";
+        let text: String = sentence.repeat(2000);
+        let windows = segment_windows(&text);
+        assert!(windows.len() > 1);
+        let mut expected_start = 0;
+        for (offset, window) in &windows {
+            assert_eq!(*offset, expected_start);
+            expected_start += window.len();
+            let chars = window.chars().count();
+            assert!(chars <= SEGMENT_WINDOW_SOFT + sentence.chars().count());
+            assert!(window.ends_with('，') || expected_start == text.len());
+        }
+        assert_eq!(expected_start, text.len());
+
+        // No break characters at all: hard cuts, still covering.
+        let solid: String = "的".repeat(10_000);
+        let windows = segment_windows(&solid);
+        assert_eq!(windows.len(), 10_000 / SEGMENT_WINDOW_HARD + 1);
+        assert_eq!(
+            windows.iter().map(|(_, w)| w.len()).sum::<usize>(),
+            solid.len()
+        );
+        assert_eq!(segment_windows(""), vec![(0, "")]);
+    }
+
+    #[test]
+    fn long_han_run_tokenizes_in_bounded_time_with_continuous_positions() {
+        let tokenizer = lex("by: languages, default: en, han: simplified");
+        let text: String = "量子计算机的研究进展".repeat(20_000);
+        let started = std::time::Instant::now();
+        let tokens = tokenizer.tokenize_with(&text, Some("zh"), Purpose::Index);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(20),
+            "200k Han characters took {:?}",
+            started.elapsed()
+        );
+        assert!(tokens.len() > 20_000);
+        let mut last_position = 0;
+        let mut last_end = 0;
+        for token in tokens.iter().filter(|t| !t.variant) {
+            assert!(token.position >= last_position);
+            assert!(token.offset_from >= last_end || token.offset_from == last_end);
+            last_position = token.position;
+            last_end = token.offset_to;
+        }
+        assert_eq!(last_end, text.len());
     }
 
     #[test]
