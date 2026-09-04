@@ -53,7 +53,7 @@ use std::collections::{HashMap, HashSet};
 use parking_lot::RwLock;
 
 use super::{
-    Language, Purpose, Script, Token, Tokenizer, cjk_morph, clean_word, language_code, light_stem,
+    Language, Purpose, Script, Token, Tokenizer, cjk_morph, language_code, light_stem,
     parse_language_opt, split_whitespace_with_offsets, with_stemmers,
 };
 
@@ -92,6 +92,167 @@ fn segment_windows(text: &str) -> Vec<(usize, &str)> {
         windows.push((start, &text[start..]));
     }
     windows
+}
+
+/// Split one segment into lowercase alphanumeric words at the punctuation
+/// the segmenter left inside it, the way a standard analyzer with the
+/// possessive and elision filters does:
+///
+/// - any character that is not a letter, digit or mark is a boundary
+///   (`state-of-the-art` → `state of the art`, `HbA1c/HDL-c` → `hba1c hdl c`,
+///   `end.of.sentence.Next` → `end of sentence next`);
+/// - an apostrophe between letters splits the word into parts: a trailing
+///   English contraction or possessive (`'s`, `'t`, `'re`, `'ve`, `'ll`,
+///   `'d`, `'m`) is dropped (`John's` → `john`, `don't` → `don`), leading
+///   elided articles and conjunctions (`l'`, `d'`, `qu'`, `dell'`, …) are
+///   dropped (`l'homme` → `homme`, `qu'il` → `il`, `O'Neil` → `neil`), and
+///   what remains are separate words (`aujourd'hui` → `aujourd hui`);
+/// - a dotted acronym is joined (`U.S.A.` → `usa`, `e.g.` → `eg`);
+/// - a dot between digits is kept (`3.14`, `0.05`, `1.2.3`) and a comma
+///   between digits is dropped (`1,000` → `1000`);
+/// - soft hyphens, zero-width joiners and other invisible joiners are
+///   dropped without splitting (`soft\u{ad}hyphen` → `softhyphen`).
+///
+/// Returns `(from, to, piece)` byte spans into `segment`.
+fn split_word(segment: &str) -> Vec<(usize, usize, String)> {
+    // Fast path: already a clean lowercase word.
+    if segment
+        .bytes()
+        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+    {
+        return vec![(0, segment.len(), segment.to_string())];
+    }
+    let chars: Vec<(usize, char)> = segment.char_indices().collect();
+    let acronym = segment.contains('.') && is_dotted_acronym(segment);
+    let mut pieces: Vec<(usize, usize, String)> = Vec::new();
+    // Parts of the word joined by apostrophes so far (`rock'n'roll`).
+    let mut group: Vec<(usize, usize, String)> = Vec::new();
+    let mut piece = String::new();
+    let mut piece_from = 0usize;
+    let mut piece_to = 0usize;
+    for (i, &(offset, c)) in chars.iter().enumerate() {
+        let prev = (i > 0).then(|| chars[i - 1].1);
+        let next = chars.get(i + 1).map(|(_, n)| *n);
+        let between = |test: fn(char) -> bool| prev.is_some_and(test) && next.is_some_and(test);
+        let action = if c.is_alphanumeric() || is_mark(c) {
+            Piece::Keep
+        } else if is_joiner(c) {
+            Piece::Join
+        } else if is_apostrophe(c) && between(char::is_alphabetic) {
+            Piece::Apostrophe
+        } else if c == '.' && acronym {
+            Piece::Join
+        } else if c == '.' && between(|d| d.is_ascii_digit()) {
+            Piece::Keep
+        } else if c == ',' && between(|d| d.is_ascii_digit()) {
+            // Thousands separator: `1,000` → `1000`, the form people type.
+            Piece::Join
+        } else {
+            Piece::Boundary
+        };
+        match action {
+            Piece::Keep => {
+                if piece.is_empty() {
+                    piece_from = offset;
+                }
+                piece.extend(c.to_lowercase());
+                piece_to = offset + c.len_utf8();
+            }
+            Piece::Join => {}
+            Piece::Apostrophe => {
+                group.push((piece_from, piece_to, std::mem::take(&mut piece)));
+            }
+            Piece::Boundary => {
+                if !piece.is_empty() {
+                    group.push((piece_from, piece_to, std::mem::take(&mut piece)));
+                }
+                resolve_apostrophes(&mut group, &mut pieces);
+            }
+        }
+    }
+    if !piece.is_empty() {
+        group.push((piece_from, piece_to, piece));
+    }
+    resolve_apostrophes(&mut group, &mut pieces);
+    pieces
+}
+
+enum Piece {
+    Keep,
+    Join,
+    Apostrophe,
+    Boundary,
+}
+
+/// Emit the parts of an apostrophe-joined word: drop a trailing English
+/// contraction/possessive suffix and leading elided prefixes.
+fn resolve_apostrophes(
+    group: &mut Vec<(usize, usize, String)>,
+    pieces: &mut Vec<(usize, usize, String)>,
+) {
+    if group.len() > 1 {
+        if group
+            .last()
+            .is_some_and(|(_, _, part)| CONTRACTION_SUFFIXES.contains(&part.as_str()))
+        {
+            group.pop();
+        }
+        while group.len() > 1
+            && group.first().is_some_and(|(_, _, part)| {
+                part.chars().count() <= 2 || ELISION_PREFIXES.contains(&part.as_str())
+            })
+        {
+            group.remove(0);
+        }
+    }
+    pieces.append(group);
+}
+
+/// English contractions and the possessive: dropped after an apostrophe.
+const CONTRACTION_SUFFIXES: &[&str] = &["s", "t", "re", "ve", "ll", "d", "m"];
+
+/// Elided articles, prepositions and conjunctions of French, Italian and
+/// Catalan longer than two letters (shorter ones are dropped by length).
+const ELISION_PREFIXES: &[&str] = &[
+    "qu", "lorsqu", "jusqu", "puisqu", "quoiqu", "dell", "nell", "sull", "dall", "all", "coll",
+    "degl", "dagl", "negl", "sugl", "quest", "quell", "sant", "anch",
+];
+
+/// `U.S.A.`, `e.g.`: every run between dots is exactly one letter
+/// (`Ph.D.` splits into `ph d` like a standard analyzer).
+fn is_dotted_acronym(segment: &str) -> bool {
+    let mut runs = 0;
+    for run in segment.split('.') {
+        if run.is_empty() {
+            continue;
+        }
+        let mut letters = run.chars();
+        match (letters.next(), letters.next()) {
+            (Some(c), None) if c.is_alphabetic() => runs += 1,
+            _ => return false,
+        }
+    }
+    runs >= 2
+}
+
+fn is_mark(c: char) -> bool {
+    // Combining marks (Mn/Mc/Me) that survive NFKC, e.g. in Indic scripts.
+    matches!(c as u32, 0x0300..=0x036F | 0x0483..=0x0489 | 0x0591..=0x05BD | 0x0610..=0x061A
+        | 0x064B..=0x065F | 0x0900..=0x0903 | 0x093A..=0x094F | 0x0951..=0x0957 | 0x0962..=0x0963
+        | 0x0E31 | 0x0E34..=0x0E3A | 0x0E47..=0x0E4E | 0x1AB0..=0x1AFF | 0x1DC0..=0x1DFF
+        | 0x20D0..=0x20FF | 0xFE20..=0xFE2F)
+}
+
+/// Invisible characters that join the letters around them.
+fn is_joiner(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00AD}' | '\u{200C}' | '\u{200D}' | '\u{2060}' | '\u{FEFF}' | '\u{034F}'
+    )
+}
+
+fn is_apostrophe(c: char) -> bool {
+    matches!(c, '\'' | '\u{2019}' | '\u{2018}' | '\u{02BC}' | '\u{FF07}')
 }
 
 /// Punctuation that ends a segmentation window: ASCII sentence and clause
@@ -694,22 +855,30 @@ impl Emitter<'_> {
         }
     }
 
-    /// A word from the segmenter (non-CJK): NFKC, lowercase, punctuation
-    /// stripped, then routed to its language.
+    /// A word from the segmenter (non-CJK): NFKC, split at punctuation the
+    /// segmenter kept inside it, lowercase, then routed to its language.
     fn word(&mut self, offset: usize, raw: &str) {
         self.flush_run();
         if raw.is_empty() {
             return;
         }
-        let cleaned = if self.options.segmenter == Segmenter::Simple || raw.is_ascii() {
-            clean_word(raw)
+        if raw.is_ascii() {
+            for (from, to, piece) in split_word(raw) {
+                self.emit_word(piece, offset + from, offset + to);
+            }
         } else {
             use unicode_normalization::UnicodeNormalization;
             let normalized: String = raw.nfkc().collect();
-            clean_word(&normalized)
-        };
-        if !cleaned.is_empty() {
-            self.emit_word(cleaned, offset, offset + raw.len());
+            // Offsets of pieces point into the normalized form; report the
+            // whole raw segment as the source span when NFKC changed it.
+            let same_length = normalized.len() == raw.len();
+            for (from, to, piece) in split_word(&normalized) {
+                if same_length {
+                    self.emit_word(piece, offset + from, offset + to);
+                } else {
+                    self.emit_word(piece, offset, offset + raw.len());
+                }
+            }
         }
     }
 
@@ -985,6 +1154,25 @@ fn icu_word_segmenter() -> &'static icu_segmenter::WordSegmenterBorrowed<'static
 }
 
 /// Stop words of a language (NLTK lists), shared for the process lifetime.
+/// Entries of the NLTK lists that are pieces of contractions and elisions
+/// (`don't` → `don`, `t`; `l'homme` → `l`, `homme`) rather than words. The
+/// tokenizer never produces those pieces, and as stop words they would
+/// delete real single-letter tokens: `vitamin D`, `T cell`, `Y chromosome`.
+fn is_stop_list_fragment(language: Language, word: &str) -> bool {
+    if word.contains('\'') || word.contains('\u{2019}') {
+        return true;
+    }
+    match language {
+        Language::English => matches!(
+            word,
+            "s" | "t" | "d" | "ll" | "m" | "o" | "re" | "ve" | "y" | "ain" | "ma"
+        ),
+        Language::French => matches!(word, "c" | "d" | "j" | "l" | "m" | "n" | "s" | "t" | "qu"),
+        Language::Italian => matches!(word, "l" | "c" | "d" | "m" | "n" | "s" | "t" | "v"),
+        _ => false,
+    }
+}
+
 fn stop_word_set(language: Language) -> Option<&'static HashSet<String>> {
     static SETS: std::sync::OnceLock<RwLock<HashMap<Language, &'static HashSet<String>>>> =
         std::sync::OnceLock::new();
@@ -995,6 +1183,7 @@ fn stop_word_set(language: Language) -> Option<&'static HashSet<String>> {
     let set: &'static HashSet<String> = Box::leak(Box::new(
         stop_words::get(language.to_stop_words_language())
             .iter()
+            .filter(|word| !is_stop_list_fragment(language, word))
             .map(|word| word.to_string())
             .collect(),
     ));
@@ -1014,6 +1203,54 @@ mod tests {
 
     fn lex(spec: &str) -> LexTokenizer {
         LexTokenizer::new(LexOptions::parse(spec).unwrap())
+    }
+
+    #[test]
+    fn split_word_cleans_punctuation_like_a_standard_analyzer() {
+        let words = |s: &str| {
+            split_word(s)
+                .into_iter()
+                .map(|(_, _, w)| w)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(words("state-of-the-art"), ["state", "of", "the", "art"]);
+        assert_eq!(words("HbA1c/HDL-c"), ["hba1c", "hdl", "c"]);
+        assert_eq!(
+            words("end.of.sentence.Next"),
+            ["end", "of", "sentence", "next"]
+        );
+        assert_eq!(words("don't"), ["don"]);
+        assert_eq!(words("it's"), ["it"]);
+        assert_eq!(words("we're"), ["we"]);
+        assert_eq!(words("O'Neil"), ["neil"]);
+        assert_eq!(words("rock'n'roll"), ["rock", "n", "roll"]);
+        assert_eq!(words("John\u{2019}s"), ["john"]);
+        assert_eq!(words("cats'"), ["cats"]);
+        assert_eq!(words("l'homme"), ["homme"]);
+        assert_eq!(words("qu'il"), ["il"]);
+        assert_eq!(words("dell'acqua"), ["acqua"]);
+        assert_eq!(words("aujourd'hui"), ["aujourd", "hui"]);
+        assert_eq!(words("'quoted'"), ["quoted"]);
+        assert_eq!(words("U.S.A."), ["usa"]);
+        assert_eq!(words("e.g."), ["eg"]);
+        assert_eq!(words("Ph.D."), ["ph", "d"]);
+        assert_eq!(words("3.14"), ["3.14"]);
+        assert_eq!(words("p<0.05"), ["p", "0.05"]);
+        assert_eq!(words("1.2.3"), ["1.2.3"]);
+        assert_eq!(words("1,000,000"), ["1000000"]);
+        assert_eq!(words("word..."), ["word"]);
+        assert_eq!(words("soft\u{ad}hyphen"), ["softhyphen"]);
+        assert_eq!(words("zero\u{200d}width"), ["zerowidth"]);
+        assert_eq!(words("(test)"), ["test"]);
+        assert_eq!(words("C++"), ["c"]);
+        assert_eq!(words("#tag"), ["tag"]);
+        assert_eq!(words("α-synuclein"), ["α", "synuclein"]);
+        assert_eq!(words("---"), Vec::<String>::new());
+        // Byte spans point at the pieces in the segment.
+        assert_eq!(
+            split_word("Foo-Bar"),
+            vec![(0, 3, "foo".to_string()), (4, 7, "bar".to_string())]
+        );
     }
 
     #[test]
@@ -1165,7 +1402,30 @@ mod tests {
             .into_iter()
             .map(|t| t.text)
             .collect();
-        assert_eq!(tokens, vec!["floatzero", "p53"]);
+        assert_eq!(tokens, vec!["float", "zero", "p53"]);
+    }
+
+    #[test]
+    fn single_letter_words_survive_stop_words() {
+        let tokenizer = lex("by: languages, default: en, stop_words: true");
+        let words = |text: &str, hint: &str| {
+            tokenizer
+                .tokenize_with(text, Some(hint), Purpose::Index)
+                .into_iter()
+                .filter(|t| !t.variant)
+                .map(|t| t.text)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            words("vitamin D and T cells", "en"),
+            ["vitamin", "d", "t", "cells"]
+        );
+        assert_eq!(words("the Y chromosome", "en"), ["y", "chromosome"]);
+        assert_eq!(words("a cat", "en"), ["cat"]);
+        assert_eq!(
+            words("la vitamine D et l'homme", "fr"),
+            ["vitamine", "d", "homme"]
+        );
     }
 
     #[test]
