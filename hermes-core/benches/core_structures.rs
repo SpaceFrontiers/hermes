@@ -316,6 +316,123 @@ fn bench_fast_field_blockwise(c: &mut Criterion) {
     group.finish();
 }
 
+/// Term-dictionary point lookups with restart points every 16 entries.
+#[cfg(feature = "sync")]
+fn bench_term_dict_lookup(c: &mut Criterion) {
+    use hermes_core::directories::{FileHandle, OwnedBytes};
+    use hermes_core::structures::{AsyncSSTableReader, SSTableWriter, TermInfo};
+
+    let mut keys: Vec<Vec<u8>> = (0..200_000u64)
+        .map(|i| {
+            let mut key = (i % 5).to_le_bytes()[..4].to_vec();
+            key.extend_from_slice(
+                format!("term{:08x}", i.wrapping_mul(0x9E37_79B9) % 50_000_000).as_bytes(),
+            );
+            key
+        })
+        .collect();
+    keys.sort();
+    keys.dedup();
+    let build = || -> AsyncSSTableReader<TermInfo> {
+        let mut writer = SSTableWriter::<_, TermInfo>::new(Vec::new());
+        for (i, key) in keys.iter().enumerate() {
+            writer
+                .insert(key, &TermInfo::external(i as u64 * 4096, 4096, 17))
+                .unwrap();
+        }
+        let bytes = writer.finish().unwrap();
+        let handle = FileHandle::from_bytes(OwnedBytes::new(bytes));
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let reader = rt
+            .block_on(AsyncSSTableReader::<TermInfo>::open(handle, 4096))
+            .unwrap();
+        rt.block_on(reader.preload_all_blocks()).unwrap();
+        reader
+    };
+    let reader = build();
+    // Random existing keys.
+    let probes: Vec<&[u8]> = (0..4096usize)
+        .map(|i| keys[(i * 7919) % keys.len()].as_slice())
+        .collect();
+
+    let mut group = c.benchmark_group("core_structures/term_dict_lookup");
+    group.throughput(Throughput::Elements(probes.len() as u64));
+    group.bench_function("restart_points", |bencher| {
+        bencher.iter(|| {
+            let mut found = 0usize;
+            for key in &probes {
+                found += usize::from(black_box(reader.get_sync(key).unwrap()).is_some());
+            }
+            black_box(found)
+        })
+    });
+    group.finish();
+}
+
+#[cfg(not(feature = "sync"))]
+fn bench_term_dict_lookup(_: &mut Criterion) {}
+
+/// Phrase-style position access: for every candidate document in order, the
+/// old random-access lookup re-decodes the block from its start, the
+/// sequential cursor decodes each block once.
+fn bench_position_access(c: &mut Criterion) {
+    use hermes_core::structures::PositionPostingList;
+
+    let mut list = PositionPostingList::new();
+    let mut doc = 0u32;
+    for i in 0..100_000u32 {
+        doc += 1 + (i % 3);
+        let positions: Vec<u32> = (0..6).map(|k| 3 + k * 7 + (i % 5)).collect();
+        list.push(doc, positions);
+    }
+    let mut bytes = Vec::new();
+    list.serialize(&mut bytes).unwrap();
+    let list = PositionPostingList::deserialize(&bytes).unwrap();
+    // Every 4th document is a candidate (a conjunction that keeps 25%).
+    let candidates: Vec<u32> = {
+        let mut it = list.iter();
+        let mut docs = Vec::new();
+        let mut n = 0usize;
+        while it.doc() != u32::MAX {
+            if n.is_multiple_of(4) {
+                docs.push(it.doc());
+            }
+            n += 1;
+            it.advance();
+        }
+        docs
+    };
+
+    let mut group = c.benchmark_group("core_structures/position_access");
+    group.throughput(Throughput::Elements(candidates.len() as u64));
+    group.bench_function("random_access_per_candidate", |bencher| {
+        let mut buf = Vec::new();
+        bencher.iter(|| {
+            let mut total = 0usize;
+            for &doc in &candidates {
+                if list.get_positions_into(doc, &mut buf) {
+                    total += buf.len();
+                }
+            }
+            black_box(total)
+        })
+    });
+    group.bench_function("sequential_cursor", |bencher| {
+        bencher.iter(|| {
+            let mut cursor = list.iter();
+            let mut total = 0usize;
+            for &doc in &candidates {
+                cursor.seek(doc);
+                if cursor.doc() == doc {
+                    total += cursor.positions().len();
+                }
+            }
+            black_box(total)
+        })
+    });
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_top_k,
@@ -326,5 +443,7 @@ criterion_group!(
     bench_slice_cache_churn,
     bench_combiner,
     bench_fast_field_blockwise,
+    bench_term_dict_lookup,
+    bench_position_access,
 );
 criterion_main!(benches);
