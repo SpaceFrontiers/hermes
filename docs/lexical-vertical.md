@@ -335,7 +335,11 @@ text<stem(by: <field>, default: <language|simple>, stop_words: <bool>,
   differently still matches and a phrase over dictionary words stays exact.
   Every token is NFKC-normalised and lowercased; Arabic tokens get the Lucene
   orthographic normalisation (alef and yeh forms, teh marbuta, tatweel and
-  harakat), Cyrillic `ё` becomes `е`. Tokens longer than `max_token_length`
+  harakat), Cyrillic `ё` becomes `е`; with `t2s`, Han characters are
+  converted to simplified Chinese with OpenCC's character table
+  (`tokenizer/han_t2s.rs`, 3,222 entries, Apache-2.0), index and query
+  alike, so traditional and simplified spellings meet (no Rust crate fits:
+  `opencc-fmmseg` pins an old rayon, `zhconv` is GPL). Tokens longer than `max_token_length`
   characters (default 64: hashes, sequences, URLs) are dropped and keep
   their position. `unicode` (UAX #29 + bigrams) and `simple` remain.
 - **Morphology.** `stem: light` is the inflection-only family ported from

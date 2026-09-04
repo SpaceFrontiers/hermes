@@ -115,6 +115,9 @@ pub struct DynamicStemmer {
     keep_original: bool,
     fold: bool,
     max_token_length: usize,
+    /// Convert Han tokens to simplified Chinese (OpenCC `t2s`), index and
+    /// query alike, so traditional and simplified spellings meet.
+    t2s: bool,
 }
 
 impl Default for DynamicStemmer {
@@ -138,7 +141,20 @@ impl DynamicStemmer {
             keep_original: false,
             fold: true,
             max_token_length: DEFAULT_MAX_TOKEN_LENGTH,
+            t2s: false,
         }
+    }
+
+    /// Convert Han tokens to simplified Chinese (index and query alike),
+    /// character by character with OpenCC's table.
+    pub fn with_t2s(mut self, enabled: bool) -> Self {
+        self.t2s = enabled;
+        self
+    }
+
+    /// Whether Han tokens are converted to simplified Chinese.
+    pub fn converts_to_simplified(&self) -> bool {
+        self.t2s
     }
 
     /// Ignore language hints (index-time field values and query hints
@@ -412,6 +428,7 @@ impl Emitter<'_> {
         self.flush_run();
         use unicode_normalization::UnicodeNormalization;
         let text: String = word.nfkc().collect();
+        let text = self.simplify(text);
         let end = offset + word.len();
         let chars: Vec<char> = text.chars().collect();
         self.tokens
@@ -433,8 +450,9 @@ impl Emitter<'_> {
             0 => {}
             1 => {
                 let (offset, c) = self.run[0];
+                let text = self.simplify(c.to_string());
                 self.tokens.push(Token::new(
-                    c.to_string(),
+                    text,
                     self.position,
                     offset,
                     offset + c.len_utf8(),
@@ -448,6 +466,7 @@ impl Emitter<'_> {
                     let mut text = String::with_capacity(a.len_utf8() + b.len_utf8());
                     text.push(a);
                     text.push(b);
+                    let text = self.simplify(text);
                     self.tokens
                         .push(Token::new(text, self.position, start, next + b.len_utf8()));
                     self.position += 1;
@@ -455,6 +474,15 @@ impl Emitter<'_> {
             }
         }
         self.run.clear();
+    }
+
+    /// Traditional-to-simplified conversion of a Han token when enabled.
+    fn simplify(&self, text: String) -> String {
+        if self.cfg.t2s && text.chars().any(is_han_char) {
+            han_to_simplified(&text)
+        } else {
+            text
+        }
     }
 
     /// Route a cleaned word to its language and emit the forms the mode
@@ -565,6 +593,23 @@ pub(super) fn is_cjk_char(c: char) -> bool {
     )
 }
 
+/// Whether `c` is a Han ideograph (the scripts OpenCC converts).
+#[inline]
+fn is_han_char(c: char) -> bool {
+    matches!(
+        c as u32,
+        0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF | 0x20000..=0x2FA1F
+    )
+}
+
+/// Character-level traditional-to-simplified conversion (OpenCC
+/// `TSCharacters` table, see [`super::han_t2s`]).
+fn han_to_simplified(text: &str) -> String {
+    text.chars()
+        .map(|c| super::han_t2s::to_simplified(c).unwrap_or(c))
+        .collect()
+}
+
 /// Diacritic-free form of a Latin, Cyrillic or Greek word (compatibility
 /// decomposition, combining marks dropped, lowercased), or `None` when the
 /// word has no diacritics or belongs to another script (whose combining
@@ -647,6 +692,8 @@ pub enum TokenizerSpec {
         fold: bool,
         /// Drop tokens longer than this many characters (0 = unlimited).
         max_token_length: usize,
+        /// Convert Han tokens to simplified Chinese.
+        t2s: bool,
     },
 }
 
@@ -671,6 +718,7 @@ impl TokenizerSpec {
         let mut keep_original = false;
         let mut fold = true;
         let mut max_token_length = DEFAULT_MAX_TOKEN_LENGTH;
+        let mut t2s = false;
         let parse_bool = |key: &str, value: &str| -> Result<bool, String> {
             match value {
                 "true" => Ok(true),
@@ -705,6 +753,7 @@ impl TokenizerSpec {
                 "stop_words" => stop_words = parse_bool(key, value)?,
                 "keep_original" => keep_original = parse_bool(key, value)?,
                 "fold" => fold = parse_bool(key, value)?,
+                "t2s" => t2s = parse_bool(key, value)?,
                 "segmenter" => {
                     segmenter = match value {
                         "simple" => Segmenter::Simple,
@@ -752,6 +801,7 @@ impl TokenizerSpec {
             keep_original,
             fold,
             max_token_length,
+            t2s,
         })
     }
 
@@ -786,6 +836,7 @@ impl TokenizerSpec {
                 keep_original,
                 fold,
                 max_token_length,
+                t2s,
             } => Some(Box::new(
                 DynamicStemmer::new(*default)
                     .with_stop_words(*stop_words)
@@ -794,7 +845,8 @@ impl TokenizerSpec {
                     .with_stem(*stem)
                     .with_keep_original(*keep_original)
                     .with_fold(*fold)
-                    .with_max_token_length(*max_token_length),
+                    .with_max_token_length(*max_token_length)
+                    .with_t2s(*t2s),
             )),
         }
     }
@@ -813,6 +865,7 @@ impl std::fmt::Display for TokenizerSpec {
                 keep_original,
                 fold,
                 max_token_length,
+                t2s,
             } => {
                 let default = match default {
                     None => "simple".to_string(),
@@ -843,6 +896,9 @@ impl std::fmt::Display for TokenizerSpec {
                 }
                 if *max_token_length != DEFAULT_MAX_TOKEN_LENGTH {
                     write!(f, ", max_token_length: {max_token_length}")?;
+                }
+                if *t2s {
+                    write!(f, ", t2s: true")?;
                 }
                 write!(f, ")")
             }
@@ -988,7 +1044,7 @@ mod tests {
 
     #[test]
     fn spec_round_trips_every_option() {
-        let text = "stem(by: languages, default: en, stop_words: true, segmenter: icu, stem: light, keep_original: true, fold: false, max_token_length: 32)";
+        let text = "stem(by: languages, default: en, stop_words: true, segmenter: icu, stem: light, keep_original: true, fold: false, max_token_length: 32, t2s: true)";
         let spec = TokenizerSpec::parse(text).unwrap();
         assert_eq!(spec.to_string(), text);
         assert!(spec.keeps_original());
@@ -998,6 +1054,7 @@ mod tests {
             fold,
             max_token_length,
             segmenter,
+            t2s,
             ..
         } = spec
         else {
@@ -1007,6 +1064,7 @@ mod tests {
         assert!(keep_original && !fold);
         assert_eq!(max_token_length, 32);
         assert_eq!(segmenter, Segmenter::Icu);
+        assert!(t2s);
         // Defaults are not rendered.
         assert_eq!(
             TokenizerSpec::parse("stem(by: languages, default: simple, stem: snowball, fold: true, max_token_length: 64)")
@@ -1016,5 +1074,40 @@ mod tests {
         );
         assert!(TokenizerSpec::parse("stem(stem: aggressive)").is_err());
         assert!(TokenizerSpec::parse("stem(max_token_length: many)").is_err());
+    }
+
+    #[test]
+    fn traditional_chinese_is_indexed_and_queried_as_simplified() {
+        let tokenizer = DynamicStemmer::new(None)
+            .with_segmenter(Segmenter::Icu)
+            .with_t2s(true);
+        let traditional: Vec<String> = tokenizer
+            .tokenize("電腦網絡")
+            .into_iter()
+            .filter(|t| !t.variant)
+            .map(|t| t.text)
+            .collect();
+        let simplified: Vec<String> = tokenizer
+            .tokenize("电脑网络")
+            .into_iter()
+            .filter(|t| !t.variant)
+            .map(|t| t.text)
+            .collect();
+        assert_eq!(traditional, simplified);
+        assert!(traditional.concat().contains("电脑"));
+        let query: Vec<String> = tokenizer
+            .tokenize_query("電腦", None, false)
+            .into_iter()
+            .map(|t| t.text)
+            .collect();
+        assert_eq!(query, vec!["电脑"]);
+        // Japanese kana runs are untouched.
+        let kana: Vec<String> = tokenizer
+            .tokenize("コンピュータ")
+            .into_iter()
+            .filter(|t| !t.variant)
+            .map(|t| t.text)
+            .collect();
+        assert_eq!(kana, vec!["コンピュータ"]);
     }
 }

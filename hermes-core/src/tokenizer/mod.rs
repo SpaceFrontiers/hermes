@@ -4,6 +4,7 @@
 mod hf_tokenizer;
 
 mod dynamic;
+mod han_t2s;
 #[cfg(feature = "native")]
 mod idf_weights;
 pub mod light_stem;
@@ -1419,6 +1420,7 @@ mod tests {
                 keep_original: false,
                 fold: true,
                 max_token_length: DEFAULT_MAX_TOKEN_LENGTH,
+                t2s: false,
             }
         );
         assert_eq!(spec.to_string(), "stem(by: languages, default: simple)");
@@ -1437,6 +1439,7 @@ mod tests {
                 keep_original: false,
                 fold: true,
                 max_token_length: DEFAULT_MAX_TOKEN_LENGTH,
+                t2s: false,
             }
         );
 
@@ -1453,6 +1456,7 @@ mod tests {
                 keep_original: false,
                 fold: true,
                 max_token_length: DEFAULT_MAX_TOKEN_LENGTH,
+                t2s: false,
             }
         );
         assert_eq!(
@@ -1481,6 +1485,7 @@ mod tests {
                 keep_original: false,
                 fold: true,
                 max_token_length: DEFAULT_MAX_TOKEN_LENGTH,
+                t2s: false,
             }
         );
         assert_eq!(
