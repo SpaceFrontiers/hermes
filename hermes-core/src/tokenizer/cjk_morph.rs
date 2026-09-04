@@ -9,7 +9,7 @@
 //! variant `食べる`; `학교에서` → `학교`, the particle `에서` dropped).
 //!
 //! Without the feature the module reports itself unavailable and a spec
-//! asking for `morph: true` fails to parse, so an index built with
+//! asking for `cjk: dictionary` fails to parse, so an index built with
 //! morphology is never opened by a binary that would tokenize queries
 //! differently.
 
@@ -29,8 +29,17 @@ pub(super) struct Morph {
 }
 
 /// Whether the dictionaries are compiled in.
-pub(super) const fn available() -> bool {
+pub const fn available() -> bool {
     cfg!(feature = "cjk-dict")
+}
+
+/// Load the dictionaries now (a server calls this at start-up so the first
+/// Japanese or Korean request does not pay the decode).
+pub fn warm_up() {
+    if available() {
+        let _ = japanese("研究");
+        let _ = korean("학교");
+    }
 }
 
 #[cfg(feature = "cjk-dict")]
@@ -43,6 +52,11 @@ mod imp {
     use lindera::mode::Mode;
     use lindera::segmenter::Segmenter;
 
+    /// How a dictionary's part-of-speech tags classify a morpheme:
+    /// `None` = punctuation or whitespace (no position), `Some(false)` =
+    /// function morpheme, `Some(true)` = content.
+    type Classify = fn(pos: &str) -> Option<bool>;
+
     fn segmenter(uri: &'static str, cell: &'static OnceLock<Segmenter>) -> &'static Segmenter {
         cell.get_or_init(|| {
             let dictionary = load_dictionary(uri).expect("embedded lindera dictionary");
@@ -50,20 +64,13 @@ mod imp {
         })
     }
 
-    fn japanese_segmenter() -> &'static Segmenter {
-        static CELL: OnceLock<Segmenter> = OnceLock::new();
-        segmenter("embedded://unidic", &CELL)
-    }
-
-    fn korean_segmenter() -> &'static Segmenter {
-        static CELL: OnceLock<Segmenter> = OnceLock::new();
-        segmenter("embedded://ko-dic", &CELL)
-    }
-
-    /// UniDic: details[0] = part of speech, details[10] = orthographic base
-    /// form (`orthBase`).
-    pub(in crate::tokenizer) fn japanese(text: &str) -> Vec<Morph> {
-        let Ok(mut tokens) = japanese_segmenter().segment(Cow::Borrowed(text)) else {
+    fn analyse(
+        segmenter: &Segmenter,
+        text: &str,
+        classify: Classify,
+        lemma_index: Option<usize>,
+    ) -> Vec<Morph> {
+        let Ok(mut tokens) = segmenter.segment(Cow::Borrowed(text)) else {
             return Vec::new();
         };
         tokens
@@ -75,13 +82,9 @@ mod imp {
                 }
                 let details = token.details();
                 let pos = details.first().copied().unwrap_or("");
-                if matches!(pos, "補助記号" | "記号" | "空白") {
-                    return None;
-                }
-                let content = !matches!(pos, "助詞" | "助動詞");
-                let lemma = details
-                    .get(10)
-                    .copied()
+                let content = classify(pos)?;
+                let lemma = lemma_index
+                    .and_then(|index| details.get(index).copied())
                     .filter(|base| !base.is_empty() && *base != "*" && *base != surface)
                     .map(str::to_string);
                 Some(Morph {
@@ -95,42 +98,46 @@ mod imp {
             .collect()
     }
 
+    /// UniDic: details[0] = part of speech, details[10] = orthographic base
+    /// form (`orthBase`).
+    pub(in crate::tokenizer) fn japanese(text: &str) -> Vec<Morph> {
+        static CELL: OnceLock<Segmenter> = OnceLock::new();
+        analyse(
+            segmenter("embedded://unidic", &CELL),
+            text,
+            |pos| match pos {
+                "補助記号" | "記号" | "空白" => None,
+                "助詞" | "助動詞" => Some(false),
+                _ => Some(true),
+            },
+            Some(10),
+        )
+    }
+
     /// ko-dic: details[0] = part of speech (Sejong tag set; `+` joins the
-    /// tags of an inflected compound).
+    /// tags of an inflected compound). Particles (J*), endings (E*) and
+    /// suffixes (XS*) are function morphemes; nouns, verbs, adjectives,
+    /// adverbs, roots, foreign words and numbers are content.
     pub(in crate::tokenizer) fn korean(text: &str) -> Vec<Morph> {
-        let Ok(mut tokens) = korean_segmenter().segment(Cow::Borrowed(text)) else {
-            return Vec::new();
-        };
-        tokens
-            .iter_mut()
-            .filter_map(|token| {
-                let surface = token.surface.to_string();
-                if surface.trim().is_empty() {
-                    return None;
-                }
-                let details = token.details();
-                let pos = details.first().copied().unwrap_or("");
+        static CELL: OnceLock<Segmenter> = OnceLock::new();
+        analyse(
+            segmenter("embedded://ko-dic", &CELL),
+            text,
+            |pos| {
                 let first = pos.split('+').next().unwrap_or("");
-                // Punctuation and symbols: no position.
-                if matches!(first, "SF" | "SP" | "SS" | "SE" | "SO" | "SC" | "SY" | "SW") {
-                    return None;
+                match first {
+                    "SF" | "SP" | "SS" | "SE" | "SO" | "SC" | "SY" | "SW" => None,
+                    _ if first.starts_with('J')
+                        || first.starts_with('E')
+                        || first.starts_with("XS") =>
+                    {
+                        Some(false)
+                    }
+                    _ => Some(true),
                 }
-                // Particles (J*), endings (E*), suffixes (XS*) are function
-                // morphemes; nouns, verbs, adjectives, adverbs, roots,
-                // foreign words, numbers and interjections are content.
-                let content = !(first.starts_with('J')
-                    || first.starts_with('E')
-                    || first.starts_with("XS")
-                    || first == "UNKNOWN" && surface.chars().all(|c| !c.is_alphanumeric()));
-                Some(Morph {
-                    surface,
-                    lemma: None,
-                    content,
-                    start: token.byte_start,
-                    end: token.byte_end,
-                })
-            })
-            .collect()
+            },
+            None,
+        )
     }
 }
 

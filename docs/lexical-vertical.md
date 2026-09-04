@@ -318,13 +318,20 @@ the map lookup per hit that chunked fields already pay.
 ## Tokenization, stemming, stop words
 
 Implemented 2026-09-04 as one dynamic tokenizer with three layers, identical
-at index and query time (`hermes-core/src/tokenizer/dynamic.rs`):
+at index and query time (`hermes-core/src/tokenizer/lex.rs`):
 
 ```
-text<stem(by: <field>, default: <language|simple>, stop_words: <bool>,
-          segmenter: <simple|unicode|icu>, stem: <none|light|snowball>,
-          keep_original: <bool>, fold: <bool>, max_token_length: <n>)>
+text<lex(by: <field>, default: <language|none>, stop_words: <bool>,
+         segmenter: <icu|unicode|simple>, stem: <light|snowball|none>,
+         variants: <bool>, fold: <bool>, max_token_length: <n>,
+         han: <as_written|simplified>, cjk: <icu|dictionary>)>
 ```
+
+Defaults are the recommended configuration (`icu`, `light`, variants on,
+folding on, 64-character tokens), so `lex()` is a complete language-agnostic
+tokenizer and only non-default options are rendered
+(`hermes-core/src/tokenizer/lex.rs`, one `LexOptions` struct shared by the
+spec, the tokenizer and the renderer).
 
 - **Segmentation and normalisation.** `icu` uses ICU4X's word segmenter
   (Unicode-3.0, compiled data): dictionary words for Chinese and Japanese,
@@ -335,7 +342,7 @@ text<stem(by: <field>, default: <language|simple>, stop_words: <bool>,
   differently still matches and a phrase over dictionary words stays exact.
   Every token is NFKC-normalised and lowercased; Arabic tokens get the Lucene
   orthographic normalisation (alef and yeh forms, teh marbuta, tatweel and
-  harakat), Cyrillic `ё` becomes `е`; with `t2s`, Han characters are
+  harakat), Cyrillic `ё` becomes `е`; with `han: simplified`, Han characters are
   converted to simplified Chinese with OpenCC's character table
   (`tokenizer/han_t2s.rs`, 3,222 entries, Apache-2.0), index and query
   alike, so traditional and simplified spellings meet (no Rust crate fits:
@@ -351,30 +358,33 @@ text<stem(by: <field>, default: <language|simple>, stop_words: <bool>,
   algorithm, `none` keeps every word. Routing is unchanged: the first hinted
   language of the token's script; `by` reads the hint from a sibling field
   at index time and the query passes `tokenizer_hint`; without `by` the
-  `default` applies to everything and hints are ignored. No Rust crate
+  `default` applies to everything and hints are ignored. `GetIndexInfo`
+  reports every text field's tokenization (`TextFieldInfo`: hint field,
+  variants, positions, chunked) so clients never parse the SDL. No Rust crate
   provides light stemmers or a multilingual lemmatizer (tantivy-stemmers
   carries a Czech one; simplemma is Python), which is why the port exists.
-- **Variants.** With `keep_original`, the written word is the indexed token
+- **Variants.** With `variants: true` (the default), the written word is the indexed token
   and its light stem and diacritic-folded form (Latin, Cyrillic, Greek) are
   variants at the same position (Lucene `KeywordRepeatFilter` pattern).
   Variants are ordinary postings but `Token::variant` keeps them out of the
-  field length. Query tokenization (`Tokenizer::tokenize_query`) emits one
+  field length. Query tokenization (`Tokenizer::tokenize_with` and
+  `Purpose::{Index, Match, Exact}`) emits one
   form per word and never a variant: the stem for a match query (the written
   form when the language is unknown), the written form for a phrase or an
   exact term. Because a stem shares its word's position, a phrase term also
   matches words that stem to it (`"cell membrane"` finds `cell membranes`)
   while an inflected phrase term matches only that inflection; an exact
   written form for every term would need a second term namespace and twice
-  the postings, which is not worth it. Without `keep_original` the (folded) stem replaces the word
-  and every query form is that stem, as before. The server converter picks
-  the form by clause kind (`MatchQuery` → stem, `PhraseQuery` and
-  `TermQuery` → written form).
+  the postings, which is not worth it. Without variants the (folded) stem replaces the word
+  and every query form is that stem. The server converter passes the purpose
+  per clause (`MatchQuery` → `Match`, `PhraseQuery` and `TermQuery` →
+  `Exact`).
 - Stop words: NLTK lists (`stop-words` crate, `nltk` feature) routed like
   the stemmers; dropped words keep their positions as gaps.
-- **Japanese and Korean morphology** (`morph: true`, `cjk-dict` feature,
+- **Japanese and Korean morphology** (`cjk: dictionary`, `cjk-dict` feature,
   `tokenizer/cjk_morph.rs`): lindera with UniDic and ko-dic embedded in the
   binary (about 200 MB; hermes-server builds with the feature, the broker and
-  wasm do not, and a `morph` spec fails to parse in a binary without it so
+  wasm do not, and a `cjk: dictionary` spec fails to parse in a binary without it so
   index and query tokenization can never diverge). Hangul runs always go
   through ko-dic, kana runs through UniDic, Han runs through UniDic only
   when the document or query is hinted `ja` (otherwise ICU's Chinese

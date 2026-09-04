@@ -217,7 +217,7 @@ pub struct SegmentBuilder {
     config: SegmentBuilderConfig,
     tokenizers: FxHashMap<Field, BoxedTokenizer>,
     /// Text field → sibling field whose values hint its dynamic tokenizer
-    /// (`text<stem(by: languages, ...)>`).
+    /// (`text<lex(by: languages, ...)>`).
     tokenizer_hint_fields: FxHashMap<Field, Field>,
     /// Reusable buffer holding the comma-joined hint of the current document.
     tokenizer_hint_buffer: String,
@@ -936,7 +936,7 @@ impl SegmentBuilder {
             if hinted {
                 let hint = (!self.tokenizer_hint_buffer.is_empty())
                     .then_some(self.tokenizer_hint_buffer.as_str());
-                t.tokenize_hinted(text, hint)
+                t.tokenize_with(text, hint, crate::tokenizer::Purpose::Index)
             } else {
                 t.tokenize(text)
             }

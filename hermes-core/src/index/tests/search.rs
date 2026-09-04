@@ -555,13 +555,13 @@ async fn test_cross_segment_threshold_topk_matches_exhaustive() {
     }
 }
 
-/// One `text<stem(by: languages, default: simple)>` field holds documents of
+/// One `text<lex(by: languages, segmenter: simple, stem: snowball, variants: false)>` field holds documents of
 /// several languages: each document is stemmed with the language(s) listed in
 /// its own `languages` values, and queries are stemmed by the hint they carry.
 #[tokio::test]
 async fn dynamic_stemmer_indexes_per_document_language() {
     use crate::query::{BooleanQuery, TermQuery};
-    use crate::tokenizer::{DynamicStemmer, Tokenizer};
+    use crate::tokenizer::{LexOptions, LexTokenizer, Purpose, Tokenizer};
 
     let mut schema_builder = SchemaBuilder::default();
     let languages =
@@ -570,7 +570,7 @@ async fn dynamic_stemmer_indexes_per_document_language() {
         "content",
         true,
         true,
-        "stem(by: languages, default: simple)",
+        "lex(by: languages, segmenter: simple, stem: snowball, variants: false)",
     );
     let schema = schema_builder.build();
     assert_eq!(schema.tokenizer_hint_field(content), Some(languages));
@@ -606,10 +606,13 @@ async fn dynamic_stemmer_indexes_per_document_language() {
     let index = Index::open(dir, config).await.unwrap();
 
     // Emulate the server: stem the query with the field's tokenizer + hint.
-    let stemmer = DynamicStemmer::new(None);
+    let stemmer = LexTokenizer::new(
+        LexOptions::parse("by: languages, segmenter: simple, stem: snowball, variants: false")
+            .unwrap(),
+    );
     let query_for = |text: &str, hint: Option<&str>| {
         let mut bq = BooleanQuery::new();
-        for token in Tokenizer::tokenize_hinted(&stemmer, text, hint) {
+        for token in Tokenizer::tokenize_with(&stemmer, text, hint, Purpose::Index) {
             bq = bq.should(TermQuery::text(content, &token.text));
         }
         bq
@@ -1135,7 +1138,7 @@ async fn proximity_rescoring_prefers_adjacent_terms() {
         "content",
         true,
         false,
-        "stem(by: languages, default: simple)",
+        "lex(by: languages, segmenter: simple, stem: snowball, variants: false)",
     );
     schema_builder.set_chunked(content, true);
     schema_builder.set_positions(content, PositionMode::TokenPosition);
@@ -1510,9 +1513,9 @@ async fn boosted_term_scores_like_a_repeated_term() {
 async fn keep_original_light_stemming_matches_stems_and_exact_phrases() {
     use crate::dsl::PositionMode;
     use crate::query::{BooleanQuery, PhraseQuery, TermQuery};
-    use crate::tokenizer::TokenizerSpec;
+    use crate::tokenizer::{Purpose, TokenizerSpec};
 
-    let spec = "stem(by: languages, default: en, stop_words: true, segmenter: icu, stem: light, keep_original: true)";
+    let spec = "lex(by: languages, default: en, stop_words: true)";
     let mut schema_builder = SchemaBuilder::default();
     let languages =
         schema_builder.add_text_field_with_tokenizer("languages", false, true, "raw_ci");
@@ -1559,14 +1562,14 @@ async fn keep_original_light_stemming_matches_stems_and_exact_phrases() {
     };
     let match_query = |text: &str, hint: Option<&str>| {
         let mut q = BooleanQuery::new();
-        for token in tokenizer.tokenize_query(text, hint, false) {
+        for token in tokenizer.tokenize_with(text, hint, Purpose::Match) {
             q = q.should(TermQuery::text(content, &token.text));
         }
         q
     };
     let phrase_query = |text: &str, hint: Option<&str>| {
         let terms = tokenizer
-            .tokenize_query(text, hint, true)
+            .tokenize_with(text, hint, Purpose::Exact)
             .into_iter()
             .map(|t| (t.position, t.text.into_bytes()))
             .collect();
@@ -1669,7 +1672,7 @@ async fn keep_original_light_stemming_matches_stems_and_exact_phrases() {
 async fn phrase_query_keeps_the_gaps_of_dropped_stop_words() {
     use crate::dsl::PositionMode;
     use crate::query::PhraseQuery;
-    use crate::tokenizer::{DynamicStemmer, Tokenizer};
+    use crate::tokenizer::{LexOptions, LexTokenizer, Purpose, Tokenizer};
 
     let mut schema_builder = SchemaBuilder::default();
     let languages =
@@ -1678,7 +1681,7 @@ async fn phrase_query_keeps_the_gaps_of_dropped_stop_words() {
         "content",
         true,
         true,
-        "stem(by: languages, default: simple, stop_words: true)",
+        "lex(by: languages, stop_words: true, segmenter: simple, stem: snowball, variants: false)",
     );
     schema_builder.set_positions(content, PositionMode::TokenPosition);
     let schema = schema_builder.build();
@@ -1697,9 +1700,14 @@ async fn phrase_query_keeps_the_gaps_of_dropped_stop_words() {
     writer.commit().await.unwrap();
     let index = Index::open(dir, config).await.unwrap();
 
-    let stemmer = DynamicStemmer::new(None).with_stop_words(true);
+    let stemmer = LexTokenizer::new(
+        LexOptions::parse(
+            "by: languages, stop_words: true, segmenter: simple, stem: snowball, variants: false",
+        )
+        .unwrap(),
+    );
     let phrase = |text: &str, slop| {
-        let terms = Tokenizer::tokenize_hinted(&stemmer, text, Some("en"))
+        let terms = Tokenizer::tokenize_with(&stemmer, text, Some("en"), Purpose::Index)
             .into_iter()
             .map(|t| (t.position, t.text.into_bytes()))
             .collect();
@@ -1749,7 +1757,7 @@ async fn phrase_query_keeps_the_gaps_of_dropped_stop_words() {
 async fn phrase_query_matches_consecutive_stemmed_terms() {
     use crate::dsl::PositionMode;
     use crate::query::PhraseQuery;
-    use crate::tokenizer::{DynamicStemmer, Tokenizer};
+    use crate::tokenizer::{LexOptions, LexTokenizer, Purpose, Tokenizer};
 
     let mut schema_builder = SchemaBuilder::default();
     let languages =
@@ -1758,7 +1766,7 @@ async fn phrase_query_matches_consecutive_stemmed_terms() {
         "content",
         true,
         true,
-        "stem(by: languages, default: simple)",
+        "lex(by: languages, segmenter: simple, stem: snowball, variants: false)",
     );
     schema_builder.set_positions(content, PositionMode::TokenPosition);
     let flat = schema_builder.add_text_field_with_tokenizer("flat", true, false, "en_stem");
@@ -1784,9 +1792,12 @@ async fn phrase_query_matches_consecutive_stemmed_terms() {
     writer.commit().await.unwrap();
     let index = Index::open(dir, config).await.unwrap();
 
-    let stemmer = DynamicStemmer::new(None);
+    let stemmer = LexTokenizer::new(
+        LexOptions::parse("by: languages, segmenter: simple, stem: snowball, variants: false")
+            .unwrap(),
+    );
     let phrase = |field, text: &str, slop| {
-        let terms = Tokenizer::tokenize_hinted(&stemmer, text, Some("en"))
+        let terms = Tokenizer::tokenize_with(&stemmer, text, Some("en"), Purpose::Index)
             .into_iter()
             .map(|t| t.text.into_bytes())
             .collect();
