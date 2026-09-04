@@ -3419,7 +3419,7 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "hermes-broker"
-version = "1.8.118"
+version = "1.8.119"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -3448,7 +3448,7 @@ dependencies = [
 
 [[package]]
 name = "hermes-core"
-version = "1.8.118"
+version = "1.8.119"
 dependencies = [
  "arc-swap",
  "async-channel",
@@ -3500,7 +3500,7 @@ dependencies = [
 
 [[package]]
 name = "hermes-llm"
-version = "1.8.118"
+version = "1.8.119"
 dependencies = [
  "anyhow",
  "axum",
@@ -3534,7 +3534,7 @@ dependencies = [
 
 [[package]]
 name = "hermes-mal"
-version = "1.8.118"
+version = "1.8.119"
 dependencies = [
  "anyhow",
  "pest",
@@ -3546,7 +3546,7 @@ dependencies = [
 
 [[package]]
 name = "hermes-mal-python"
-version = "1.8.118"
+version = "1.8.119"
 dependencies = [
  "hermes-mal",
  "pyo3",
@@ -3555,7 +3555,7 @@ dependencies = [
 
 [[package]]
 name = "hermes-server"
-version = "1.8.118"
+version = "1.8.119"
 dependencies = [
  "anyhow",
  "clap",
@@ -3579,7 +3579,7 @@ dependencies = [
 
 [[package]]
 name = "hermes-tokenizer"
-version = "1.8.118"
+version = "1.8.119"
 dependencies = [
  "ahash",
  "aho-corasick",
@@ -3598,7 +3598,7 @@ dependencies = [
 
 [[package]]
 name = "hermes-tool"
-version = "1.8.118"
+version = "1.8.119"
 dependencies = [
  "anyhow",
  "bincode",
@@ -3621,7 +3621,7 @@ dependencies = [
 
 [[package]]
 name = "hermes-train"
-version = "1.8.118"
+version = "1.8.119"
 dependencies = [
  "anyhow",
  "burn-core",
@@ -3650,7 +3650,7 @@ dependencies = [
 
 [[package]]
 name = "hermes-wasm"
-version = "1.8.118"
+version = "1.8.119"
 dependencies = [
  "async-trait",
  "console_error_panic_hook",
@@ -5806,9 +5806,9 @@ dependencies = [
 
 [[package]]
 name = "portable-atomic-util"
-version = "0.2.7"
+version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2a106d1259c23fac8e543272398ae0e3c0b8d33c88ed73d0cc71b0f1d902618"
+checksum = "10ab3eb7f3becc3a1cbc4f2c6f20267996cfc1a6467a873763411b136a122715"
 dependencies = [
  "portable-atomic",
 ]
@@ -9620,7 +9620,7 @@ version = "0.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e91ee311a569c327171651566e07972200e76fcfe2242a4fa446149a3881c08a"
 dependencies = [
- "zstd-safe 7.2.4",
+ "zstd-safe 7.3.0",
 ]
 
 [[package]]
@@ -9635,9 +9635,9 @@ dependencies = [
 
 [[package]]
 name = "zstd-safe"
-version = "7.2.4"
+version = "7.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f49c4d5f0abb602a93fb8736af2a4f4dd9512e36f7f570d66e65ff867ed3b9d"
+checksum = "64d80649ab6db9d9f6f9c80a40becd948eda4714a0a5ac8c4d157a32231c7882"
 dependencies = [
  "zstd-sys",
 ]
