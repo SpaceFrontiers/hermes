@@ -968,7 +968,9 @@ impl SegmentBuilder {
                         .push(encoded_pos);
                 }
             }
-            token_position = tokens.len() as u32;
+            // Variants share a position with their original and are not
+            // tokens of the document for length normalisation.
+            token_position = tokens.iter().filter(|t| !t.variant).count() as u32;
         } else {
             // Inline zero-allocation path: split_whitespace + lowercase + strip non-alphanumeric
             for word in text.split_whitespace() {

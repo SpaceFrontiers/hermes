@@ -1501,6 +1501,167 @@ async fn boosted_term_scores_like_a_repeated_term() {
     );
 }
 
+/// `keep_original` with light stemming: the written word is the indexed
+/// token, its stem and folded form are variants at the same position, so a
+/// match query finds every inflection while a phrase matches only the
+/// written form; variants do not count towards the field length; CJK
+/// dictionary words carry their bigrams.
+#[tokio::test]
+async fn keep_original_light_stemming_matches_stems_and_exact_phrases() {
+    use crate::dsl::PositionMode;
+    use crate::query::{BooleanQuery, PhraseQuery, TermQuery};
+    use crate::tokenizer::TokenizerSpec;
+
+    let spec = "stem(by: languages, default: en, stop_words: true, segmenter: icu, stem: light, keep_original: true)";
+    let mut schema_builder = SchemaBuilder::default();
+    let languages =
+        schema_builder.add_text_field_with_tokenizer("languages", false, true, "raw_ci");
+    let content = schema_builder.add_text_field_with_tokenizer("content", true, true, spec);
+    schema_builder.set_positions(content, PositionMode::TokenPosition);
+    let n = schema_builder.add_u64_field("n", true, true);
+    let schema = schema_builder.build();
+    let dir = RamDirectory::new();
+    let config = IndexConfig::default();
+    let mut writer = IndexWriter::create(dir.clone(), schema.clone(), config.clone())
+        .await
+        .unwrap();
+    let docs = [
+        (1u64, "en", "the cell membranes of a living cell"),
+        (2, "en", "one cell membrane"),
+        (3, "en", "résumés of the membrane study"),
+        (4, "de", "die Häuser der Stadt"),
+        (5, "ja", "量子コンピュータの研究"),
+        (6, "en", "unrelated words here"),
+    ];
+    for (id, language, text) in docs {
+        let mut doc = Document::new();
+        doc.add_u64(n, id);
+        doc.add_text(languages, language);
+        doc.add_text(content, text);
+        writer.add_document(doc).unwrap();
+    }
+    writer.commit().await.unwrap();
+    let index = Index::open(dir, config).await.unwrap();
+    let reader = index.reader().await.unwrap();
+    let searcher = reader.searcher().await.unwrap();
+    let tokenizer = TokenizerSpec::parse(spec)
+        .unwrap()
+        .dynamic_tokenizer()
+        .unwrap();
+    let ids = |results: Vec<crate::query::SearchResult>| async {
+        let mut out = Vec::new();
+        for r in results {
+            let doc = searcher.doc(r.segment_id, r.doc_id).await.unwrap().unwrap();
+            out.push(doc.get_first(n).unwrap().as_u64().unwrap());
+        }
+        out.sort_unstable();
+        out
+    };
+    let match_query = |text: &str, hint: Option<&str>| {
+        let mut q = BooleanQuery::new();
+        for token in tokenizer.tokenize_query(text, hint, false) {
+            q = q.should(TermQuery::text(content, &token.text));
+        }
+        q
+    };
+    let phrase_query = |text: &str, hint: Option<&str>| {
+        let terms = tokenizer
+            .tokenize_query(text, hint, true)
+            .into_iter()
+            .map(|t| (t.position, t.text.into_bytes()))
+            .collect();
+        PhraseQuery::with_offsets(content, terms)
+    };
+
+    // Match: "membranes" and "membrane" both find every inflection.
+    let (hits, _) = searcher
+        .search_with_count(&match_query("membranes", Some("en")), 10)
+        .await
+        .unwrap();
+    assert_eq!(ids(hits).await, vec![1, 2, 3]);
+    let (hits, _) = searcher
+        .search_with_count(&match_query("membrane", None), 10)
+        .await
+        .unwrap();
+    assert_eq!(ids(hits).await, vec![1, 2, 3]);
+    // Unknown language: the written form still matches the originals.
+    let (hits, _) = searcher
+        .search_with_count(&match_query("membranes", Some("xx")), 10)
+        .await
+        .unwrap();
+    assert!(ids(hits).await.contains(&1));
+    // Folding: an accent-free query matches the accented original.
+    let (hits, _) = searcher
+        .search_with_count(&match_query("resumes", Some("en")), 10)
+        .await
+        .unwrap();
+    assert_eq!(ids(hits).await, vec![3]);
+    let (hits, _) = searcher
+        .search_with_count(&match_query("résumés", Some("en")), 10)
+        .await
+        .unwrap();
+    assert_eq!(ids(hits).await, vec![3]);
+    // German light stem: "haus" finds "Häuser".
+    let (hits, _) = searcher
+        .search_with_count(&match_query("Haus", Some("de")), 10)
+        .await
+        .unwrap();
+    assert_eq!(ids(hits).await, vec![4]);
+
+    // Phrases use the written forms; because a stem shares the position of
+    // its word, a phrase term also matches words that stem to it ("cell
+    // membrane" finds "cell membranes"), while an inflected phrase term
+    // matches only that inflection.
+    let (hits, _) = searcher
+        .search_with_count(&phrase_query("cell membranes", Some("en")), 10)
+        .await
+        .unwrap();
+    assert_eq!(ids(hits).await, vec![1]);
+    let (hits, _) = searcher
+        .search_with_count(&phrase_query("cell membrane", Some("en")), 10)
+        .await
+        .unwrap();
+    assert_eq!(ids(hits).await, vec![1, 2]);
+    let (hits, _) = searcher
+        .search_with_count(&phrase_query("membranes of", Some("en")), 10)
+        .await
+        .unwrap();
+    assert_eq!(ids(hits).await, vec![1]);
+    // A stop word keeps its gap: "membranes of a living cell".
+    let (hits, _) = searcher
+        .search_with_count(&phrase_query("membranes of a living cell", Some("en")), 10)
+        .await
+        .unwrap();
+    assert_eq!(ids(hits).await, vec![1]);
+
+    // CJK: the dictionary word and a bigram of a longer word both match.
+    let (hits, _) = searcher
+        .search_with_count(&match_query("量子", None), 10)
+        .await
+        .unwrap();
+    assert_eq!(ids(hits).await, vec![5]);
+    let (hits, _) = searcher
+        .search_with_count(&TermQuery::text(content, "ピュ"), 10)
+        .await
+        .unwrap();
+    assert_eq!(ids(hits).await, vec![5]);
+    let (hits, _) = searcher
+        .search_with_count(&phrase_query("量子コンピュータ", None), 10)
+        .await
+        .unwrap();
+    assert_eq!(ids(hits).await, vec![5]);
+
+    // Field length counts written tokens only (stop words dropped): doc 2 is
+    // three tokens, not three plus its variants.
+    let avg = searcher.global_stats().avg_field_len(content);
+    // Stop words (the, of, a, die, der, here) are dropped; "の" is kept.
+    let expected = [4.0, 3.0, 3.0, 2.0, 4.0, 2.0].iter().sum::<f32>() / 6.0;
+    assert!(
+        (avg - expected).abs() < 0.2,
+        "avg field len {avg} vs {expected}"
+    );
+}
+
 /// Stop words dropped at index time leave their positions behind, so a
 /// phrase keeps the original word distances: `"quantum of the art"` is
 /// `quantum@0 art@3` on both sides and never matches `quantum art`.

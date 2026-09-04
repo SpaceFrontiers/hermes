@@ -75,7 +75,10 @@ fn field_token_stream(
         .get(tokenizer_name)
         .unwrap_or_else(|| Box::new(hermes_core::SimpleTokenizer));
     let hint = Some(tokenizer_hint.trim()).filter(|hint| !hint.is_empty());
-    let tokens = tokenizer.tokenize_hinted(text, hint);
+    // Phrases and terms want the written form; a match query scores with
+    // the stem (see `Tokenizer::tokenize_query`).
+    let exact = kind != "MatchQuery";
+    let tokens = tokenizer.tokenize_query(text, hint, exact);
     validate_token_expansion(kind, tokens.len(), shape.max_text_query_tokens)?;
     Ok((field, tokens))
 }

@@ -297,6 +297,7 @@ fn field_tokens(
     field_name: &str,
     text: &str,
     tokenizer_hint: Option<&str>,
+    exact: bool,
     schema: &Schema,
     tokenizers: &TokenizerRegistry,
 ) -> Result<(hermes_core::Field, Vec<(u32, String)>), JsValue> {
@@ -312,7 +313,7 @@ fn field_tokens(
         .unwrap_or_else(|| Box::new(hermes_core::SimpleTokenizer));
     let hint = tokenizer_hint.map(str::trim).filter(|h| !h.is_empty());
     let tokens: Vec<(u32, String)> = tok
-        .tokenize_hinted(text, hint)
+        .tokenize_query(text, hint, exact)
         .into_iter()
         .map(|t| (t.position, t.text))
         .collect();
@@ -332,7 +333,8 @@ fn tokenize_and_build(
     schema: &Schema,
     tokenizers: &TokenizerRegistry,
 ) -> Result<Box<dyn Query>, JsValue> {
-    let (field, tokens) = field_tokens(field_name, text, tokenizer_hint, schema, tokenizers)?;
+    // A term query wants the written form; a match query the stem.
+    let (field, tokens) = field_tokens(field_name, text, tokenizer_hint, must, schema, tokenizers)?;
     if tokens.len() == 1 {
         return Ok(Box::new(TermQuery::text(field, &tokens[0].1)));
     }
@@ -380,6 +382,7 @@ pub(crate) fn convert_query(
             &pq.field,
             &pq.text,
             pq.tokenizer_hint.as_deref(),
+            true,
             schema,
             tokenizers,
         )?;
