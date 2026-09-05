@@ -478,3 +478,74 @@ ingest/merge workload show acceptable p95/p99, memory, recall, and throughput.
 Run Linux cold-I/O/mlock measurements and x86 AVX2 comparison separately; this
 Mac/RAM run cannot establish those results. The focused harness does not replace
 the workspace's GPU, client generation, or WASM integration jobs.
+
+## Candidate scoring and coordinator review (2026-09-05)
+
+The post-implementation review traced the named query contract through native,
+async and WASM execution, immutable ordinal lookup publication, branch nomination,
+score backfill, document combiners, shard export, broker selection and clients.
+Core owns the only linear scorer and fusion algorithm; RPC adapters validate and
+translate. Existing extraction and chunk limits are unchanged.
+
+Findings resolved in this change:
+
+- A multi-field branch could cast two RRF votes for one logical passage, changing
+  the winner. The failing `one_branch_cannot_vote_twice_for_the_same_passage_across_fields`
+  regression now passes; core deduplicates by logical passage before assigning ranks.
+- Averaging or summing exported top passages cannot reproduce a document's full
+  reduction. Shards now export all scored rows for AVG/SUM and enough top rows
+  for MAX/weighted-top-k. Both levels execute the same core formula and verify
+  score agreement before the broker selects the global page.
+- The broker rejects missing shard responses/statistics, incompatible response
+  versions, duplicate document/branch identities, unexpected scopes, nonfinite
+  features and incomplete combiner inputs. CPU work retains admission permits
+  after client cancellation. Concurrent decode bytes and feature matrices are bounded.
+- Plain-text fields missing required length metadata now advertise that they
+  are unprepared instead of claiming readiness and failing only during backfill.
+- Integration with the independent text-pruning change preserves lazy ordered
+  phrase iteration and cancellation, while point backfill and ordinary phrase
+  retrieval share positional verification, global BM25 statistics and field parameters.
+
+The full harness passed all eight stages after integration with 1.8.123, including
+1,309 core unit tests, 62 server tests, 49 broker unit tests, 13 mock-broker
+integration tests and both real-server broker tests. Evidence is in
+`.context/search-harness/20260905T133245.093943Z-full/`. Python client round trips
+(8 tests) and TypeScript build/wire tests (6 tests) passed before the upstream
+merge; generated clients were refreshed against the combined protocol afterward.
+
+These are correctness results, not production recall or latency measurements.
+The L1 model remains opt-in. Training must measure held-out teacher candidate
+recall and passage survival with a frozen corpus, along with latency, response
+bytes and concurrent indexing load. Legacy nested fusion and fusion with the
+vector reranker retain their existing shard execution and do not advertise
+`global_rrf_v1`. Ordered old segments remain readable without a new sidecar;
+legacy reordered fields explicitly require preparation before L1 use.
+
+The Linux CI broker-only build exposed an x86 feature-boundary regression:
+`pack_group_bmi2` was compiled when its native/WASM writer caller was absent.
+Its cfg now matches the caller, retaining runtime BMI2 dispatch in writer builds.
+The failing CI run is `33969669241`; this does not change encoded bytes or scoring.
+The first fix accidentally gated the read-side decoder; CI `33971140308` caught
+that error. The corrected gate applies only to the writer. The broker's minimal
+core now also passes an explicit `x86_64-apple-darwin` compile with Rust 1.98.1
+and warnings denied (`.context/phrase-boost/l1-x86-broker-check.log` in the
+Azeroth integration workspace).
+
+The continuation caught lossy `GetIndexInfo` schema rendering: BMP sparse fields
+were reported without `format: bmp`, dimensions, grid/block settings, mass
+cropping or reordering. Re-parsing that report changed the apparent format to
+MaxScore even though persisted production metadata was BMP. The behavior-named
+round-trip regression fails before the fix and now preserves those settings.
+This changes diagnostics and schema fingerprints, not persisted storage or
+scoring. Production sparse format was verified against `metadata.json` on all
+four shards; full-text continues to use its existing MaxScore execution.
+
+Validation for the schema-reporting fix: all eight full-harness stages passed
+with `RUST_TEST_THREADS=1` (evidence: `.context/search-harness/20260905T150826.682593Z-full/`).
+Two earlier parallel runs timed out in different mock-broker discovery tests;
+the recovery test passed in isolation and the complete serial suite passed.
+A separate two-real-shard BMP fixture nominated only through dense search,
+backfilled BM25/phrase/sparse/document features including negative and zero
+values, and matched an independent full-union oracle for broker MAX/AVG/SUM
+top-K with bounded raw passage export. Its script and results are retained in
+the Azeroth integration workspace under `.context/l1-training/`.
