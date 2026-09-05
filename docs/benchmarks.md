@@ -39,6 +39,18 @@ Sources: [core benches](../hermes-core/benches/),
 
 ## CPU microbenchmarks
 
+The standalone example `bm25_execution_benchmark` builds 20,000 documents with
+four positioned text chunks each, then measures warm top-40 match, phrase and
+phrase-bonus searches. It prints ordered doc/score/ordinal bit signatures and
+ten samples after warmup. The deliberately high term frequencies stress phrase
+intersection; it is not a production-query or recall benchmark.
+
+```bash
+cargo build --locked --release -p hermes-core --example bm25_execution_benchmark
+# macOS: process peak RSS includes fixture construction, not only query scratch.
+/usr/bin/time -l target/release/examples/bm25_execution_benchmark
+```
+
 ```bash
 # Compile all core benchmark targets without running their workloads.
 cargo bench --locked -p hermes-core --no-run
