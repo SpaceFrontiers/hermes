@@ -1,0 +1,156 @@
+{
+  "mode": "full",
+  "steps": [
+    {
+      "command": ["cargo", "fmt", "--all", "--", "--check"],
+      "log": "01-fmt.log",
+      "returncode": 0,
+      "seconds": 1.4789301669225097
+    },
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "hermes-core",
+        "-p",
+        "hermes-server",
+        "-p",
+        "hermes-broker",
+        "-p",
+        "hermes-tool",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "log": "02-clippy.log",
+      "returncode": 0,
+      "seconds": 0.39821345917880535
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "hermes-core",
+        "-p",
+        "hermes-server",
+        "-p",
+        "hermes-broker",
+        "-p",
+        "hermes-tool",
+        "--features",
+        "hermes-core/metrics"
+      ],
+      "log": "03-test.log",
+      "returncode": 0,
+      "seconds": 136.283184917178
+    },
+    {
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "hermes-core",
+        "--no-default-features",
+        "--features",
+        "native",
+        "--all-targets"
+      ],
+      "log": "04-check.log",
+      "returncode": 0,
+      "seconds": 3.5398190417326987
+    },
+    {
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "hermes-core",
+        "--no-default-features",
+        "--lib"
+      ],
+      "log": "05-check.log",
+      "returncode": 0,
+      "seconds": 1.3978464170359075
+    },
+    {
+      "command": [
+        "cargo",
+        "doc",
+        "--locked",
+        "-p",
+        "hermes-core",
+        "-p",
+        "hermes-server",
+        "-p",
+        "hermes-broker",
+        "-p",
+        "hermes-tool",
+        "--no-deps"
+      ],
+      "log": "06-doc.log",
+      "returncode": 0,
+      "seconds": 4.883412041235715
+    },
+    {
+      "command": [
+        "cargo",
+        "build",
+        "--locked",
+        "-p",
+        "hermes-server",
+        "--bin",
+        "hermes-server"
+      ],
+      "log": "07-build.log",
+      "returncode": 0,
+      "seconds": 3.0741865830495954
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "hermes-broker",
+        "--test",
+        "e2e_real_server",
+        "--",
+        "--ignored"
+      ],
+      "log": "08-test.log",
+      "returncode": 0,
+      "seconds": 5.307649250142276
+    }
+  ],
+  "success": true,
+  "environment": {
+    "revision": "d2f2667b40285522119f2919463879860c18a048",
+    "status": "M docs/search-performance-review.md\n M hermes-server/src/converters.rs",
+    "working_diff_sha256": "a538fa8c922395fcc89b11c67bcf2171b89fbb271b0d1c630bf9cafa5ba33c36",
+    "host": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "processor": "arm",
+    "cpu_model": "Apple M4",
+    "logical_cpus": 10,
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8",
+    "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+    "flags": {
+      "RUSTFLAGS": "",
+      "CARGO_ENCODED_RUSTFLAGS": "",
+      "CARGO_BUILD_TARGET": "",
+      "CARGO_TARGET_DIR": "",
+      "CARGO_BUILD_JOBS": "",
+      "CRITERION_HOME": "",
+      "RAYON_NUM_THREADS": "",
+      "HERMES_PIN_MODE": "",
+      "HERMES_PIN_METADATA_BUDGET_MB": ""
+    }
+  }
+}
