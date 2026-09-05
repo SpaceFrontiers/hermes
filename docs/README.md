@@ -13,6 +13,12 @@ claim as implemented or as current performance.
 
 - [Benchmark guide](benchmarks.md)
 
+## Search engineering and performance
+
+- [Search system engineering contract](search-system-contract.md)
+- [Core/server review](search-performance-review.md)
+- [Rust hot-path review](rust-hot-path-review.md)
+
 ## Schema, text search, and query behavior
 
 - [Hermes Schema Definition Language (SDL)](schema.md)

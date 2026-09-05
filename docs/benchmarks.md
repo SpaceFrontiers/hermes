@@ -25,6 +25,8 @@ have their own CLI or environment variables and print reports to stdout.
 | `hermes-core`  | `bmp_payload_layout`  | Criterion              | Sparse payload layouts under diffuse/clustered locality                  |
 | `hermes-core`  | `core_structures`     | Criterion              | Production posting containers, collectors, fast fields, and directories  |
 | `hermes-core`  | `search_pipeline`     | Criterion              | Multi-segment text/vector/fusion search plumbing                         |
+| `hermes-core`  | `rust_hot_paths`      | Criterion              | Range materialization, closures, and code-generation probes              |
+| `hermes-core`  | `segment_merge`       | Criterion              | Deterministic RAM segment merges and fast-field remapping                |
 | `hermes-core`  | `hermes_benchmark`    | Standalone             | Dataset-driven dense MRL/nprobe, sparse, and single-term BM25 evaluation |
 | `hermes-llm`   | `moe_layer`           | Standalone; Linux CUDA | MoE forward/backward with and without router losses                      |
 | `hermes-llm`   | `moe_primitives`      | Standalone; Linux CUDA | Routing, packing, and expert-kernel costs                                |
