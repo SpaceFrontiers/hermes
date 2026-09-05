@@ -36,6 +36,43 @@ test emits a billion-document absent block without a document-sized allocation.
 Pinning coverage now compares exact doc IDs, score bits, and scored count before
 and after moving metadata into heap-backed storage.
 
+## Deployed indexing follow-up: position scratch and commit recovery
+
+A userspace CPU-clock sample of release 1.8.121 on the social shard captured
+4,850 indexing-worker samples, of which at least 4,676 (96.4%) were in the loop
+clearing every retained position vector before each text field/chunk. The
+scratch map accumulated the segment's vocabulary, including terms absent from
+the current field; even unpositioned fields paid for that scan.
+
+`SegmentBuilder` now records distinct terms with nonempty position scratch and
+clears only those on the next field/chunk. Cleanup is O(previous field's unique
+position terms), not O(segment vocabulary). Existing per-term vector capacities
+are reused. Additional scratch is one `Spur` per distinct positioned term in
+the largest field/chunk (four bytes per entry, plus Vec capacity slack); the
+existing segment-wide map still retains its allocations. Regression coverage
+checks growing vocabulary, repeated terms, empty/unpositioned fields, both
+tokenizer paths, all three position modes, and isolation between chunks/docs.
+
+The focused fixture is `hermes-core/examples/indexing_scratch_benchmark.rs`:
+1,000 eight-chunk documents after preloading 1K/10K/100K terms, excluding flush,
+ANN and merge work. Exploratory before/after runs used Rust 1.98.0 and the same
+release flags, but other CPU-heavy work ran on the shared Mac; these are not
+controlled throughput estimates or a production speedup claim. The fixture's
+large seed field also retains a large term-frequency table, so it includes
+more than the position-cleanup cost. Repeat on an idle machine and measure
+end-to-end ingest/maintenance separately before asserting sustained capacity.
+
+The same production review found all three document shards paused after a
+300-second flush timeout, despite their builds eventually finishing. Retrying
+`Commit` recovered the retained generation (1,744,007 committed documents
+across the three shards). Core now exposes `CommitFlushTimeout` as a distinct
+error. The server owns an accepted commit through flush, publication, reader
+reload and timeout retries even if its client disconnects. Shutdown waits for
+that writer guard before closing segment-build admission. Build/publication
+errors are not retried in a loop. See [the lifecycle contract](segment-lifecycle.md)
+for recovery and forced-termination limits. This does not alter sparse reorder
+policy, ANN construction, scoring, or persisted formats.
+
 ## Rust and low-level continuation
 
 The [Rust hot-path review](rust-hot-path-review.md) extends this pass with
