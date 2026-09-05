@@ -549,3 +549,248 @@ backfilled BM25/phrase/sparse/document features including negative and zero
 values, and matched an independent full-union oracle for broker MAX/AVG/SUM
 top-K with bounded raw passage export. Its script and results are retained in
 the Azeroth integration workspace under `.context/l1-training/`.
+
+## L1 completion and owned forward values (Quebec, 2026-09-05)
+
+Reviewed and integrated `origin/handoff/l1-scoring-2026-09-05` at `2d21cb0e`.
+Rebased onto `origin/main` at `1844d9af`, preserving its budgeted BP gain cache
+and the earlier broker/text merge resolutions. This section supersedes the draft sidecar and complete-rescoring descriptions
+above; historical evidence remains attributed to its original workspace.
+
+Resolved findings:
+
+- L1 recomputed organic scores and treated every missing value as an implicit
+  zero contribution. It now preserves branch/document and branch/passage scores
+  exactly, probes only missing cells, and supports optional `backfill` (default
+  true). `missing_values` supplies learned raw defaults before transforms;
+  raw exports retain absence. Actual zero/negative scores are never imputed.
+  Core and broker share the same formula. The contract is `linear_v2` /
+  `feature_export_v2`, with candidate-scoring capability 2.
+- Sparse MaxScore was unavailable for backfill. Bounded skip-index probes now
+  establish presence and score selected documents/ordinals with the existing
+  quantized block decoder. Full-text BM25/MaxScore and phrases already use the
+  existing posting and position readers. Sparse probes/reads and lazy text
+  materialization have request-wide admission budgets; no missing cells means
+  no address/payload probes, including on legacy unprepared fields. Async BM25
+  statistics now read only dictionary frequencies, fixing posting payload reads
+  that bypassed candidate-scoring admission on lazy backends.
+- Rejected `.lookup` sidecars introduced duplicate addressing and lifecycle
+  state. BMP V20 stores quantized logical forward values inside `.sparse`;
+  CHNK V3 adds only physical slots to the existing chunk metadata. Compatible
+  merge copies payload and streams metadata remapping. Record and block BP copy
+  forward bytes unchanged. Record BP graph construction and selected-record
+  rewrite consume those forward values; block BP retains block-level inputs.
+  V19 remains readable; all-legacy ordinary merges retain V19, mixed V19/V20
+  merges reject, and explicit budgeted reorder migrates old values. No new
+  publication, cleanup protocol or preparation RPC is introduced.
+- Text merge could silently lose addressing by combining legacy unordered and
+  prepared maps. It now rejects incompatible combinations before writing,
+  retains the legacy version for pure legacy maps, and validates V3 ordering,
+  permutations and section bounds. Explicit reorder upgrades even small legacy
+  text segments with no BP plan, preserving original unsaturated token totals.
+- Duplicate sparse dimensions were accepted by existing BMP ingestion but a
+  new forward validator rejected them; the legacy point scorer also returned
+  only one duplicate impact. Forward values preserve every retained impact,
+  both point paths sum them, and accumulation overflow fails explicitly. Repeated
+  query dimensions also retain all independently quantized contributions.
+- The TypeScript wrapper discarded new L1 options despite correct generated
+  bindings. A failing wrapper-level regression now verifies actual request
+  forwarding of false and learned defaults. Python and TypeScript bindings
+  preserve optional-boolean presence and absent raw feature keys. Both wrappers
+  reject legacy linear responses rather than silently accepting ignored options.
+- Nomination union construction cloned lists before checking retained budgets.
+  The shared union builder accepts borrowed lists and checks each hit/ordinal
+  before cloning. Original branch lists remain available for organic scores.
+
+Behavior-named regressions reproduce V3 corruption acceptance, legacy duplicate
+impact loss, repeated-query contribution loss, TypeScript option loss, legacy
+response acceptance, premature lazy text payload reads, and invalid backfill/all-passage
+policy acceptance before their fixes; the latter now fails before admission. Additional tests
+cover quantized forward/inverted equality, real missing ordinals, byte identity
+through copy merge and both BP modes, explicit V19 migration budgets, partial
+writer failure, cancellation during payload output, and sparse MaxScore ordinals
+spanning multiple blocks. Existing generation failure/cleanup tests exercise
+these writers through their original lifecycle owner.
+
+### Same-binary format/path comparison
+
+Host: Apple M4, macOS 15.6.1 (24G90), aarch64, Rust 1.98.1 / LLVM 22.1.8,
+default release flags. Fixed RAM fixture: 16,384 single-valued vectors, 4,096
+dimensions, 64 retained entries/vector, 128-slot BMP blocks, 4-bit grids.
+Legacy V19 is obtained by removing only the V20 forward section from the same
+encoded fixture. This compares the retained old and new paths in one binary;
+it is not a historical ingestion benchmark. Candidate scores agree exactly;
+BP retains identical document, term and posting counts without budget truncation.
+Existing BP rewrite tests separately compare all quantized values.
+
+Run the ignored `measure_forward_candidate_scoring_and_bp_graph` core test in
+release mode alone, with `--ignored --nocapture --test-threads=1`. It fixes BP
+at four workers and a 128 MiB budget. Eleven samples measure 100 scoring calls
+per sample (128 candidates, 64 query dimensions) and one BP graph construction.
+No other CPU-heavy checks ran during this measurement.
+
+| Operation             | V19 median (range)           | V20 median (range)        |
+| --------------------- | ---------------------------- | ------------------------- |
+| Candidate scoring     | 110.438 µs (110.162–115.661) | 12.427 µs (12.359–12.706) |
+| BP graph construction | 2.759 ms (2.717–2.909)       | 2.180 ms (2.144–2.217)    |
+| Encoded BMP bytes     | 6,944,624                    | 12,449,664                |
+
+The forward section adds 5,505,040 bytes here (79.3% over V19). Its exact cost
+is 5 bytes/retained posting + 16 bytes/vector + 16 bytes/field. Both forward
+payload and directory remain evictable, with no new pinning allocation.
+Graph CSR allocations remain 4,194,304 term bytes + 131,080 offset bytes on both
+paths; existing physical maps and graph admission limits remain in force.
+The entire measurement process peaked at 83,836,928 RSS bytes / 41,779,800 bytes
+macOS memory footprint, including fixture construction and both source blobs.
+This is not a per-operation or cold-mmap memory measurement. New-ingestion blob
+construction took 121.580 ms, without a measured old-ingestion comparison.
+
+Normal forward merge holds O(source count) plans, copies at most 4 MiB per
+I/O call and streams fixed-size directory rows; it allocates no vector/posting
+permutation. Explicit V19 migration separately admits 12 bytes/real vector of
+permutation/offset scratch. New ingestion retains its original posting input
+longer, adding only dimension cursors and 8-byte/vector offsets; it does not
+materialize a second posting collection. Text merge patches doc IDs in 64 KiB
+batches and streams slot remapping; explicit text rewrite admits its columns,
+largest 4-byte/chunk permutation and retained BP plans before allocation.
+
+These measurements support the selective scoring improvement on this fixture,
+not a production latency, recall or universal BP speedup claim. Production
+cold/warm p95/p99 with concurrent ingestion, reordered large corpora, Linux
+kernel-copy/mlock behavior and x86 runtime measurements remain unmeasured.
+No ranking, BP-granularity or SIMD defaults changed from these measurements.
+Raw measurement output is `.context/l1-performance.log` in this workspace.
+
+The follow-up [BMP forward-search research](bmp-forward-search.md) includes primary
+literature, reproducible phase-two and whole-block kernel experiments, and explicit
+safety conditions for selective completion, filters and threshold seeding. Current
+Hermes measurements favor very small survivor sets, not replacing whole-block
+inverted evaluation. Retrieval defaults remain unchanged.
+
+Follow-up measurements include production per-block term masks and already-parsed
+phase-two blocks. They supersede the initial unmasked-header microbenchmark:
+one-survivor completion is about 2.6 times faster, while full 32-slot forward
+scoring is 11.3–11.6 times slower on that fixture. A separate record-BP mmap
+experiment finds a 42–44% one-survivor forward-kernel reduction from a dense query table plus
+fused validation, but a 423,516-byte table costs about 3.1 µs to allocate/prepare.
+Only ignored experiments use that kernel; no new production cache or search
+policy is enabled. See the linked research for setup, memory and locality limits.
+
+### Validation of the rebased integration
+
+All eight full-harness stages passed with `RUST_TEST_THREADS=1` after the rebase:
+`.context/search-harness/20260905T174703.766254Z-full/`. This includes 1,324 core
+unit tests (17 manual experiments ignored), 64 server tests, 50 broker unit tests,
+13 broker integration tests, core integration/doctests, and both real-server
+broker tests. The earlier required `check` mode also passed; `full` repeats and
+extends all of its stages. The real L1 fixture tests disabled backfill, learned
+missing defaults, retained organic values and shared broker/shard inference.
+
+Supplementary checks passed:
+
+- Native without sync: nine candidate-scoring/model tests, including MaxScore
+  and legacy addressing; `.context/l1-rebased-native-async.log`.
+- WASM release build and four runtime tests in two files;
+  `.context/l1-rebased-wasm-tests.log` records the runtime results.
+- Python and TypeScript client unit tests: nine each;
+  `.context/l1-rebased-python-tests.log`, `.context/l1-rebased-ts-tests.log`.
+- x86_64-apple-darwin minimal-core cross-check with warnings denied;
+  `.context/l1-x86-minimal.log`. This is not an x86 performance measurement.
+- Final format/diagnostic comment cleanup: core all-target Clippy with warnings
+  denied, `git diff --check`, and search ownership/document contracts passed.
+- All four manual measurement runs (candidate/BP, phase two, whole query, mmap
+  query-table/BP locality) passed their integer/shape oracles after the rebase.
+
+No required validation remains unrun and no environment failure blocked these
+checks. Production cold-corpus latency, concurrent load, Linux residency/copy
+behavior, and x86 runtime performance remain outside the measured evidence.
+
+### Retired selective forward-search experiment
+
+The prototype integrated per-slot forward completion into actual BMP traversal,
+including bounded reads, exact score/ordinal comparisons and real RPC tests.
+It has now been removed from production search, together with its query option,
+adapters, counters and format-only uniqueness certificate. The measurements
+below are historical evidence for that decision, not a current search feature.
+The prototype sources/patch are archived in `.context/retired-forward-search/`.
+
+The [whole-query experiment](bmp-forward-search.md#whole-query-traversal-and-record-bp-experiment)
+now includes real traversal before and after record BP, exact score/ordinal
+comparisons, p50/p95/p99 and memory/fault evidence. At 4K dimensions/depth 10/cap 2,
+warm median latency improved from 169.46 to 162.92 µs (3.9%), with essentially
+unchanged tails. After BP, small survivor sets were rare; forcing whole-block
+completion at depth 10 regressed median latency by 1.6–1.7 times. Reclamation hints
+also removed the warm benefit. Forward completion is no longer integrated with search;
+dense query tables and fused validation remain isolated kernel experiments.
+
+Historical prototype validation (before removing its search integration):
+
+- Required `check` passed at `.context/search-harness/20260905T182911.605688Z-check/`.
+- All eight `full` stages passed at
+  `.context/search-harness/20260905T183614.969305Z-full/`: 1,332 core unit tests
+  (18 manual experiments ignored), 65 server tests, 50 broker unit tests, 13 broker
+  integration tests, core integration/doctests and three real-server broker tests.
+  The new real RPC test checks the opt-in and rejects an oversized setting.
+- Final dispatch guard/lookup-counter cleanup passed seven focused native
+  regressions, seven native-without-sync regressions and core all-target Clippy
+  with metrics and warnings denied. Evidence is in `.context/l1-traversal-final-*`
+  and `.context/l1-traversal-native-async.log`.
+- Final WASM release build and five runtime tests passed; Python and TypeScript
+  client suites passed ten tests each. Logs use `.context/l1-traversal-*`.
+- The whole-query benchmark passed all comparison oracles, including actual
+  forward scoring after record BP. Peak process RSS / footprint were
+  96,354,304 / 30,851,720 bytes, including setup and both index layouts.
+
+All required checks ran successfully. Controlled cold-disk, concurrent production
+load and x86 runtime performance remain unmeasured. The workspace remains rebased
+on `origin/main` at `1844d9af`; defaults are not changed from this synthetic ARM
+fixture.
+
+### Optional BMP forward storage and final search policy
+
+`bmp_forward_index` is a per-field schema boolean, default true. SDL and persisted
+JSON retain explicit false; server schema export preserves it. Disabled ingestion
+skips forward construction and releases input postings before grid output.
+Ordinary merge and both BP output modes omit the forward section when disabled.
+Mixed V19/V20 sources can then copy their compatible inverted blocks into V19;
+enabled mixed-version merges still reject an implicit migration. A field excluded
+from explicit reorder remains a byte-identical copy, preserving that contract.
+
+BMP retrieval has no forward-index integration or query switch. BP's per-vector
+graph and rewrite reads and L1 missing-cell backfill always use stored forward
+values when available, without a crossover heuristic. Block BP continues to use
+its compact block graph and copies unchanged payloads. Corrupt forward values
+fail their L1/record-BP consumers; ordinary search never reads that payload.
+Ordered V19 maps still support targeted L1 posting probes. Unordered V19 requires
+enabling forward storage and explicit reorder/rebuild, or disabled backfill with
+organic scores and learned missing defaults. Full-text/MaxScore are unaffected.
+
+Eight focused regressions pass, including full inverted-byte identity with
+storage disabled, mixed-version copy merge, standalone and merge-time BP,
+missing/zero/organic L1 scores, schema persistence and the search/L1/BP read
+boundary. Logs: `.context/l1-storage-optional-tests.log`. The initial ingestion
+test failed before the option was wired (`.context/l1-storage-optional-red.log`).
+The space saving is exactly the omitted forward section: 5 bytes per retained
+posting, 16 bytes per vector and a 16-byte trailer. No new latency claim is made.
+
+Final validation:
+
+- Required `check` passed:
+  `.context/search-harness/20260905T191742.125172Z-check/`.
+- All eight `full` stages passed:
+  `.context/search-harness/20260905T192107.952734Z-full/`, including 1,333 core unit
+  tests (17 manual experiments ignored), 64 server tests, 50 broker unit tests,
+  13 broker integration tests, core integration/doctests and two real-server RPC
+  tests. This includes optional-storage schema round-tripping in server SDL.
+- All eight storage/boundary regressions also passed on native without sync:
+  `.context/l1-storage-native-async.log`.
+- WASM release build and all five runtime tests passed, including equal search
+  results with storage enabled/disabled. Python and TypeScript regenerated
+  bindings and their nine client tests each passed. Logs use
+  `.context/l1-storage-{wasm,python,ts}-*`.
+- Documentation links, search ownership contracts, formatting and whitespace
+  checks passed. No required check remains unrun or environmentally blocked.
+
+The earlier production-corpus, controlled cold-storage, concurrent-load and x86
+runtime performance limitations still apply; this storage option makes no new
+performance claim or change to BMP search behavior.
