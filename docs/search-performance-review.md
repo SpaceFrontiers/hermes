@@ -836,3 +836,64 @@ Validation:
   complete runs then passed. Production logging is unchanged.
 
 No new search-latency or throughput claim is made by this cleanup.
+
+## Deletion and maintenance admission (2026-09-06)
+
+Production recreation exposed three lifecycle ordering bugs. Deletion evicted
+the registry handle but did not stop the manager before waiting for issued
+handles, allowing old Reorder work to retain maintenance capacity. A handler
+that already held the index could then wait for its writer behind the delete
+lease, forming a second handle-drain cycle. Registry open also swept alleged
+orphans before acquiring the OS writer lock, which could delete another
+process's unpublished output. Behavior-named regressions reproduced all three.
+
+Deletion now stops manager admission and signals cancellation before the handle
+drain; reopening checks the deletion marker before waiting for the lease. Open
+uses the existing locked writer opener before loading metadata or cleaning up;
+the returned index and writer share one segment manager. This also closes the
+stale-snapshot window if another writer finishes during open. Actual blocking work, publication
+and deferred deletion still drain before directory removal.
+
+Reorder's shared-writer entry point commits admitted input, releases the writer
+lock during maintenance, and uses the existing manager and primary-key refresh
+path. Its retained writer Arc preserves the OS lock. Manual BP now uses the
+configured background CPU pool. Tests hold all BP capacity while committing
+new documents, preserve committed and pending primary keys across replacement,
+and cancel queued maintenance without releasing the other index's permit.
+
+The observed fresh-index stall was maintenance waiting, not multi-minute BMP
+encoding: new-field BP/rewrite phases logged about 0.2–0.7 seconds while
+publication retried 120-second timeouts. After recovery/recreation, all three
+documents shards were committing again (94,442 documents at 21:09 UTC). These
+are incident observations, not a controlled throughput benchmark.
+
+Focused regression evidence is in the parent workspace's
+`.context/lifecycle-{delete,reopen,writer-owner}-red.log`,
+`.context/lifecycle-maintenance-tests.log` and
+`.context/lifecycle-registry-tests.log`. The lifecycle-only `check` and all eight
+`full` stages passed (1,341 core, 68 server, 50 broker unit, 13 broker integration
+and two real-server tests), as did native-without-sync maintenance regressions.
+One initial broad run hit a mock broker's ephemeral-port collision; rerunning
+with `RUST_TEST_THREADS=1` passed without changing production or test behavior.
+
+The API also uses an explicit `AllQuery` inside exclusion filters. The existing
+wire variant now maps to a core query sharing the all-document cursor and
+bounded bitmap. Regressions cover both common-filter spellings in all fusion
+modes, missing metadata, bitmap tail bounds and forward-only cursor seeking.
+The wire conversion regression first failed with the unimplemented-query error.
+Final combined validation passed:
+
+- `check`: `.context/search-harness/20260905T213650.334212Z-check/`.
+- All eight `full` stages:
+  `.context/search-harness/20260905T213942.454422Z-full/` (1,344 core tests,
+  17 manual experiments ignored, 70 server, 50 broker unit, 13 broker integration
+  and two real-server RPC tests).
+- Native without sync: both match-all regressions and all three maintenance
+  regressions passed. WASM release build and all five runtime tests passed.
+  Logs: parent workspace `.context/final-engine2-{async,wasm-build,wasm-test}.log`.
+- The lock-before-metadata regression failed before the final opener change;
+  both registry ownership regressions then passed. Red evidence:
+  `.context/lifecycle-open-snapshot-red.log` in the parent workspace.
+  An interim full run was interrupted to make that final change; its process
+  group cancellation reported an OS error, so only the complete final run above
+  is used as validation evidence.
