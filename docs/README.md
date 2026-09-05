@@ -17,6 +17,7 @@ claim as implemented or as current performance.
 
 - [Search system engineering contract](search-system-contract.md)
 - [Core/server review](search-performance-review.md)
+- [L1 candidate scoring handoff and rejected lookup design](handoffs/2026-09-05-l1-candidate-scoring.md)
 - [Rust hot-path review](rust-hot-path-review.md)
 
 ## Schema, text search, and query behavior

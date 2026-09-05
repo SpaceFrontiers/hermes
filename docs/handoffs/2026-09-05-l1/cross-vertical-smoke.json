@@ -1,0 +1,366 @@
+{
+  "export": {
+    "hits": [
+      {
+        "address": {
+          "segmentId": "01a0721a9f0934c7ef13aa7913107a9a"
+        },
+        "fields": {
+          "id": {
+            "values": [
+              {
+                "text": "doc-3"
+              }
+            ]
+          }
+        },
+        "ordinalScores": [
+          {
+            "score": -0.7799966
+          },
+          {
+            "ordinal": 1,
+            "score": 0.4099982
+          }
+        ],
+        "candidateScores": {
+          "document": {
+            "document_bm25": 0.10536056
+          },
+          "passages": [
+            {
+              "scores": {
+                "body_phrase": 0.0,
+                "body_sparse": 0.19607604,
+                "body_bm25": 0.0,
+                "body_dense": -0.7799966
+              }
+            },
+            {
+              "ordinal": 1,
+              "scores": {
+                "body_phrase": 1.2814486,
+                "body_sparse": 0.8195968,
+                "body_bm25": 0.6407243,
+                "body_dense": 0.4099982
+              }
+            }
+          ],
+          "scoredPassages": 2
+        }
+      },
+      {
+        "address": {
+          "segmentId": "01a0721a9f093c847a30fc0df406a04b"
+        },
+        "fields": {
+          "id": {
+            "values": [
+              {
+                "text": "doc-0"
+              }
+            ]
+          }
+        },
+        "ordinalScores": [
+          {
+            "score": -0.89999604
+          },
+          {
+            "ordinal": 1,
+            "score": 0.49999782
+          }
+        ],
+        "candidateScores": {
+          "document": {
+            "document_bm25": 0.10536056
+          },
+          "passages": [
+            {
+              "scores": {
+                "body_phrase": 0.0,
+                "body_sparse": 0.12744859,
+                "body_bm25": 0.0,
+                "body_dense": -0.89999604
+              }
+            },
+            {
+              "ordinal": 1,
+              "scores": {
+                "body_phrase": 1.2814486,
+                "body_sparse": 0.76469487,
+                "body_bm25": 0.6407243,
+                "body_dense": 0.49999782
+              }
+            }
+          ],
+          "scoredPassages": 2
+        }
+      },
+      {
+        "address": {
+          "segmentId": "01a0721a9f09957f2fb114b8b1463830"
+        },
+        "fields": {
+          "id": {
+            "values": [
+              {
+                "text": "doc-1"
+              }
+            ]
+          }
+        },
+        "ordinalScores": [
+          {
+            "score": -0.85999626
+          },
+          {
+            "ordinal": 1,
+            "score": 0.46999794
+          }
+        ],
+        "candidateScores": {
+          "document": {
+            "document_bm25": 0.10536056
+          },
+          "passages": [
+            {
+              "scores": {
+                "body_phrase": 0.0,
+                "body_sparse": 0.15489957,
+                "body_bm25": 0.0,
+                "body_dense": -0.85999626
+              }
+            },
+            {
+              "ordinal": 1,
+              "scores": {
+                "body_phrase": 1.2814486,
+                "body_sparse": 0.7784203,
+                "body_bm25": 0.6407243,
+                "body_dense": 0.46999794
+              }
+            }
+          ],
+          "scoredPassages": 2
+        }
+      },
+      {
+        "address": {
+          "segmentId": "01a0721a9f0996fe87244999f822fcb5"
+        },
+        "fields": {
+          "id": {
+            "values": [
+              {
+                "text": "doc-2"
+              }
+            ]
+          }
+        },
+        "ordinalScores": [
+          {
+            "score": -0.8199964
+          },
+          {
+            "ordinal": 1,
+            "score": 0.4399981
+          }
+        ],
+        "candidateScores": {
+          "document": {
+            "document_bm25": 0.10536056
+          },
+          "passages": [
+            {
+              "scores": {
+                "body_phrase": 0.0,
+                "body_sparse": 0.16862506,
+                "body_bm25": 0.0,
+                "body_dense": -0.8199964
+              }
+            },
+            {
+              "ordinal": 1,
+              "scores": {
+                "body_sparse": 0.8058713,
+                "body_phrase": 1.2814486,
+                "body_bm25": 0.6407243,
+                "body_dense": 0.4399981
+              }
+            }
+          ],
+          "scoredPassages": 2
+        }
+      }
+    ],
+    "totalHits": "4",
+    "tookMs": "3",
+    "timings": {
+      "searchUs": "1877",
+      "rerankUs": "2",
+      "loadUs": "236",
+      "totalUs": "3511",
+      "candidateScoringUs": "1397"
+    },
+    "rankingMethod": "feature_export_v1"
+  },
+  "max": {
+    "hits": [
+      {
+        "address": {
+          "segmentId": "01a0721a9f0934c7ef13aa7913107a9a"
+        },
+        "score": 1.7098403,
+        "fields": {
+          "id": {
+            "values": [
+              {
+                "text": "doc-3"
+              }
+            ]
+          }
+        },
+        "ordinalScores": [
+          {
+            "ordinal": 1,
+            "score": 1.7098403
+          }
+        ],
+        "candidateScores": {
+          "document": {
+            "document_bm25": 0.10536056
+          },
+          "passages": [
+            {
+              "ordinal": 1,
+              "scores": {
+                "body_sparse": 0.8195968,
+                "body_phrase": 1.2814486,
+                "body_bm25": 0.6407243,
+                "body_dense": 0.4099982
+              },
+              "l1Score": 1.7098403
+            }
+          ],
+          "scoredPassages": 2
+        }
+      }
+    ],
+    "totalHits": "4",
+    "tookMs": "3",
+    "timings": {
+      "searchUs": "264",
+      "rerankUs": "1",
+      "loadUs": "114",
+      "totalUs": "3684",
+      "candidateScoringUs": "686"
+    },
+    "rankingMethod": "linear_v1"
+  },
+  "avg": {
+    "hits": [
+      {
+        "address": {
+          "segmentId": "01a0721a9f0934c7ef13aa7913107a9a"
+        },
+        "score": 1.1583292,
+        "fields": {
+          "id": {
+            "values": [
+              {
+                "text": "doc-3"
+              }
+            ]
+          }
+        },
+        "ordinalScores": [
+          {
+            "ordinal": 1,
+            "score": 1.7098403
+          }
+        ],
+        "candidateScores": {
+          "document": {
+            "document_bm25": 0.10536056
+          },
+          "passages": [
+            {
+              "ordinal": 1,
+              "scores": {
+                "body_phrase": 1.2814486,
+                "body_sparse": 0.8195968,
+                "body_bm25": 0.6407243,
+                "body_dense": 0.4099982
+              },
+              "l1Score": 1.7098403
+            }
+          ],
+          "scoredPassages": 2
+        }
+      }
+    ],
+    "totalHits": "4",
+    "tookMs": "2",
+    "timings": {
+      "searchUs": "137",
+      "loadUs": "87",
+      "totalUs": "2405",
+      "candidateScoringUs": "390"
+    },
+    "rankingMethod": "linear_v1"
+  },
+  "sum": {
+    "hits": [
+      {
+        "address": {
+          "segmentId": "01a0721a9f0934c7ef13aa7913107a9a"
+        },
+        "score": 2.3166585,
+        "fields": {
+          "id": {
+            "values": [
+              {
+                "text": "doc-3"
+              }
+            ]
+          }
+        },
+        "ordinalScores": [
+          {
+            "ordinal": 1,
+            "score": 1.7098403
+          }
+        ],
+        "candidateScores": {
+          "document": {
+            "document_bm25": 0.10536056
+          },
+          "passages": [
+            {
+              "ordinal": 1,
+              "scores": {
+                "body_sparse": 0.8195968,
+                "body_phrase": 1.2814486,
+                "body_bm25": 0.6407243,
+                "body_dense": 0.4099982
+              },
+              "l1Score": 1.7098403
+            }
+          ],
+          "scoredPassages": 2
+        }
+      }
+    ],
+    "totalHits": "4",
+    "tookMs": "2",
+    "timings": {
+      "searchUs": "140",
+      "rerankUs": "1",
+      "loadUs": "86",
+      "totalUs": "2414",
+      "candidateScoringUs": "397"
+    },
+    "rankingMethod": "linear_v1"
+  }
+}
