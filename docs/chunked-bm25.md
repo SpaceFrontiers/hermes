@@ -69,9 +69,12 @@ and which of it Hermes applies.
 
 ## Measure
 
-Both deferred items and any `k1`/`b` change must be measured on the
-search-quality benchmark (`benchmarks/search-quality`) before changing
-defaults; the length floor changes only tail-chunk scores and is pinned by
+Both deferred items and any `k1`/`b` change need a held-out full-query
+search-quality evaluation before changing defaults. The previously referenced
+`benchmarks/search-quality` directory is not included in this repository.
+See the [available benchmark harnesses](benchmarks.md); the unified harness
+currently uses single-term BM25 and cannot establish this quality gate.
+Separately, the length floor changes only tail-chunk scores and is pinned by
 `index::tests::chunked` (a short tail chunk no longer outranks a full chunk
 with the same `tf`).
 

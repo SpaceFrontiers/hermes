@@ -21,6 +21,9 @@ optimized CubeCL kernels. Hermes adds CubeCL training kernels for Mamba's
 selective scan, depthwise convolution, and attention backward. GPU tensors stay
 resident throughout inference and training.
 
+The commands below assume `target/release` is on `PATH` (for example,
+`export PATH="$PWD/target/release:$PATH"` from the repository root).
+
 ## Generate text
 
 ```bash
@@ -87,11 +90,17 @@ logical vocabulary size while embedding and output tensors use a derived
 - RoPE and sliding-window attention
 - RMSNorm and LayerNorm
 - gated and non-gated FFNs
-- optional configurable top-k MoE FFNs (see `docs/moe-design.md`)
+- optional configurable top-k MoE FFNs (see [MoE design](../docs/moe-design.md))
 - Mamba selective state-space blocks
 - mixed Transformer/Mamba layer patterns
 - tied or untied output embeddings
 - right-sized incremental KV-cache and recurrent-state decoding
+
+## Benchmarks and diagnostics
+
+See the [benchmark guide](../docs/benchmarks.md) for CPU smoke runs and CUDA
+MoE/memory acceptance runs, and [Model Lab](../hermes-model-lab/README.md)
+for live inference and trace inspection.
 
 ## License
 

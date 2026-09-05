@@ -20,10 +20,10 @@
 //!
 //! ```text
 //! cargo bench -p hermes-llm --bench memory_reserve --features training-fusion -- \
-//!   --model hermes-mal/well-known/retriever_300m_moe_sleep.mal \
-//!   --baseline-model hermes-mal/well-known/retriever_300m_moe.mal \
+//!   --model "$PWD/hermes-mal/well-known/retriever_300m_moe_sleep.mal" \
+//!   --baseline-model "$PWD/hermes-mal/well-known/retriever_300m_moe.mal" \
 //!   --tokens 8192 --tier 0 --max-active 2 --require-cuda --enforce \
-//!   --output memory-reserve-cuda.json
+//!   --output "$PWD/memory-reserve-cuda.json"
 //! ```
 //!
 //! A non-CUDA run is deliberately labelled `local_non_cuda_smoke_only` and

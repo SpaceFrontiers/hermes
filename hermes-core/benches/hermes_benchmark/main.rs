@@ -8,12 +8,13 @@
 //! 5. MS MARCO IR metrics comparison (all methods)
 //!
 //! Run with:
-//!   BENCHMARK_DATA=benches/benchmark_data cargo run --release --bin hermes_benchmark
+//!   BENCHMARK_DATA=/absolute/path/to/benchmark_data cargo bench -p hermes-core --bench hermes_benchmark --locked
 //!
 //! Generate data first:
-//!   TRITON_URL=... TRITON_API_KEY=... python benches/generate_benchmark_data.py --use-beir
+//!   python hermes-core/benches/generate_benchmark_data.py --use-beir --output-dir /absolute/path/to/benchmark_data
 
 mod config;
+mod corpus;
 mod data;
 mod metrics;
 mod output;
@@ -21,12 +22,13 @@ mod output;
 use std::time::Instant;
 
 use config::BenchmarkConfig;
+use corpus::corpus_ids;
 use data::{DenseData, GroundTruth, Qrels, SparseData, TextData};
 use hermes_core::directories::RamDirectory;
 use hermes_core::dsl::{DenseVectorConfig, Document, Schema};
 use hermes_core::index::{Index, IndexConfig, IndexWriter};
 use hermes_core::query::{DenseVectorQuery, SparseVectorQuery};
-use metrics::{LatencyStats, mrr, ndcg_at_k};
+use metrics::{LatencyStats, mrr_at_10, ndcg_at_k, recall_at_k};
 use output::{
     IndexingResult, IrResult, MrlResult, print_header, print_indexing_table, print_ir_table,
     print_mrl_table,
@@ -39,12 +41,12 @@ const MRL_DIMS: &[usize] = &[64, 128, 256, 512, 1024];
 /// nprobe values to benchmark for dense vector search
 const NPROBE_VALUES: &[usize] = &[8, 16, 32, 64];
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let rt = Runtime::new().expect("Failed to create tokio runtime");
-    rt.block_on(run_benchmarks());
+    rt.block_on(run_benchmarks())
 }
 
-async fn run_benchmarks() {
+async fn run_benchmarks() -> Result<(), Box<dyn std::error::Error>> {
     let bench_config = BenchmarkConfig::from_env();
 
     if !bench_config.has_data() {
@@ -54,33 +56,30 @@ async fn run_benchmarks() {
         );
         println!("   Generate it first:");
         println!(
-            "   TRITON_URL=... TRITON_API_KEY=... python benches/generate_benchmark_data.py --use-beir\n"
+            "   python hermes-core/benches/generate_benchmark_data.py --use-beir --output-dir /absolute/path/to/benchmark_data\n"
         );
-        return;
+        return Err("benchmark data is missing; see docs/benchmarks.md".into());
     }
 
     // Load dense data (required)
     let dense_docs = match DenseData::load(&bench_config.dense_embeddings_path()) {
         Some(d) => d,
         None => {
-            println!("Failed to load dense embeddings");
-            return;
+            return Err("failed to load dense embeddings".into());
         }
     };
 
     let dense_queries = match DenseData::load(&bench_config.dense_queries_path()) {
         Some(d) => d,
         None => {
-            println!("Failed to load dense queries");
-            return;
+            return Err("failed to load dense queries".into());
         }
     };
 
     let ground_truth_full = match GroundTruth::load(&bench_config.ground_truth_dense_full_path()) {
         Some(gt) => gt,
         None => {
-            println!("Failed to load ground truth");
-            return;
+            return Err("failed to load ground truth".into());
         }
     };
 
@@ -90,6 +89,67 @@ async fn run_benchmarks() {
     let sparse_queries = SparseData::load(&bench_config.sparse_queries_path());
     let text_passages = TextData::load(&bench_config.passages_path());
     let text_queries = TextData::load(&bench_config.queries_text_path());
+
+    if dense_docs.dim == 0 || dense_docs.vectors.is_empty() || dense_queries.vectors.is_empty() {
+        return Err("dense corpus and queries must be nonempty with positive dimensions".into());
+    }
+    if dense_docs.dim != dense_queries.dim
+        || ground_truth_full.neighbors.len() != dense_queries.vectors.len()
+        || ground_truth_full.k == 0
+    {
+        return Err("dense dimensions or ground-truth query counts do not match".into());
+    }
+    if ground_truth_full
+        .neighbors
+        .iter()
+        .flatten()
+        .any(|&id| id as usize >= dense_docs.vectors.len())
+    {
+        return Err("ground truth contains a document outside the dense corpus".into());
+    }
+    for (path, loaded) in [
+        (bench_config.sparse_embeddings_path(), sparse_docs.is_some()),
+        (bench_config.sparse_queries_path(), sparse_queries.is_some()),
+        (bench_config.passages_path(), text_passages.is_some()),
+        (bench_config.queries_text_path(), text_queries.is_some()),
+        (bench_config.qrels_path(), qrels.is_some()),
+    ] {
+        if path.exists() && !loaded {
+            return Err(
+                format!("failed to load optional benchmark data: {}", path.display()).into(),
+            );
+        }
+    }
+    if sparse_docs.is_some() != sparse_queries.is_some()
+        || text_passages.is_some() != text_queries.is_some()
+        || sparse_docs
+            .as_ref()
+            .is_some_and(|d| d.vectors.len() != dense_docs.vectors.len())
+        || sparse_queries
+            .as_ref()
+            .is_some_and(|d| d.vectors.len() != dense_queries.vectors.len())
+        || text_passages
+            .as_ref()
+            .is_some_and(|d| d.texts.len() != dense_docs.vectors.len())
+        || text_queries
+            .as_ref()
+            .is_some_and(|d| d.texts.len() != dense_queries.vectors.len())
+    {
+        return Err(
+            "optional corpus/query files must be paired and align with the dense data".into(),
+        );
+    }
+    if qrels.as_ref().is_some_and(|q| {
+        q.relevance.iter().any(|(&query, docs)| {
+            query as usize >= dense_queries.vectors.len()
+                || docs.is_empty()
+                || docs
+                    .iter()
+                    .any(|&id| id as usize >= dense_docs.vectors.len())
+        })
+    }) {
+        return Err("qrels must contain nonempty judgments within the corpus/query bounds".into());
+    }
 
     // Limit queries if specified
     let (dense_queries, ground_truth_full) = if let Some(n) = bench_config.num_queries {
@@ -126,6 +186,7 @@ async fn run_benchmarks() {
             false, // stored (don't need to store for benchmark)
             dense_config,
         );
+        let corpus_id = schema_builder.add_u64_field("corpus_id", false, true);
         let schema = schema_builder.build();
 
         // Create index in RAM
@@ -139,6 +200,7 @@ async fn run_benchmarks() {
         let build_start = Instant::now();
         for (i, vector) in dense_docs.vectors.iter().enumerate() {
             let mut doc = Document::new();
+            doc.add_u64(corpus_id, i as u64);
             // Truncate vector to mrl_dim
             let truncated: Vec<f32> = vector.iter().take(mrl_dim).copied().collect();
             doc.add_dense_vector(embedding_field, truncated);
@@ -177,10 +239,9 @@ async fn run_benchmarks() {
             latencies.push(start.elapsed());
 
             // Compute recall against full-dim ground truth
-            let predicted: Vec<u32> = results.hits.iter().map(|r| r.address.doc_id).collect();
+            let predicted = corpus_ids(&index, &results.hits).await;
             let gt = &ground_truth_full.neighbors[i];
-            let correct = predicted.iter().filter(|&p| gt.contains(p)).count();
-            total_recall += correct as f32 / k.min(gt.len()) as f32;
+            total_recall += recall_at_k(&predicted, gt, k);
         }
 
         let stats = LatencyStats::from_durations(&latencies);
@@ -206,6 +267,7 @@ async fn run_benchmarks() {
     let dense_config = DenseVectorConfig::new(target_dim);
     let embedding_field =
         schema_builder.add_dense_vector_field_with_config("embedding", true, false, dense_config);
+    let corpus_id = schema_builder.add_u64_field("corpus_id", false, true);
     let schema = schema_builder.build();
 
     let directory = RamDirectory::new();
@@ -217,6 +279,7 @@ async fn run_benchmarks() {
     println!("  Building dense index (dim={})...", target_dim);
     for (i, vector) in dense_docs.vectors.iter().enumerate() {
         let mut doc = Document::new();
+        doc.add_u64(corpus_id, i as u64);
         let truncated: Vec<f32> = vector.iter().take(target_dim).copied().collect();
         doc.add_dense_vector(embedding_field, truncated);
         writer.add_document(doc).expect("Failed to add document");
@@ -255,10 +318,9 @@ async fn run_benchmarks() {
                 .expect("Search failed");
             latencies.push(start.elapsed());
 
-            let predicted: Vec<u32> = results.hits.iter().map(|r| r.address.doc_id).collect();
+            let predicted = corpus_ids(&dense_index, &results.hits).await;
             let gt = &ground_truth_full.neighbors[i];
-            let correct = predicted.iter().filter(|&p| gt.contains(p)).count();
-            total_recall += correct as f32 / k.min(gt.len()) as f32;
+            total_recall += recall_at_k(&predicted, gt, k);
         }
 
         let stats = LatencyStats::from_durations(&latencies);
@@ -281,6 +343,7 @@ async fn run_benchmarks() {
 
         let mut schema_builder = Schema::builder();
         let sparse_field = schema_builder.add_sparse_vector_field("sparse_embedding", true, false);
+        let corpus_id = schema_builder.add_u64_field("corpus_id", false, true);
         let schema = schema_builder.build();
 
         let directory = RamDirectory::new();
@@ -291,6 +354,7 @@ async fn run_benchmarks() {
 
         for (i, (indices, values)) in sparse_docs.vectors.iter().enumerate() {
             let mut doc = Document::new();
+            doc.add_u64(corpus_id, i as u64);
             let entries: Vec<(u32, f32)> = indices
                 .iter()
                 .copied()
@@ -324,6 +388,7 @@ async fn run_benchmarks() {
 
         let mut schema_builder = Schema::builder();
         let text_field = schema_builder.add_text_field("content", true, false);
+        let corpus_id = schema_builder.add_u64_field("corpus_id", false, true);
         let schema = schema_builder.build();
 
         let directory = RamDirectory::new();
@@ -334,6 +399,7 @@ async fn run_benchmarks() {
 
         for (i, text) in passages.texts.iter().enumerate() {
             let mut doc = Document::new();
+            doc.add_u64(corpus_id, i as u64);
             doc.add_text(text_field, text);
             writer.add_document(doc).expect("Failed to add document");
             if (i + 1) % 10000 == 0 {
@@ -382,12 +448,8 @@ async fn run_benchmarks() {
                         .expect("Search failed");
                     latencies.push(start.elapsed());
 
-                    let predicted: Vec<usize> = results
-                        .hits
-                        .iter()
-                        .map(|r| r.address.doc_id as usize)
-                        .collect();
-                    total_mrr += mrr(&predicted, relevant);
+                    let predicted = corpus_ids(&dense_index, &results.hits).await;
+                    total_mrr += mrr_at_10(&predicted, relevant);
                     total_ndcg += ndcg_at_k(&predicted, relevant, 10);
                     let relevant_found = predicted
                         .iter()
@@ -418,7 +480,9 @@ async fn run_benchmarks() {
             let mut total_recall = 0.0f32;
             let mut count = 0usize;
 
-            for (i, (indices, values)) in sparse_queries.vectors.iter().enumerate() {
+            for (i, (indices, values)) in
+                sparse_queries.vectors.iter().take(num_queries).enumerate()
+            {
                 if let Some(relevant) = qrels.relevance.get(&(i as u32)) {
                     let query_obj = SparseVectorQuery::new(
                         sparse_field,
@@ -432,12 +496,8 @@ async fn run_benchmarks() {
                     let results = index.search(&query_obj, k).await.expect("Search failed");
                     latencies.push(start.elapsed());
 
-                    let predicted: Vec<usize> = results
-                        .hits
-                        .iter()
-                        .map(|r| r.address.doc_id as usize)
-                        .collect();
-                    total_mrr += mrr(&predicted, relevant);
+                    let predicted = corpus_ids(index, &results.hits).await;
+                    total_mrr += mrr_at_10(&predicted, relevant);
                     total_ndcg += ndcg_at_k(&predicted, relevant, 10);
                     let relevant_found = predicted
                         .iter()
@@ -470,7 +530,7 @@ async fn run_benchmarks() {
             let mut total_recall = 0.0f32;
             let mut count = 0usize;
 
-            for (i, query_text) in text_queries.texts.iter().enumerate() {
+            for (i, query_text) in text_queries.texts.iter().take(num_queries).enumerate() {
                 if let Some(relevant) = qrels.relevance.get(&(i as u32)) {
                     // Simple single-term query for now (first word)
                     let first_term = query_text.split_whitespace().next().unwrap_or("");
@@ -483,12 +543,8 @@ async fn run_benchmarks() {
                     let results = index.search(&query_obj, k).await.expect("Search failed");
                     latencies.push(start.elapsed());
 
-                    let predicted: Vec<usize> = results
-                        .hits
-                        .iter()
-                        .map(|r| r.address.doc_id as usize)
-                        .collect();
-                    total_mrr += mrr(&predicted, relevant);
+                    let predicted = corpus_ids(index, &results.hits).await;
+                    total_mrr += mrr_at_10(&predicted, relevant);
                     total_ndcg += ndcg_at_k(&predicted, relevant, 10);
                     let relevant_found = predicted
                         .iter()
@@ -627,4 +683,5 @@ async fn run_benchmarks() {
     print_indexing_table(&indexing_results);
 
     println!("\n✅ Benchmark complete!\n");
+    Ok(())
 }
