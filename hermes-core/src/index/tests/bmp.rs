@@ -3574,6 +3574,120 @@ async fn bench_forward_index_build() {
     );
 }
 
+/// Reproducible public-entry fixture for byte comparisons across BP revisions.
+/// Run with HERMES_BP_EVIDENCE_DIR set to retain the sparse blob and query bits.
+#[tokio::test]
+#[ignore]
+async fn bench_reorder_review_bytes() {
+    use crate::directories::Directory;
+    const DOCS: usize = 32_771;
+    let (schema, _, sparse) = bmp_schema_with_config(SparseVectorConfig {
+        format: SparseFormat::Bmp,
+        weight_quantization: WeightQuantization::UInt8,
+        bmp_block_size: 32,
+        dims: Some(4096),
+        max_weight: Some(5.0),
+        ..SparseVectorConfig::default()
+    });
+    let dir = RamDirectory::new();
+    let config = IndexConfig {
+        merge_policy: Box::new(crate::merge::NoMergePolicy),
+        num_indexing_threads: 1,
+        max_indexing_memory_bytes: 1024 * 1024 * 1024,
+        ..IndexConfig::default()
+    };
+    let mut writer = IndexWriter::create(dir.clone(), schema, config.clone())
+        .await
+        .unwrap();
+    let mut random = 0xc0ffee1234567890u64;
+    for i in 0..DOCS {
+        let mut values = vec![(0, 1.0)];
+        for j in 0..24 {
+            random ^= random << 13;
+            random ^= random >> 7;
+            random ^= random << 17;
+            let dim = if j % 2 == 0 {
+                1 + random as u32 % 255
+            } else {
+                256 + ((i * 7919 % 64) * 32 + random as usize % 32) as u32
+            };
+            values.push((dim, 0.5 + (random % 100) as f32 / 25.0));
+        }
+        values.sort_by_key(|&(dim, _)| dim);
+        values.dedup_by_key(|value| value.0);
+        loop {
+            let mut doc = Document::new();
+            doc.add_sparse_vector(sparse, values.clone());
+            match writer.add_document(doc) {
+                Ok(()) => break,
+                Err(crate::Error::QueueFull) => tokio::task::yield_now().await,
+                Err(error) => panic!("{error}"),
+            }
+        }
+    }
+    writer.commit().await.unwrap();
+    let mut expected = Vec::new();
+    let mut query_bytes = Vec::new();
+    for pass in 0..2 {
+        let index = Index::open(dir.clone(), config.clone()).await.unwrap();
+        let reader = index.reader().await.unwrap();
+        let searcher = reader.searcher().await.unwrap();
+        for (q, terms) in [vec![(0, 1.0)], vec![(5, 0.8), (270, 1.1)]]
+            .into_iter()
+            .enumerate()
+        {
+            let hits = searcher
+                .search(&SparseVectorQuery::new(sparse, terms), DOCS)
+                .await
+                .unwrap();
+            if q == 0 {
+                assert_eq!(hits.len(), DOCS);
+            }
+            let mut bits: Vec<_> = hits
+                .iter()
+                .map(|hit| (hit.doc_id, hit.score.to_bits()))
+                .collect();
+            bits.sort_unstable();
+            if pass == 0 {
+                expected.push(bits);
+            } else {
+                assert_eq!(bits, expected[q]);
+                query_bytes.extend(
+                    bits.iter()
+                        .flat_map(|&(id, score)| [id.to_le_bytes(), score.to_le_bytes()].concat()),
+                );
+            }
+        }
+        if pass == 1 {
+            if let Some(path) = std::env::var_os("HERMES_BP_EVIDENCE_DIR") {
+                let path = std::path::PathBuf::from(path);
+                std::fs::create_dir_all(&path).unwrap();
+                let segments = index.segment_readers().await.unwrap();
+                assert_eq!(segments.len(), 1);
+                let files = crate::segment::SegmentFiles::new(segments[0].meta().id);
+                let bytes = dir
+                    .open_read(&files.sparse)
+                    .await
+                    .unwrap()
+                    .read_bytes()
+                    .await
+                    .unwrap();
+                std::fs::write(path.join("reordered.sparse"), bytes.as_slice()).unwrap();
+                std::fs::write(path.join("query-bits.bin"), &query_bytes).unwrap();
+            }
+        } else {
+            drop(searcher);
+            drop(index);
+            let started = std::time::Instant::now();
+            writer.reorder().await.unwrap();
+            println!(
+                "public writer.reorder: {:.3} ms",
+                started.elapsed().as_secs_f64() * 1000.0
+            );
+        }
+    }
+}
+
 /// Regression: a block with more than 65,535 postings overflowed the u16
 /// posting prefix sums at build time (bmp_block_size=256 × ~300-dim docs
 /// hits this in production), silently corrupting the block; the reader's
