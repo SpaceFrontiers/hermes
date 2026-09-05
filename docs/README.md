@@ -40,6 +40,7 @@ claim as implemented or as current performance.
 - [Cold IO for merges (hot-metadata-pinning Phase 2)](cold-io.md)
 - [Merge-Time BP Reordering](merge-time-reorder.md)
 - [Budgeted (Partial) BP Reordering](budgeted-reorder.md)
+- [Reordering Performance Review](reordering-performance-review.md)
 - [Block-Level Reorder with Stats-Guided Granularity](block-level-reorder.md)
 
 ## Vector retrieval and compression

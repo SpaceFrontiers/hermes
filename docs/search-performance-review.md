@@ -316,6 +316,21 @@ New distributions default to `.context/search-harness/criterion` so compiler
 output cleanup does not remove them. Earlier evidence paths below describe the
 original runs, which used Cargo's target directory.
 
+## Reordering continuation
+
+The [reordering performance review](reordering-performance-review.md) traces
+record/block BMP and chunked-text BP, removes repeated per-posting gain
+arithmetic with an optional budgeted term cache, and records byte/permutation
+and assembly evidence. It also records outstanding text memory/convergence
+gaps, rank scratch, transpose sorting and scheduling experiments. The kernel
+change preserves arithmetic order and existing formats; it does not resolve
+the text-path findings or establish production performance. Synthetic BP
+speedups are 1.11–2.33× on Apple M4 and 1.20–2.93× on an Intel Xeon 8581C
+with default and AVX2 builds. Before/after permutations and sparse/query bytes
+match within each tested platform; the original coarse permutation already
+differs between macOS/ARM and Linux/x86. Both x86 builds passed 1,299 core
+library tests, and peak process RSS stayed around 95–96 MiB on that fixture.
+
 ## Benchmark evidence
 
 Fixture: `hermes-core/benches/segment_merge.rs`; two RAM segments, each with
