@@ -11,6 +11,11 @@ cargo build --release -p hermes-train --features metal
 cargo build --release -p hermes-train --features cuda
 ```
 
+Build outputs live in `target/release`. To use the commands below from the
+repository root, run `export PATH="$PWD/target/release:$PATH"`.
+See the [benchmark guide](../docs/benchmarks.md) for wake-tier profiling and
+[training contracts](../docs/training-objectives-and-curricula.md) for task semantics.
+
 ## WorkflowV2
 
 Training configuration is a strict version-2 workflow. It describes
@@ -122,10 +127,10 @@ partitioning, tier accumulation/commit, and the wake-only update path:
 
 ```bash
 cargo bench -p hermes-train --bench wake_tier_step --features cuda -- \
-  --model hermes-mal/well-known/retriever_300m_moe_sleep.mal \
+  --model "$PWD/hermes-mal/well-known/retriever_300m_moe_sleep.mal" \
   --batch-size 4 --sequence-length 1024 --periods 100,400,3200 \
   --non-due-clock 99 --due-clock 100 --require-cuda \
-  --output wake-tier-step-cuda.json
+  --output "$PWD/wake-tier-step-cuda.json"
 ```
 
 The report records that each paired case starts from a fresh tier bank. This

@@ -15,17 +15,20 @@ impl LatencyStats {
             return Self { avg_us: 0.0 };
         }
 
-        let micros: Vec<f64> = durations.iter().map(|d| d.as_micros() as f64).collect();
+        let micros: Vec<f64> = durations
+            .iter()
+            .map(|d| d.as_secs_f64() * 1_000_000.0)
+            .collect();
         let avg_us = micros.iter().sum::<f64>() / micros.len() as f64;
 
         Self { avg_us }
     }
 }
 
-/// Compute MRR (Mean Reciprocal Rank) against relevance judgments
-pub fn mrr(predicted: &[usize], relevant: &[u32]) -> f32 {
+/// Compute MRR@10 against relevance judgments.
+pub fn mrr_at_10(predicted: &[usize], relevant: &[u32]) -> f32 {
     let relevant_set: HashSet<u32> = relevant.iter().copied().collect();
-    for (rank, &idx) in predicted.iter().enumerate() {
+    for (rank, &idx) in predicted.iter().take(10).enumerate() {
         if relevant_set.contains(&(idx as u32)) {
             return 1.0 / (rank + 1) as f32;
         }
@@ -53,4 +56,14 @@ pub fn ndcg_at_k(predicted: &[usize], relevant: &[u32], k: usize) -> f32 {
     }
 
     if idcg > 0.0 { dcg / idcg } else { 0.0 }
+}
+
+/// Recall@k against the first k exact neighbors, independent of file depth.
+pub fn recall_at_k(predicted: &[usize], neighbors: &[u32], k: usize) -> f32 {
+    let relevant: HashSet<u32> = neighbors.iter().take(k).copied().collect();
+    if relevant.is_empty() {
+        return 0.0;
+    }
+    let found: HashSet<u32> = predicted.iter().take(k).map(|&id| id as u32).collect();
+    found.intersection(&relevant).count() as f32 / relevant.len() as f32
 }
