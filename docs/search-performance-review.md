@@ -515,3 +515,22 @@ that error. The corrected gate applies only to the writer. The broker's minimal
 core now also passes an explicit `x86_64-apple-darwin` compile with Rust 1.98.1
 and warnings denied (`.context/phrase-boost/l1-x86-broker-check.log` in the
 Azeroth integration workspace).
+
+The continuation caught lossy `GetIndexInfo` schema rendering: BMP sparse fields
+were reported without `format: bmp`, dimensions, grid/block settings, mass
+cropping or reordering. Re-parsing that report changed the apparent format to
+MaxScore even though persisted production metadata was BMP. The behavior-named
+round-trip regression fails before the fix and now preserves those settings.
+This changes diagnostics and schema fingerprints, not persisted storage or
+scoring. Production sparse format was verified against `metadata.json` on all
+four shards; full-text continues to use its existing MaxScore execution.
+
+Validation for the schema-reporting fix: all eight full-harness stages passed
+with `RUST_TEST_THREADS=1` (evidence: `.context/search-harness/20260905T150826.682593Z-full/`).
+Two earlier parallel runs timed out in different mock-broker discovery tests;
+the recovery test passed in isolation and the complete serial suite passed.
+A separate two-real-shard BMP fixture nominated only through dense search,
+backfilled BM25/phrase/sparse/document features including negative and zero
+values, and matched an independent full-union oracle for broker MAX/AVG/SUM
+top-K with bounded raw passage export. Its script and results are retained in
+the Azeroth integration workspace under `.context/l1-training/`.
