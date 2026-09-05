@@ -17,6 +17,8 @@ pub const fn max_candidate_limit(result_window: usize) -> usize {
     result_window.saturating_mul(MAX_CANDIDATE_OVERSUBSCRIPTION)
 }
 
+mod all;
+pub use all::AllQuery;
 mod bm25;
 pub(crate) mod bmp;
 mod boolean;

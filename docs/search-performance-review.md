@@ -7,6 +7,23 @@ It is not a claim that every algorithm in the search stack has been audited.
 
 ## Implemented findings
 
+Search API v2 integration reproduced an unsupported wire `AllQuery`, which
+prevented common exclusion-only fusion filters from running. The core now owns
+the complete-document predicate/scorer and the server converts the existing
+wire query. A full numeric range is not a substitute: missing fast-field values
+must survive exclusions. The ordinary scorer has O(1) state; materialization
+fills the existing bitmap in O(documents / 64) time and memory, under the common
+filter's existing 16 MiB limit. No index-format, residency, BMP, or MaxScore
+defaults change, and no latency improvement is claimed. Regression coverage
+includes empty/tail bitmaps, monotonic seeks, missing fields, async/sync filters,
+wire conversion, and Search API's real-server/broker L1/export/RRF fixture.
+Validation on macOS/aarch64, Rust 1.98.1: the full eight-step search harness
+passed (`20260905T201936.920421Z-full`), followed by both focused match-all tests
+and final core Clippy after correcting the new fixture's fast-field flag. The
+WASM release build and all five JavaScript tests pass. The API integration
+fixture passes through the real server and broker. These are correctness and
+build checks, not production latency or index-rebuild measurements.
+
 | Priority    | Finding and trigger                                                                                                                                                       | Change and evidence                                                                                                                                                                                                                      |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | P1          | `GetTextStats` bypassed search shape validation and admission; deeply nested queries and concurrent statistics calls could reach expensive work outside the search limits | Reuse the query-shape walker and shared search permit before index open. Two RPC-level regressions first returned `NotFound` where `InvalidArgument`/`ResourceExhausted` were required; now they enforce the boundary and permit release |

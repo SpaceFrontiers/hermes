@@ -92,6 +92,12 @@ features or independent votes. Initial L1 branches support one-field scoring
 queries and SHOULD/Boost compositions; unsupported eligibility expressions
 inside a scoring branch fail with guidance to use the common filter.
 
+An exclusion-only common filter uses `Boolean(must: [AllQuery], must_not: [...])`.
+`AllQuery` includes documents with missing metadata. Replacing it with a numeric
+range or field-existence filter would silently exclude such documents. Its
+scorer uses constant memory; common eligibility materializes the existing
+bounded document bitmap, with no index metadata or storage-format changes.
+
 A branch omitted from weights still nominates and exports its feature, but
 contributes zero. Unknown coefficient/transform names, duplicate or empty branch
 names, all-zero models and non-finite values are errors. A schema field without
