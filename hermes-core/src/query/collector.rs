@@ -739,6 +739,7 @@ pub async fn collect_segment_with_limit_seeded<C: Collector>(
     initial_threshold: f32,
 ) -> Result<()> {
     let options = super::ScorerOptions {
+        eligibility: None,
         collect_positions: collector.needs_positions(),
         initial_threshold,
         shared_threshold: None,
@@ -816,6 +817,7 @@ pub fn collect_segment_with_limit_seeded_sync<C: Collector>(
     initial_threshold: f32,
 ) -> Result<()> {
     let options = super::ScorerOptions {
+        eligibility: None,
         collect_positions: collector.needs_positions(),
         initial_threshold,
         shared_threshold: None,
@@ -890,6 +892,7 @@ pub(crate) fn search_segment_shared_sync_planned(
 ) -> Result<(Vec<SearchResult>, u32)> {
     let segment_limit = limit.min(reader.num_docs() as usize);
     let options = super::ScorerOptions {
+        eligibility: None,
         collect_positions,
         initial_threshold: shared_threshold.get(),
         shared_threshold: Some(shared_threshold),
@@ -983,6 +986,7 @@ pub(crate) async fn search_segment_shared_planned(
 ) -> Result<(Vec<SearchResult>, u32)> {
     let segment_limit = limit.min(reader.num_docs() as usize);
     let options = super::ScorerOptions {
+        eligibility: None,
         collect_positions,
         initial_threshold: shared_threshold.get(),
         shared_threshold: Some(shared_threshold),
