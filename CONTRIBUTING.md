@@ -36,6 +36,11 @@ cargo test --workspace
 
 ## Build Commands
 
+For core/server work, start with `python3 scripts/check_search.py check`.
+The [search system contract](docs/search-system-contract.md) maps component
+ownership, invariants, regression coverage, and before/after benchmarking.
+`python3 scripts/check_search.py full` includes the real-server broker tests.
+
 | Command                                                                            | Description                       |
 | ---------------------------------------------------------------------------------- | --------------------------------- |
 | `cargo build --release`                                                            | Build all Rust packages           |
