@@ -99,3 +99,35 @@ test("sparse query conversion preserves optional LSP gamma presence", () => {
   });
   assert.equal(exhaustive.sparseVector.lspGamma, 0);
 });
+
+test("named scoring branches retain scopes, eligibility and omission of RRF weights", () => {
+  const { ScoreScope } = require("../dist/generated/hermes.js");
+  const result = buildQuery({ fusion: {
+    queries: [{ name: "body", scope: "chunk", query: { match: { field: "body", text: "hemoglobin" } } },
+              { name: "title", scope: "document", scoreOnly: true, query: { match: { field: "title", text: "hemoglobin" } } }],
+    candidateDepth: 42,
+    filters: [{ phrase: { field: "body", text: "red blood cells" } }],
+  } }).fusion;
+  assert.equal(result.queries[0].weight, 0);
+  assert.equal(result.queries[0].name, "body");
+  assert.equal(result.queries[0].scope, ScoreScope.SCORE_SCOPE_CHUNK);
+  assert.equal(result.queries[1].scope, ScoreScope.SCORE_SCOPE_DOCUMENT);
+  assert.equal(result.queries[1].scoreOnly, true);
+  assert.equal(result.filters[0].phrase.text, "red blood cells");
+  assert.equal(result.candidateDepth, 42);
+});
+
+
+test("candidate export preserves method, depth and per-branch wire results", () => {
+  const { SearchResponse } = require("../dist/generated/hermes.js");
+  const query = buildQuery({ fusion: { method: "candidates", candidateDepth: 12,
+    queries: [{ query: { match: { field: "body", text: "hemoglobin" } } }] } });
+  assert.equal(query.fusion.method, FusionMethod.FUSION_CANDIDATES);
+  assert.equal(query.fusion.candidateDepth, 12);
+  const original = SearchResponse.fromPartial({ rankingMethod: "fusion_candidates_v1", fusionCandidates: [
+    { queryIndex: 0, candidates: [{ address: { segmentId: "abc", docId: 2 }, score: -0.5,
+      ordinalScores: [{ ordinal: 7, score: -0.25 }] }] }
+  ] });
+  const decoded = SearchResponse.decode(SearchResponse.encode(original).finish());
+  assert.deepEqual(decoded.fusionCandidates, original.fusionCandidates);
+});
