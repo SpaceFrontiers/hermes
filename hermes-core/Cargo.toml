@@ -140,6 +140,16 @@ name = "search_pipeline"
 harness = false
 
 [[bench]]
+name = "segment_merge"
+harness = false
+required-features = ["native"]
+
+[[bench]]
+name = "rust_hot_paths"
+harness = false
+required-features = ["native"]
+
+[[bench]]
 name = "hermes_benchmark"
 path = "benches/hermes_benchmark/main.rs"
 harness = false
