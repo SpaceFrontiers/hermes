@@ -7,6 +7,7 @@ use crate::segment::SegmentReader;
 use crate::structures::{BlockPostingIterator, BlockPostingList, TERMINATED, TermPositions};
 use crate::{DocId, Score};
 
+use super::docset::DocSet;
 use super::{CountFuture, EmptyScorer, GlobalStats, Query, Scorer, ScorerFuture};
 
 /// Phrase query - matches documents containing terms in consecutive positions
@@ -132,7 +133,160 @@ impl PhraseQuery {
     }
 }
 
+/// Ordered maps need only one document's ordinals and one matching-chunk
+/// lookahead. Reordered maps retain the stable, all-document aggregation.
+fn fold_chunked_phrase_scorer<'a, S: Scorer + 'a>(
+    mut scorer: S,
+    chunk_map: crate::segment::chunk_map::ChunkMap,
+    field_id: u32,
+    budget: Option<super::SharedThreshold>,
+) -> Box<dyn Scorer + 'a> {
+    if chunk_map.is_doc_ordered() {
+        let mut folded = ChunkedPhraseScorer {
+            inner: scorer,
+            chunk_map,
+            field_id,
+            budget,
+            current_doc: TERMINATED,
+            score: 0.0,
+            ordinals: crate::segment::VectorOrdinals::new(),
+        };
+        folded.fold_next_document();
+        return Box::new(folded);
+    }
+    let mut raw: Vec<(u32, u16, f32)> = Vec::new();
+    while scorer.doc() != TERMINATED {
+        if budget
+            .as_ref()
+            .is_some_and(super::SharedThreshold::stop_if_expired)
+        {
+            return Box::new(EmptyScorer);
+        }
+        let (doc_id, ordinal) = chunk_map.resolve(scorer.doc());
+        raw.push((doc_id, ordinal, scorer.score()));
+        scorer.advance();
+    }
+    if budget
+        .as_ref()
+        .is_some_and(super::SharedThreshold::stop_if_expired)
+    {
+        // Do not start an all-hit sort/fold after cancellation.
+        return Box::new(EmptyScorer);
+    }
+    // Every matching document is kept: a phrase is also used as a MUST
+    // constraint (verifier or bitset), where truncating to `limit` would
+    // silently reject documents that do contain the phrase.
+    let combined =
+        crate::segment::combine_ordinal_results(raw, super::MultiValueCombiner::Max, usize::MAX);
+    Box::new(super::vector::VectorResultScorer::new(combined, field_id))
+}
+
+struct ChunkedPhraseScorer<S> {
+    inner: S,
+    chunk_map: crate::segment::chunk_map::ChunkMap,
+    field_id: u32,
+    budget: Option<super::SharedThreshold>,
+    current_doc: DocId,
+    score: Score,
+    ordinals: crate::segment::VectorOrdinals,
+}
+
+impl<S: Scorer> ChunkedPhraseScorer<S> {
+    fn finish(&mut self) -> DocId {
+        self.current_doc = TERMINATED;
+        self.score = 0.0;
+        self.ordinals.clear();
+        TERMINATED
+    }
+
+    fn expired(&self) -> bool {
+        self.budget
+            .as_ref()
+            .is_some_and(super::SharedThreshold::stop_if_expired)
+    }
+
+    fn fold_next_document(&mut self) -> DocId {
+        if self.expired() || self.inner.doc() == TERMINATED {
+            return self.finish();
+        }
+        let doc = self.chunk_map.doc_id(self.inner.doc());
+        self.ordinals.clear();
+        loop {
+            self.ordinals.push((
+                u32::from(self.chunk_map.ordinal(self.inner.doc())),
+                self.inner.score(),
+            ));
+            self.inner.advance();
+            // Never expose a partial document's max score or ordinal list.
+            if self.expired() {
+                return self.finish();
+            }
+            if self.inner.doc() == TERMINATED || self.chunk_map.doc_id(self.inner.doc()) != doc {
+                break;
+            }
+        }
+        self.current_doc = doc;
+        self.score = super::MultiValueCombiner::Max.combine(&self.ordinals);
+        doc
+    }
+}
+
+impl<S: Scorer> DocSet for ChunkedPhraseScorer<S> {
+    fn doc(&self) -> DocId {
+        self.current_doc
+    }
+
+    fn advance(&mut self) -> DocId {
+        if self.current_doc == TERMINATED {
+            return TERMINATED;
+        }
+        self.fold_next_document()
+    }
+
+    fn seek(&mut self, target: DocId) -> DocId {
+        if self.current_doc >= target {
+            return self.current_doc;
+        }
+        if target == TERMINATED || self.expired() {
+            return self.finish();
+        }
+        let vid = self.chunk_map.lower_bound_doc(target);
+        if vid == self.chunk_map.num_chunks() {
+            return self.finish();
+        }
+        self.inner.seek(vid);
+        self.fold_next_document()
+    }
+
+    fn size_hint(&self) -> u32 {
+        if self.current_doc == TERMINATED {
+            0
+        } else {
+            self.inner.size_hint().saturating_add(1)
+        }
+    }
+}
+
+impl<S: Scorer> Scorer for ChunkedPhraseScorer<S> {
+    fn score(&self) -> Score {
+        self.score
+    }
+
+    fn matched_positions(&self) -> Option<super::MatchedPositions> {
+        (self.current_doc != TERMINATED).then(|| {
+            vec![(
+                self.field_id,
+                self.ordinals
+                    .iter()
+                    .map(|&(ordinal, score)| super::ScoredPosition::new(ordinal, score))
+                    .collect(),
+            )]
+        })
+    }
+}
+
 /// Build the shared positional scorer without walking beyond the candidate set.
+#[allow(clippy::too_many_arguments)]
 fn prepare_phrase_scorer(
     reader: &SegmentReader,
     field: Field,
@@ -141,6 +295,7 @@ fn prepare_phrase_scorer(
     offsets: &[u32],
     slop: u32,
     stats: Option<&Arc<GlobalStats>>,
+    budget: Option<super::SharedThreshold>,
 ) -> crate::Result<PhraseScorer> {
     let mut avg_len = reader.avg_field_len(field);
     let mut idf = 0.0;
@@ -151,8 +306,9 @@ fn prepare_phrase_scorer(
         avg_len = length;
     }
     let (postings, positions) = term_data.into_iter().unzip();
-    let mut scorer = PhraseScorer::unpositioned(postings, positions, offsets, slop, idf, avg_len)
-        .with_params(super::Bm25Params::for_field(reader.schema(), field));
+    let mut scorer =
+        PhraseScorer::unpositioned(postings, positions, offsets, slop, idf, avg_len, budget)
+            .with_params(super::Bm25Params::for_field(reader.schema(), field));
     if reader.is_chunked_field(field) {
         let map = reader.chunk_map(field).ok_or_else(|| {
             crate::Error::Corruption("chunked phrase has postings without a chunk map".into())
@@ -170,24 +326,16 @@ fn finish_phrase_scorer<'a>(
     mut scorer: PhraseScorer,
     reader: &SegmentReader,
     field: Field,
+    budget: Option<super::SharedThreshold>,
 ) -> crate::Result<Box<dyn Scorer + 'a>> {
     scorer.find_next_phrase_match();
     if let Some(map) = reader.chunk_map(field) {
-        use super::docset::DocSet as _;
-        let mut raw = Vec::new();
-        while scorer.doc() != TERMINATED {
-            let (doc, ordinal) = map.resolve(scorer.doc());
-            raw.push((doc, ordinal, scorer.score()));
-            scorer.advance();
-        }
-        let combined = crate::segment::combine_ordinal_results(
-            raw,
-            super::MultiValueCombiner::Max,
-            usize::MAX,
-        );
-        Ok(Box::new(super::vector::VectorResultScorer::new(
-            combined, field.0,
-        )))
+        Ok(fold_chunked_phrase_scorer(
+            scorer,
+            map.clone(),
+            field.0,
+            budget,
+        ))
     } else {
         Ok(Box::new(scorer))
     }
@@ -238,6 +386,7 @@ pub(super) async fn score_phrase_candidates(
         &query.offsets,
         query.slop,
         stats,
+        None,
     )?;
     for (index, &target) in targets.iter().enumerate() {
         let mut matches = true;
@@ -259,7 +408,7 @@ pub(super) async fn score_phrase_candidates(
 macro_rules! phrase_early_returns {
     ($field:expr, $terms:expr, $reader:expr, $limit:expr,
      $scorer_fn:ident, $options:expr $(, $aw:tt)*) => {
-        if $terms.is_empty() {
+        if $options.stop_if_expired() || $terms.is_empty() {
             return Ok(Box::new(EmptyScorer) as Box<dyn Scorer + '_>);
         }
         if $terms.len() == 1 {
@@ -341,8 +490,9 @@ impl Query for PhraseQuery {
                 &offsets,
                 slop,
                 stats.as_ref(),
+                options.shared_threshold.clone(),
             )?;
-            finish_phrase_scorer(scorer, reader, field)
+            finish_phrase_scorer(scorer, reader, field, options.shared_threshold)
         })
     }
 
@@ -401,8 +551,9 @@ impl Query for PhraseQuery {
             &self.offsets,
             self.slop,
             self.global_stats.as_ref().or(options.global_stats.as_ref()),
+            options.shared_threshold.clone(),
         )?;
-        finish_phrase_scorer(scorer, reader, self.field)
+        finish_phrase_scorer(scorer, reader, self.field, options.shared_threshold)
     }
 
     /// Every document containing the phrase, as a bitset (documents, also
@@ -410,7 +561,16 @@ impl Query for PhraseQuery {
     /// MaxScore executors as an O(1) predicate instead of a verifier.
     #[cfg(feature = "sync")]
     fn as_doc_bitset(&self, reader: &SegmentReader) -> Option<super::DocBitset> {
-        if self.terms.is_empty() {
+        self.as_doc_bitset_with_options(reader, &super::ScorerOptions::default())
+    }
+
+    #[cfg(feature = "sync")]
+    fn as_doc_bitset_with_options(
+        &self,
+        reader: &SegmentReader,
+        options: &super::ScorerOptions,
+    ) -> Option<super::DocBitset> {
+        if options.stop_if_expired() || self.terms.is_empty() {
             return None;
         }
         let mut bitset = super::DocBitset::new(reader.num_docs());
@@ -423,6 +583,9 @@ impl Query for PhraseQuery {
             let chunk_map = reader.chunk_map(self.field);
             let mut it = list.iterator();
             while it.doc() != TERMINATED {
+                if options.stop_if_expired() {
+                    return None;
+                }
                 let doc = chunk_map.map_or(it.doc(), |map| map.doc_id(it.doc()));
                 bitset.set(doc);
                 it.advance();
@@ -430,13 +593,20 @@ impl Query for PhraseQuery {
             return Some(bitset);
         }
         let mut scorer = self
-            .scorer_sync_with_options(reader, usize::MAX, super::ScorerOptions::with_positions())
+            .scorer_sync_with_options(reader, usize::MAX, options.without_threshold())
             .ok()?;
         while scorer.doc() != TERMINATED {
+            if options.stop_if_expired() {
+                return None;
+            }
             bitset.set(scorer.doc());
             scorer.advance();
         }
-        Some(bitset)
+        if options.stop_if_expired() {
+            None
+        } else {
+            Some(bitset)
+        }
     }
 
     /// Matches are at most the rarest term's postings; the planner only
@@ -494,12 +664,13 @@ impl Lengths {
 
 /// Scorer that checks phrase positions
 struct PhraseScorer {
+    budget: Option<super::SharedThreshold>,
     /// Posting iterators for each term
     posting_iters: Vec<BlockPostingIterator<'static>>,
     /// Positions of each term (legacy list or cursor-addressed stream)
-    position_lists: Vec<TermPositions>,
-    /// One decoded position block, reused across documents and terms
-    position_scratch: Vec<u32>,
+    position_lists: Vec<crate::structures::postings::TermPositionCursor>,
+    /// Position-list cursors advance monotonically within a matching unit.
+    position_indices: Vec<usize>,
     /// Required distance of each term from the first one (`offsets[i] -
     /// offsets[0]`); `deltas[0]` is 0.
     deltas: Vec<u32>,
@@ -524,6 +695,7 @@ struct PhraseScorer {
 }
 
 impl PhraseScorer {
+    #[allow(clippy::too_many_arguments)]
     fn unpositioned(
         posting_lists: Vec<BlockPostingList>,
         position_lists: Vec<TermPositions>,
@@ -531,6 +703,7 @@ impl PhraseScorer {
         slop: u32,
         idf: f32,
         avg_field_len: f32,
+        budget: Option<super::SharedThreshold>,
     ) -> Self {
         let posting_iters: Vec<_> = posting_lists
             .into_iter()
@@ -545,9 +718,13 @@ impl PhraseScorer {
             .map(|i| offsets.get(i).map_or(i as u32, |o| o - first))
             .collect();
         Self {
+            budget: budget.filter(|b| b.deadline().is_some()),
             posting_iters,
-            position_lists,
-            position_scratch: Vec::new(),
+            position_lists: position_lists
+                .into_iter()
+                .map(TermPositions::into_cursor)
+                .collect(),
+            position_indices: vec![0; num_terms],
             deltas,
             slop,
             current_doc: 0,
@@ -600,6 +777,13 @@ impl PhraseScorer {
         }
 
         loop {
+            if self
+                .budget
+                .as_ref()
+                .is_some_and(super::SharedThreshold::stop_if_expired)
+            {
+                return TERMINATED;
+            }
             let max_doc = self.posting_iters.iter().map(|it| it.doc()).max().unwrap();
 
             if max_doc == TERMINATED {
@@ -631,13 +815,7 @@ impl PhraseScorer {
         for i in 0..self.position_lists.len() {
             let cursor = self.posting_iters[i].position_cursor();
             let tf = self.posting_iters[i].term_freq();
-            if !self.position_lists[i].positions_into(
-                doc_id,
-                cursor,
-                tf,
-                &mut self.position_scratch,
-                &mut self.position_bufs[i],
-            ) {
+            if !self.position_lists[i].read_into(doc_id, cursor, tf, &mut self.position_bufs[i]) {
                 return false;
             }
         }
@@ -649,42 +827,48 @@ impl PhraseScorer {
     }
 
     /// Number of phrase occurrences in the internal reusable buffers.
-    fn count_phrase_matches_in_bufs(&self) -> u32 {
-        if self.position_bufs.is_empty() || self.position_bufs[0].is_empty() {
-            return 0;
-        }
-        self.position_bufs[0]
-            .iter()
-            .filter(|&&first_pos| self.check_phrase_from_position(first_pos, &self.position_bufs))
-            .count() as u32
+    fn count_phrase_matches_in_bufs(&mut self) -> u32 {
+        count_phrase_matches(
+            &self.position_bufs,
+            &self.deltas,
+            self.slop,
+            &mut self.position_indices,
+        )
     }
+}
 
-    /// Check if a phrase exists starting from the given position
-    fn check_phrase_from_position(&self, start_pos: u32, term_positions: &[Vec<u32>]) -> bool {
-        for (i, positions) in term_positions.iter().enumerate() {
-            if i == 0 {
-                continue; // Skip first term, already matched
+/// Count starts with a match in every term's independent slop interval.
+/// Ascending starts make each interval monotone: O(terms * starts + positions),
+/// preserving repeated terms and the existing (not edit-distance) slop rule.
+fn count_phrase_matches(
+    bufs: &[Vec<u32>],
+    deltas: &[u32],
+    slop: u32,
+    indices: &mut [usize],
+) -> u32 {
+    let Some(first) = bufs.first() else {
+        return 0;
+    };
+    indices.fill(0);
+    let mut matches = 0;
+    'starts: for &start in first {
+        for i in 1..bufs.len() {
+            let expected = u64::from(start) + u64::from(deltas[i]);
+            let low = expected.saturating_sub(u64::from(slop));
+            let high = expected + u64::from(slop);
+            while indices[i] < bufs[i].len() && u64::from(bufs[i][indices[i]]) < low {
+                indices[i] += 1;
             }
-
-            let expected_pos = start_pos + self.deltas[i];
-
-            // Find a position within slop distance
-            let found = positions.iter().any(|&pos| {
-                if self.slop == 0 {
-                    pos == expected_pos
-                } else {
-                    let diff = pos.abs_diff(expected_pos);
-                    diff <= self.slop
-                }
-            });
-
-            if !found {
-                return false;
+            let Some(&position) = bufs[i].get(indices[i]) else {
+                return matches;
+            };
+            if u64::from(position) > high {
+                continue 'starts;
             }
         }
-
-        true
+        matches += 1;
     }
+    matches
 }
 
 impl super::docset::DocSet for PhraseScorer {
@@ -742,5 +926,247 @@ impl Scorer for PhraseScorer {
         };
 
         self.params.score(tf, self.idf, doc_len, self.avg_field_len)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct ChunkHits {
+        hits: Vec<(u32, f32)>,
+        at: usize,
+        advances: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl DocSet for ChunkHits {
+        fn doc(&self) -> DocId {
+            self.hits.get(self.at).map_or(TERMINATED, |h| h.0)
+        }
+        fn advance(&mut self) -> DocId {
+            self.advances
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.at = (self.at + 1).min(self.hits.len());
+            self.doc()
+        }
+        fn seek(&mut self, target: DocId) -> DocId {
+            self.at += self.hits[self.at..].partition_point(|h| h.0 < target);
+            self.doc()
+        }
+        fn size_hint(&self) -> u32 {
+            (self.hits.len() - self.at) as u32
+        }
+    }
+    impl Scorer for ChunkHits {
+        fn score(&self) -> Score {
+            self.hits.get(self.at).map_or(0.0, |h| h.1)
+        }
+    }
+
+    fn test_chunk_map(owners: &[(u32, u16)]) -> crate::segment::chunk_map::ChunkMap {
+        use crate::segment::chunk_map::{ChunkMapBuilder, read_chunk_maps, write_chunk_maps};
+        let mut builder = ChunkMapBuilder::default();
+        for &(doc, ordinal) in owners {
+            builder.push(doc, ordinal, 10).unwrap();
+        }
+        let mut bytes = Vec::new();
+        write_chunk_maps(&mut bytes, &[(0, &builder)], &[]).unwrap();
+        read_chunk_maps(crate::directories::OwnedBytes::new(bytes))
+            .unwrap()
+            .chunk_maps
+            .remove(&0)
+            .unwrap()
+    }
+
+    fn chunk_hits(hits: Vec<(u32, f32)>) -> ChunkHits {
+        ChunkHits {
+            hits,
+            at: 0,
+            advances: Arc::default(),
+        }
+    }
+
+    #[test]
+    fn lazy_phrase_fold_matches_stable_eager_oracle_including_reordered_ordinals() {
+        for owners in [
+            vec![],
+            vec![(0, 0)],
+            vec![(2, 2), (2, 0), (2, 1), (5, 1), (5, 0), (9, 0)],
+            vec![(5, 1), (2, 2), (9, 0), (2, 0), (5, 0), (2, 1)],
+        ] {
+            let map = test_chunk_map(&owners);
+            assert_eq!(
+                map.is_doc_ordered(),
+                owners.windows(2).all(|p| p[0].0 <= p[1].0)
+            );
+            for stride in [1, 2, 3] {
+                let hits: Vec<_> = (0..owners.len() as u32)
+                    .step_by(stride)
+                    .map(|vid| (vid, (vid % 3) as f32 * 0.5))
+                    .collect();
+                let raw: Vec<_> = hits
+                    .iter()
+                    .map(|&(vid, score)| {
+                        let (doc, ord) = map.resolve(vid);
+                        (doc, ord, score)
+                    })
+                    .collect();
+                let expected = crate::segment::combine_ordinal_results(
+                    raw,
+                    super::super::MultiValueCombiner::Max,
+                    usize::MAX,
+                );
+                let mut expected = super::super::vector::VectorResultScorer::new(expected, 7);
+                let mut actual = fold_chunked_phrase_scorer(chunk_hits(hits), map.clone(), 7, None);
+                while expected.doc() != TERMINATED {
+                    assert_eq!(actual.doc(), expected.doc());
+                    assert_eq!(actual.score().to_bits(), expected.score().to_bits());
+                    let signature = |s: &dyn Scorer| {
+                        s.matched_positions()
+                            .unwrap()
+                            .into_iter()
+                            .map(|(field, positions)| {
+                                (
+                                    field,
+                                    positions
+                                        .into_iter()
+                                        .map(|p| (p.position, p.score.to_bits()))
+                                        .collect::<Vec<_>>(),
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                    };
+                    assert_eq!(signature(actual.as_ref()), signature(&expected));
+                    actual.advance();
+                    expected.advance();
+                }
+                assert_eq!(actual.doc(), TERMINATED);
+                assert_eq!(actual.advance(), TERMINATED);
+                assert_eq!(actual.score(), 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn lazy_phrase_fold_only_consumes_one_document_and_can_skip_to_late_matches() {
+        let owners: Vec<_> = (0..100)
+            .flat_map(|doc| [(doc * 2, 0), (doc * 2, 1)])
+            .collect();
+        let inner = chunk_hits((0..200).map(|vid| (vid, vid as f32)).collect());
+        let advances = inner.advances.clone();
+        let mut scorer = fold_chunked_phrase_scorer(inner, test_chunk_map(&owners), 0, None);
+        assert_eq!(advances.load(std::sync::atomic::Ordering::Relaxed), 2);
+        assert_eq!(scorer.doc(), 0);
+        assert_eq!(scorer.seek(179), 180);
+        assert_eq!(advances.load(std::sync::atomic::Ordering::Relaxed), 4);
+        assert_eq!(scorer.score(), 181.0);
+        assert_eq!(scorer.seek(179), 180);
+        assert_eq!(scorer.seek(199), TERMINATED);
+        assert!(scorer.matched_positions().is_none());
+        assert_eq!(scorer.advance(), TERMINATED);
+    }
+
+    #[test]
+    fn lazy_phrase_fold_discards_current_result_at_budget_boundary() {
+        let inner = chunk_hits(vec![(0, 1.0), (1, 2.0), (2, 3.0)]);
+        let advances = inner.advances.clone();
+        let mut scorer = ChunkedPhraseScorer {
+            inner,
+            chunk_map: test_chunk_map(&[(0, 0), (1, 0), (1, 1)]),
+            field_id: 0,
+            budget: None,
+            current_doc: TERMINATED,
+            score: 0.0,
+            ordinals: crate::segment::VectorOrdinals::new(),
+        };
+        assert_eq!(scorer.fold_next_document(), 0);
+        assert_eq!(scorer.score(), 1.0);
+        let budget = super::super::SharedThreshold::for_limit(1)
+            .with_deadline(Some(std::time::Instant::now()));
+        scorer.budget = Some(budget.clone());
+        assert_eq!(scorer.advance(), TERMINATED);
+        assert_eq!(scorer.score(), 0.0);
+        assert!(scorer.matched_positions().is_none());
+        assert!(budget.truncated());
+        assert_eq!(advances.load(std::sync::atomic::Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn phrase_stops_when_budget_expires_after_first_match() {
+        use super::super::docset::DocSet;
+        use crate::structures::{PositionStreamEncoder, PostingList};
+        let mut lists = Vec::new();
+        let mut positions = Vec::new();
+        for term in 0..2 {
+            let mut list = PostingList::new();
+            let mut bytes = Vec::new();
+            let mut encoder = PositionStreamEncoder::new(&mut bytes);
+            for doc in 0..1000 {
+                list.push(doc, 1);
+                encoder
+                    .push_doc(&mut [if doc == 0 { term } else { term * 10 }])
+                    .unwrap();
+            }
+            encoder.finish().unwrap();
+            lists.push(BlockPostingList::from_posting_list_with(&list, true, None).unwrap());
+            positions
+                .push(TermPositions::open(crate::directories::OwnedBytes::new(bytes)).unwrap());
+        }
+        let mut scorer = PhraseScorer::unpositioned(lists, positions, &[0, 1], 0, 1.0, 2.0, None);
+        scorer.find_next_phrase_match();
+        assert_eq!(scorer.doc(), 0);
+        let budget = super::super::SharedThreshold::for_limit(10)
+            .with_deadline(Some(std::time::Instant::now()));
+        scorer.budget = Some(budget.clone());
+        assert_eq!(scorer.advance(), TERMINATED);
+        assert_eq!(scorer.score(), 0.0);
+        assert!(budget.truncated());
+        assert_eq!(
+            scorer.position_bufs,
+            vec![vec![0], vec![1]],
+            "no further positions decoded"
+        );
+    }
+
+    #[test]
+    fn monotone_phrase_frequency_matches_naive_offsets_slop_and_repeated_terms() {
+        for seed in 0..100u32 {
+            let a: Vec<_> = (0..200).filter(|i| (i * 17 + seed) % 11 < 5).collect();
+            let b: Vec<_> = (0..200).filter(|i| (i * 13 + seed) % 19 < 4).collect();
+            for bufs in [
+                vec![a.clone(), b.clone()],
+                vec![a.clone(), b.clone(), a.clone()],
+            ] {
+                for slop in [0, 1, 3, 100] {
+                    let deltas = [0, 2, 7];
+                    let expected = bufs[0]
+                        .iter()
+                        .filter(|&&start| {
+                            bufs.iter().enumerate().skip(1).all(|(i, positions)| {
+                                positions
+                                    .iter()
+                                    .any(|&p| p.abs_diff(start + deltas[i]) <= slop)
+                            })
+                        })
+                        .count() as u32;
+                    assert_eq!(
+                        count_phrase_matches(&bufs, &deltas, slop, &mut [0; 3]),
+                        expected
+                    );
+                }
+            }
+        }
+        assert_eq!(
+            count_phrase_matches(&[vec![0, 0, 5], vec![1, 6]], &[0, 1], 0, &mut [0; 2]),
+            3
+        );
+        assert_eq!(
+            count_phrase_matches(&[vec![u32::MAX], vec![0]], &[0, 1], 0, &mut [0; 2]),
+            0
+        );
+        assert_eq!(
+            count_phrase_matches(&[vec![1], vec![]], &[0, 1], 3, &mut [0; 2]),
+            0
+        );
     }
 }
