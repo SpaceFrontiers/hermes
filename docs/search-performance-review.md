@@ -794,3 +794,45 @@ Final validation:
 The earlier production-corpus, controlled cold-storage, concurrent-load and x86
 runtime performance limitations still apply; this storage option makes no new
 performance claim or change to BMP search behavior.
+
+## Current BMP format and exclusion filters (2026-09-05 follow-up)
+
+BMP now has one accepted/emitted envelope. Optional forward storage is an
+explicit section with enabled or disabled state; disabling it no longer writes
+an older format. The published enabled representation is unchanged. Disabled
+fields add a 16-byte marker. Older readers/writers and version-based merge
+selection are removed. The earlier V19/V20 comparisons above are historical
+measurements from the migration release, not current compatibility guarantees.
+Deploy against rebuilt indexes or after every live BMP blob passes the current
+format audit. The operator chose a fresh rebuild instead of waiting for the
+one-time forward materialization and BP pass over existing production segments.
+
+The common fusion filter exposed an exclusion-only Boolean bug: no positive
+clause produced an empty scorer and an unsupported bitmap, so small segments
+returned nothing and large segments could reject the materialization fallback.
+The Boolean owner now supplies a neutral document universe, subtracts excluded
+matches and preserves entirely empty Boolean semantics. Absent indexed exclusion
+terms produce complete empty bitmaps instead of an unsupported result. Native
+bitmap materialization is O(segment words + exclusion postings), with the same
+fusion bitmap budget; async Boolean scoring streams the complement. Regressions
+cover pre-selection exclusion in RRF, L1 and feature export, cross-partition
+exclusions, absent terms, tail-bit bounds and exhausted scorers.
+
+Validation:
+
+- Required `check` passed: `.context/search-harness/20260905T204939.904681Z-check/`.
+- All eight `full` stages passed:
+  `.context/search-harness/20260905T205133.222273Z-full/`, including 1,339 core
+  unit tests (17 manual experiments ignored), 65 server tests, 50 broker unit
+  tests, 13 broker integration tests, and both real-server RPC tests.
+- Native without sync passed the exclusion regression and all 11 selected
+  forward-storage tests. WASM release build and all five runtime tests passed.
+  Supporting logs are in the parent workspace's
+  `.context/bmp-current-{async,wasm-build,wasm-test}.log`.
+- The enabled fixture is byte-identical to release 1.8.125: 12,713 bytes,
+  FNV-1a-64 `5ccfbcdae3690623`. Disabled storage preserves every inverted byte.
+- The first broad run exposed an existing log-capture race with unrelated
+  parallel tests. The capture now accepts only its owning test thread; both
+  complete runs then passed. Production logging is unchanged.
+
+No new search-latency or throughput claim is made by this cleanup.
