@@ -505,3 +505,8 @@ bytes and concurrent indexing load. Legacy nested fusion and fusion with the
 vector reranker retain their existing shard execution and do not advertise
 `global_rrf_v1`. Ordered old segments remain readable without a new sidecar;
 legacy reordered fields explicitly require preparation before L1 use.
+
+The Linux CI broker-only build exposed an x86 feature-boundary regression:
+`pack_group_bmi2` was compiled when its native/WASM writer caller was absent.
+Its cfg now matches the caller, retaining runtime BMI2 dispatch in writer builds.
+The failing CI run is `33969669241`; this does not change encoded bytes or scoring.
