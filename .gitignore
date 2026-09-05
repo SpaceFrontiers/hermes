@@ -2,6 +2,9 @@
 target/
 /dist/
 
+# Local agent scratch and reproducible review/benchmark evidence
+/.context/
+
 # Data files (generated indexes, processed data)
 /data/
 *.zst
