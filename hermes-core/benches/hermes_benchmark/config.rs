@@ -11,17 +11,28 @@ pub struct BenchmarkConfig {
 
 impl BenchmarkConfig {
     pub fn from_env() -> Self {
-        let data_dir = std::env::var("BENCHMARK_DATA")
-            .unwrap_or_else(|_| "benches/benchmark_data".to_string());
+        let data_dir = std::env::var("BENCHMARK_DATA").unwrap_or_else(|_| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("benches/benchmark_data")
+                .to_string_lossy()
+                .into_owned()
+        });
 
         let dense_dim = std::env::var("DENSE_DIM")
             .ok()
-            .and_then(|s| s.parse().ok())
+            .map(|s| {
+                s.parse::<usize>()
+                    .expect("DENSE_DIM must be a positive integer")
+            })
             .unwrap_or(256);
 
-        let num_queries = std::env::var("NUM_QUERIES")
-            .ok()
-            .and_then(|s| s.parse().ok());
+        let num_queries = std::env::var("NUM_QUERIES").ok().map(|s| {
+            s.parse::<usize>()
+                .expect("NUM_QUERIES must be a positive integer")
+        });
+
+        assert!(dense_dim > 0, "DENSE_DIM must be positive");
+        assert!(num_queries != Some(0), "NUM_QUERIES must be positive");
 
         Self {
             data_dir: PathBuf::from(data_dir),

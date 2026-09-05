@@ -191,7 +191,7 @@ impl TextData {
     pub fn load(path: &Path) -> Option<Self> {
         let file = File::open(path).ok()?;
         let reader = BufReader::new(file);
-        let texts: Vec<String> = reader.lines().map_while(Result::ok).collect();
+        let texts: Vec<String> = reader.lines().collect::<Result<_, _>>().ok()?;
         println!("Loaded {} texts from {:?}", texts.len(), path);
         Some(Self { texts })
     }

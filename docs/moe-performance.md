@@ -1,5 +1,9 @@
 # MoE A100 performance
 
+These are historical measurements from 2026-07-21, not a fresh run of the
+current dependency revisions. See the [benchmark guide](benchmarks.md) for
+current target selection and reporting requirements.
+
 The configurable `retriever-200m-moe` layer is benchmarked against PyTorch's
 native `torch.nn.functional.grouped_mm` path on the same
 NVIDIA A100-SXM4-40GB. Both implementations include FP32 routing, top-2

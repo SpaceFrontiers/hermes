@@ -13,10 +13,10 @@
 //!
 //! ```text
 //! cargo bench -p hermes-train --bench wake_tier_step --features cuda -- \
-//!   --model hermes-mal/well-known/retriever_300m_moe_sleep.mal \
+//!   --model "$PWD/hermes-mal/well-known/retriever_300m_moe_sleep.mal" \
 //!   --batch-size 4 --sequence-length 1024 --periods 100,400,3200 \
 //!   --non-due-clock 99 --due-clock 100 --require-cuda \
-//!   --output wake-tier-step-cuda.json
+//!   --output "$PWD/wake-tier-step-cuda.json"
 //! ```
 //!
 //! Model initialization and input construction are outside the timed region.
