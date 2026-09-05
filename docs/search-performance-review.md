@@ -510,3 +510,8 @@ The Linux CI broker-only build exposed an x86 feature-boundary regression:
 `pack_group_bmi2` was compiled when its native/WASM writer caller was absent.
 Its cfg now matches the caller, retaining runtime BMI2 dispatch in writer builds.
 The failing CI run is `33969669241`; this does not change encoded bytes or scoring.
+The first fix accidentally gated the read-side decoder; CI `33971140308` caught
+that error. The corrected gate applies only to the writer. The broker's minimal
+core now also passes an explicit `x86_64-apple-darwin` compile with Rust 1.98.1
+and warnings denied (`.context/phrase-boost/l1-x86-broker-check.log` in the
+Azeroth integration workspace).
