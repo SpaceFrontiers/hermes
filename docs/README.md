@@ -17,6 +17,7 @@ claim as implemented or as current performance.
 
 - [Search system engineering contract](search-system-contract.md)
 - [Core/server review](search-performance-review.md)
+- [L1 candidate scoring handoff and rejected lookup design](handoffs/2026-09-05-l1-candidate-scoring.md)
 - [Rust hot-path review](rust-hot-path-review.md)
 
 ## Schema, text search, and query behavior
@@ -49,6 +50,8 @@ claim as implemented or as current performance.
 - [FastScan layout v2 for float ScaNN leaves](fast-scan-layout-v2.md)
 - [TurboQuant (TQ) — training-free dense ANN codec](turboquant-quantization.md)
 - [Unified Dense IVF Architecture](unified-vector-quantization.md)
+- [Forward values in BMP search passes: research and experiment](bmp-forward-search.md)
+- [BMP forward values and format compatibility](bmp-forward-index.md)
 - [BMP LSP/0 and Maximum-Grid Compression](bmp-grid-compression.md)
 - [Algebraic float reductions](algebraic-float-reductions.md)
 - [Seismic: research assessment (2026-07-09)](seismic-research.md)
@@ -63,6 +66,7 @@ claim as implemented or as current performance.
 - [LLM Visualization Lab](llm-visualization-lab.md)
 - [Training workflows and task contracts](training-objectives-and-curricula.md)
 - [Generation evaluation](generation-eval.md)
+- [Candidate backfill and linear L1 ranking](candidate-rescoring.md)
 - [Large-candidate-pool retrieval evaluation](retrieval-pool-eval.md)
 - [Configurable MoE design](moe-design.md)
 - [SOTA LLM design (2024–2026) + shared retrieval embeddings — research notes](llm-design-and-rag-embeddings.md)
