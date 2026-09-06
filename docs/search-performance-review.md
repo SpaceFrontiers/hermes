@@ -1197,3 +1197,43 @@ identically, confirming this is not introduced by the patch. Async phrase-filter
 materialization/scoring parity remains a separate correctness follow-up.
 Evidence: `.context/filtered-body-native-async.log` and
 `.context/filtered-body-preexisting-async-phrase.log`.
+
+## Missing one-word phrase filters — 2026-09-06
+
+Confirmed against `56bcae64` (1.8.129): an indexed `PhraseQuery` with one
+absent term returned `None` from native bitmap materialization. `None` means
+unsupported, so common filtering attempted its scorer fallback and rejected
+segments above 200,000 documents. A 200,001-document regression reproduced
+the reported "common filter cannot be materialized" error. Structured phrase
+requests preserve `PhraseQuery` even with one token; the query-language parser
+normally lowers a single-token quote on one field to `TermQuery`, which does
+not exercise this phrase path.
+
+The phrase owner now distinguishes a successful posting lookup with no list
+from an unavailable materialization. Missing indexed terms produce the empty
+bitmap already allocated by this path. Read errors still return an unavailable
+bitmap and fall back to explicit errors; they do not become empty matches.
+Non-indexed fields retain the scorer fallback because fast-column values can
+match even without postings. No parser, wire or persisted representation changed.
+
+The regression covers direct async and sync scorers plus public index search,
+plain/chunked text, unpopulated indexed fields, and positive, OR and negated
+filters. A smaller fixture also checks present/absent terms against indexed and
+fast-only fields across the native-without-sync boundary. Red and green evidence:
+`.context/missing-phrase-{red,green}.log`.
+
+The cost remains one document bitmap (25,008 payload bytes for the large
+regression), plus the existing term lookup and matching-posting traversal.
+The 16 MiB bitmap and 200,000-document scorer-fallback bounds are unchanged.
+No latency or RSS benchmark was run for this correctness patch, and no
+performance improvement is claimed. Portable builds still have the documented
+fallback bound; the async phrase-ordinal discrepancy recorded above remains
+outside this fix.
+
+Validation passed: the four-step required harness at
+`.context/search-harness/20260906T154504.235296Z-check/`, all ten active common-filter
+tests with native async execution (one manual benchmark ignored), and the WASM
+release build plus all nine runtime tests. Documentation checks also passed.
+Logs: `.context/missing-phrase-{check,native-async,wasm-build,wasm-tests,docs}.log`.
+The additional `full` lifecycle/RPC harness was not rerun because this patch
+changes neither lifecycle nor RPC code.
