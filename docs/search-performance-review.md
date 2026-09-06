@@ -1299,3 +1299,66 @@ and the focused retry in `.context/long-phrase-broker-deadline-retry.log`.
 The WASM release build and all nine existing runtime tests passed, along with
 documentation checks and pre-commit hooks. Evidence:
 `.context/long-phrase-{wasm-build,wasm-tests,docs,final-precommit}.log`.
+
+## Index-configurable L1 phrase limits — 2026-09-06
+
+Following the fixed 256-token limit in 1.8.131 (`2bf99929`), the creation schema
+now accepts `max_l1_phrase_terms`. The requested default is restored to **64**;
+indexes opt into longer features explicitly, for example
+`index documents { max_l1_phrase_terms: 256 field body: text [indexed<token_position>] }`.
+The optional positive-u32 setting is owned by core `Schema` and persisted under
+`schema.max_l1_phrase_terms` in `metadata.json`. SDL, JSON creation, Rust builders,
+server/broker creation and WASM creation share it. Index info returns the
+effective value in SDL. No protobuf or segment format changes are involved.
+Absent settings retain the prior metadata bytes and load as 64; explicit zero,
+negative, fractional and out-of-range values fail creation/deserialization.
+
+Before the change, the new default-limit regression incorrectly accepted a
+65-term phrase with no nominated candidates (`.context/phrase-cap-red.log`).
+It now checks the configured boundary in ranking and collection after reopen,
+including custom limits 1, 65 and 300. The existing long-phrase fixture explicitly
+sets 300 and compares complete plain/chunked phrase features and formula
+predictions against ordinary search at 64, 65, 256 and 300 terms. Wrong 65th terms
+and missing 256th terms still score zero. A two-shard RPC fixture checks both
+default-64 and configured-256 indexes, reported schemas, and invalid creation.
+WASM runtime coverage checks default/configured metadata across reopen and a
+second commit, plus rejected zero limits.
+
+The setting uses one inline `Option<NonZeroU32>` with no heap allocation;
+validation reads it once per phrase component. Phrase probing is unchanged:
+per-phrase cursor scratch and posting/position probes grow linearly with retained
+terms. The shared 256 MiB candidate payload-read budget, scored-value budget,
+nomination limits, and separate server token budget (default 256) still apply.
+No latency/RSS benchmark was run for this configuration change and no performance
+improvement is claimed. The previously recorded native-async phrase-ordinal
+discrepancy and intermittent parallel broker startup timeouts remain separate
+findings.
+
+The initial required check exhausted local disk space while linking tests
+(`.context/phrase-cap-check.log`). Removing only this workspace's rebuildable
+incremental caches predating the task freed 45 GiB. The next normal-concurrency
+check reached broker tests but timed out in the existing
+`partitioned_create_and_commit_fan_out_to_every_partition` test, waiting ten
+seconds for initial index discovery (`.context/phrase-cap-final-check.log`).
+This is the same unresolved discovery failure recorded above; no production
+behavior or test timeout was changed. Subsequent harness runs use one test thread.
+The first serial full run passed all 1,369 core unit tests, then could not
+execute an integration binary: the workspace's entire `target` directory
+disappeared during the run, beyond the earlier bounded incremental-cache cleanup.
+Its log is `.context/phrase-cap-full-serial.log`. Validation was restarted with
+`CARGO_TARGET_DIR=$PWD/.context/l1-phrase-cap-build` to isolate build artifacts.
+
+The isolated full run passed its first seven steps, including all search-stack
+tests, native-without-sync and portable compilation, API docs, and the server
+build (`.context/search-harness/20260906T184531.789002Z-full/`). Its standalone
+broker step caught a native-gated helper used only by the new index-info test
+assertion; replacing that helper with the portable SDL parser fixed the feature
+boundary. Rerunning that exact final step passed all three real-server tests,
+including both phrase-cap configurations (`.context/phrase-cap-broker.log`).
+The WASM release build and all 12 runtime tests passed in the separate
+`.context/l1-phrase-cap-wasm-build` directory; logs are
+`.context/phrase-cap-wasm-{build,install,tests}.log`.
+All nine candidate-scoring tests also passed with native async execution
+(`cargo test --locked -p hermes-core --no-default-features --features native --lib
+query::candidate_scoring::tests`), including the 300-term exact-score checks:
+`.context/phrase-cap-native-async.log`.
