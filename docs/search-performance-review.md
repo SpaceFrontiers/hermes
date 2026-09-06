@@ -897,3 +897,142 @@ Final combined validation passed:
   An interim full run was interrupted to make that final change; its process
   group cancellation reported an OS error, so only the complete final run above
   is used as validation evidence.
+
+## Search correctness and execution review (2026-09-06)
+
+Reviewed against `5286d8c5` (1.8.126), tracing the shared query-language parser,
+Index/Searcher planning, common filters, Boolean/BMP/MaxScore execution and L1
+candidate readers. The fixes stay in those owners; there are no index-format,
+wire-format, scoring-formula or approximate-default changes.
+
+### Confirmed and fixed
+
+- `emb:sparse({...})` dropped the field's `query<lsp_gamma: N>` setting.
+  Explicit zero therefore became the depth-derived approximate default. The
+  core parser now carries `Some(0)` and positive caps through unchanged, while
+  an omitted setting remains `None`. This shared parser serves native, async,
+  tool and WASM callers. The structured RPC converter already inherited the
+  setting. Regressions reproduce the lost zero and a nine-document query
+  ignoring a one-superblock cap; parsed results now match an explicitly
+  configured core query. The schema reference also now describes the existing
+  3000/4000/depth gamma schedule correctly.
+- Boolean optimization could flatten a common-filter wrapper, or a nested
+  Boolean with required/excluded clauses, into unfiltered sparse terms.
+  Scoring decomposition now keeps those constraints opaque. A separate BMP
+  planning hook preserves query-global superblock selection for common-filter
+  wrappers and Boolean queries with local pure filters. A two-segment test
+  checks that a cap of one still admits only one superblock across the index.
+- Common eligibility reached some nested BM25/BMP and sparse MaxScore plans
+  only after their top-k heaps, allowing disallowed high scores to crowd out
+  eligible hits. Local Boolean eligibility now intersects outer eligibility;
+  sparse MaxScore receives both eligibility and the request deadline. Known-hit
+  regressions cover direct, optimized Boolean and nested-filter plans.
+- Common-filter materialization used fresh default options, losing deadlines,
+  and continued into scoring even after the intersection became empty. It now
+  shares the existing truncation state, discards incomplete bitmaps and stops
+  before remaining filters or scoring payloads. The direct synchronous scorer
+  also delegates to the implemented filtered path. Work remains bounded by the
+  existing bitmap/fallback limits; emptiness checks scan existing bitmap words.
+- BMP L1 backfill bounded candidate count but did not admit variable-size
+  selected payloads against a byte budget. Forward offsets or selected inverted
+  block ranges now reserve bytes before payload validation/scoring, sharing the
+  existing 256 MiB lazy-text allowance across segments, features and components.
+  The reader performs an O(selected values) metadata pass with constant scratch.
+  A zero-budget regression failed before the fix for both forward-storage modes.
+  Dead version-dependent logging in the current-format-only BMP reader was
+  removed while checking this path.
+
+The eligibility and admission invariants are recorded in
+[candidate rescoring](candidate-rescoring.md#eligibility-and-bounded-nomination).
+No writer or codec changed, so this pass does not claim a format rewrite or a
+new byte-identity experiment.
+
+### Local measurement
+
+The empty-filter experiment uses the same RAM index of 16,384 documents, each
+containing `alpha beta gamma` and a numeric eligibility value of zero. It asks
+for ten `alpha` hits with eligibility equal to one and verifies an empty result
+outside timing. Index construction is excluded. Each process measures eleven
+batches of 100 end-to-end searches; three before/after pairs alternate order.
+Both binaries use the same Apple M4, Rust 1.98.1 / LLVM 22.1.8 and Cargo release
+flags, with no concurrent build during measurement.
+
+| Measurement                                       |                   Before |                    After |
+| ------------------------------------------------- | -----------------------: | -----------------------: |
+| Median batch latency, three processes (µs/search) | 90.091 / 87.678 / 89.499 | 17.672 / 14.169 / 13.285 |
+| Median of those medians (µs/search)               |                   89.499 |                   14.169 |
+| Process peak RSS range (MiB)                      |              19.34–20.33 |              18.77–19.69 |
+| Eligibility bitmap (bytes)                        |                     2048 |                     2048 |
+
+This is a roughly 6.3× improvement for empty eligibility, not an overall search
+speedup or a tail-latency claim. RSS includes the fixture and test process and
+does not isolate per-query scratch. The first baseline process incurred 544
+page faults; the other five reported zero. Queries use a warmed RAM fixture,
+and ordinary desktop activity was present. Cold storage, loaded concurrency,
+nonempty-filter latency and a controlled x86 before/after remain unmeasured.
+Reproduction: run the ignored release test
+`query::filtered::tests::empty_common_filter_benchmark` under `/usr/bin/time -l`.
+Raw runs and environment metadata are in this workspace's
+`.context/common-filter-benchmark-{before,after}-{1,2,3}.log` and
+`.context/common-filter-benchmark-environment.json`.
+
+### Deployed observations and remaining performance work
+
+Read-only SSH/Kubernetes sampling observed the existing 1.8.126 broker and four
+servers. No patch was deployed, requests replayed or settings changed. Between
+approximately 04:52:42 and 04:59:36 UTC, broker counter deltas recorded 37
+successful document searches averaging 448.1 ms and 12 social searches averaging
+5.13 ms, with no new recorded errors. These are sparse, mixed live requests
+(about 0.12 requests/second combined), not a throughput benchmark. The first
+broker summary exported document p50/p95/p99 of 47.1/1303.0/1303.0 ms; these
+rolling summary quantiles are not quantiles of the counter-delta interval.
+
+On document shard `s2`, the same interval contained seven `sparse_vectors` LSP
+plans averaging 90.0 ms and 56 segment BMP executions averaging 218.7 ms.
+Mean execution components included 164.3 ms in block scoring, 49.3 ms in
+prefetch, 3.64 ms in the D grid and 1.06 ms in document mapping. Four short-document
+sparse plans averaged 25.3 ms; their 28 segment executions averaged 289.7 ms,
+including 268.4 ms in block scoring. These component means identify profiling
+targets; segment work can run concurrently and must not be summed as request
+wall time. Sampled LSP counter deltas averaged gamma 3000, but metrics do not
+identify the request syntax or prove those requests used a schema gamma of zero.
+
+Two process/cgroup snapshots on `s2`, 337 seconds apart, showed RSS about
+63.6 GiB (46.9–47.1 GiB anonymous and 16.5–16.7 GiB file-backed), 1.75 GiB locked
+and no swap. Cgroup usage rose from 68.6 to 73.3 GiB; its historical peak was
+206.0 GiB, while process peak RSS was 168.7 GiB. The interval added 7.20 million
+major faults and 7.99 million file refaults, with CPU consumption averaging
+5.53 cores and no quota throttling. Recent memory-pressure averages were low
+and OOM counters were zero. These are whole-container observations, not
+per-query allocations; neither faults nor the historical peaks can be assigned
+to search versus background work from these samples alone.
+
+Remaining work is to profile block scoring and selected-range I/O on a fixed
+production-like corpus, correlating faults with per-request and maintenance
+activity, then measure warm/cold latency and recall at the same explicit gamma.
+The slow log includes candidate exports taking 3.1–6.5 seconds, some with empty
+segment heaps and zero thresholds; selective-filter/candidate-depth behavior
+deserves that controlled follow-up. The documented bounded ANN nomination can
+still underfill a selective common filter. This pass preserves that policy;
+changing it needs a recall/work comparison. No production default was tuned.
+
+`kubectl top` failed because the cluster Metrics API is unavailable. Direct
+Prometheus scrapes plus `/proc` and cgroup files supplied the observations
+instead. Raw evidence is retained under `.context/review-prod-*`, with derived
+tables in `.context/review-production-{analysis,resources-analysis,bmp-breakdown}.json`.
+
+### Validation
+
+- Required `python3 scripts/check_search.py check` passed: formatting, Clippy,
+  1,356 core unit tests (18 manual experiments ignored), 70 server tests,
+  50 broker unit tests, 13 broker integration tests, tool/integration/doc tests
+  and the native-without-sync compile boundary. Run evidence:
+  `.context/search-harness/20260906T045858.391501Z-check/`.
+- Native without sync passed eight filter regressions, all 22 query-language
+  tests and the BMP admission regression: `.context/review-native-async.log`.
+- WASM release compilation and all seven runtime tests passed, including
+  query-language searches with exhaustive and bounded schema gamma. Evidence:
+  `.context/review-wasm-{npm-install,build,test}.log`.
+- The extended `full` harness/real-server RPC tests, a Linux mlock experiment,
+  controlled cold-cache and cross-architecture comparisons were not run in
+  this pass. Lifecycle/RPC implementations and residency policy were unchanged.
