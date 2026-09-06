@@ -1120,3 +1120,80 @@ WASM release build plus all eight runtime tests passed. Both regenerated client
 suites passed eleven tests each. Evidence includes `.context/formula-native-async.log`,
 `.context/formula-wasm-{build,tests}.log`, and
 `.context/formula-{python,typescript}-tests.log`.
+
+## Filtered body queries at small limits — 2026-09-06
+
+Confirmed against `fa92ac62` (1.8.128). With ten higher-scoring `article`
+documents and one lower-scoring `book`, a required chunked text term combined
+with `kind:book` returned no hits at limit 1 and the correct book at limit 20.
+The generic Boolean planner constructed the body's bounded scorer before
+applying its document predicates. Required nested disjunctions and negative
+fast-field filters had the same failure. The public query-language reproduction
+is `body:machine AND kind:book` with a chunked `body` and raw fast `kind`.
+
+The generic plans now push available predicates into shared eligibility before
+constructing their text children. They reuse selective bitset construction
+where supported and scan eligible fast-field values otherwise, retaining the
+original scoring/verifier clauses and the existing 16 MiB bitmap ceiling.
+The regression checks small/large-limit IDs, exact score bits and ordinals;
+another covers required disjunctions on plain text. Fast text equality is used
+only where it matches indexed-term semantics: single-valued raw text. Analyzed
+and multi-valued indexed fields retain their posting-list semantics.
+
+Actual WASM execution of this query also reproduced a MaxScore panic from an
+unconditional `std::time::Instant::now()` used for diagnostic logging. Both
+MaxScore loops now use the existing portable `observe::WallTimer`.
+Red evidence: `.context/filtered-body-red.log`,
+`.context/filtered-body-fast-text-red.log`, and
+`.context/filtered-body-wasm-red.log`.
+
+### Controlled fixture and limits of the measurements
+
+Apple M4 arm64, Rust 1.98.1, identical debug server build commands and the same
+persisted 10,000-document fixture (50 eligible books, one body chunk per
+document), top 1. Each case opened the fixture in a fresh process, warmed 20
+queries and measured 100 sequential RPCs. Index construction and the full-limit
+correctness reference were outside timing; builds did not overlap sampling.
+
+| Query shape                       | Before p50/p95 ms | After p50/p95 ms | Before/after sampled RSS KiB | Before/after correct top 1 |
+| --------------------------------- | ----------------: | ---------------: | ---------------------------: | -------------------------- |
+| Required body term + kind         |     1.090 / 1.232 |    1.475 / 2.005 |              34,640 / 36,352 | No / Yes                   |
+| Required nested body OR + kind    |     1.679 / 2.816 |    1.422 / 1.737 |              35,328 / 35,456 | No / Yes                   |
+| Required body term, excluded kind |     1.536 / 2.926 |    1.580 / 1.746 |              37,392 / 34,432 | No / Yes                   |
+| Existing filtered SHOULD control  |     1.742 / 1.996 |    1.367 / 1.539 |              34,688 / 35,728 | Yes / Yes                  |
+
+All fixed responses matched the full-limit reference IDs and score bits.
+The control's movement makes the timing comparison inconclusive; this is a
+correctness fix with bounded extra eligibility work, not a throughput claim.
+RSS is sampled process residency, not a measurement of peak scratch. The
+bitmap for this fixture occupies 1,256 bytes. Evidence and reproduction:
+`.context/filtered-body-{before,after}.jsonl` and
+`.context/measure_filtered_body.py`.
+
+This fixes predicate pushdown, not every source of candidate loss. Filters
+without a document predicate retain the existing verifier paths. The documented
+two-times chunk nomination cap can still retain several chunks of one document
+and underfill a document result window; this pass does not change that policy,
+ANN/LSP defaults, stored formats, or production configuration. Cold-cache,
+large-corpus, concurrency and x86 performance comparisons remain unmeasured.
+
+### Validation and remaining async discrepancy
+
+The final required harness passed all four steps:
+`.context/search-harness/20260906T133139.703927Z-check/`. The WASM release build
+and all nine runtime tests passed, as did documentation checks and all three
+new native-without-sync regression tests. Logs:
+`.context/filtered-body-{final-check,wasm-build,wasm-tests,docs}.log` and
+`.context/filtered-body-native-async-regressions.log`. No lifecycle, RPC, or
+wire definitions changed; the additional `full` lifecycle/RPC harness was not
+rerun for this patch. The measured probes did exercise a real local server.
+
+A broader native-without-sync chunked suite passed 16 of 17 tests and exposed
+an existing discrepancy in `filters_and_phrases_push_into_chunked_text_maxscore`:
+the async fallback includes the required phrase's ordinal 0, returning `[0, 1]`
+where the sync bitset-filter path returns `[1]`. The saved 1.8.127 test binary
+(`hermes_core-14836e5caef7dcbc`, from the previous review) fails the same test
+identically, confirming this is not introduced by the patch. Async phrase-filter
+materialization/scoring parity remains a separate correctness follow-up.
+Evidence: `.context/filtered-body-native-async.log` and
+`.context/filtered-body-preexisting-async-phrase.log`.
