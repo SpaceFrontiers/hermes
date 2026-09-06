@@ -1237,3 +1237,65 @@ release build plus all nine runtime tests. Documentation checks also passed.
 Logs: `.context/missing-phrase-{check,native-async,wasm-build,wasm-tests,docs}.log`.
 The additional `full` lifecycle/RPC harness was not rerun because this patch
 changes neither lifecycle nor RPC code.
+
+## Long L1 phrase features — 2026-09-06
+
+Confirmed against `cf170fbb` (1.8.130): a 64-token phrase succeeds in both
+ordinary search and candidate scoring, while 65 tokens fail candidate-plan
+validation with "invalid L1 phrase feature or missing positions". The server
+converter admits up to 256 tokens by default. L1 reused the 64-term nomination
+limit even though the shared phrase scorer uses dynamic positional cursors.
+The same plan validation runs for learned ranking and raw feature collection.
+
+Phrase feature validation now has its own 256-token bound, matching the default
+server conversion budget. It preserves every term and existing offsets/slop.
+An oversized core request fails with the feature name, actual term count and
+maximum before statistics or candidate resolution, including an empty candidate
+set. Field/position checks, nonphrase feature limits, nomination limits and
+wire/storage formats are unchanged.
+
+The core regression uses synthetic `term0` through `term255` on plain and
+chunked fields. At 64, 65 and 256 tokens, raw exports and formula scores match
+ordinary phrase search bit-for-bit. Documents with a wrong 65th term or missing
+256th term score zero, so accepting the request cannot hide truncation. A
+257-token candidate request still fails. The broker reproducer uses the same
+four synthetic documents over two real server processes and checks formula
+ranking and collection against ordinary distributed phrase scores.
+
+Reproduction commands using synthetic data:
+
+```sh
+cargo test --locked -p hermes-core --lib long_phrase_features_keep_every_term_in_ranking_and_collection
+cargo build --locked -p hermes-server --bin hermes-server
+cargo test --locked -p hermes-broker --test e2e_real_server broker_ranks_and_exports_long_phrase_features_without_dropping_terms -- --ignored
+```
+
+The algorithm is unchanged: candidate phrase scoring keeps one posting cursor
+and reusable position buffer per term, seeks only nominated physical targets,
+and retains existing read and scored-value admission budgets. Increasing the
+accepted phrase length increases that bounded work; this is a correctness fix,
+not a throughput claim. No before/after latency or memory benchmark was run
+for this patch. Red/green core evidence is in
+`.context/long-phrase-{red,green}.log`. The previously recorded native-async
+required-phrase ordinal discrepancy remains outside this change.
+
+The required `check` passed all four steps with normal test concurrency:
+`.context/search-harness/20260906T180558.238875Z-check/`. All eight full-harness
+steps passed with `RUST_TEST_THREADS=1 python3 scripts/check_search.py full`:
+`.context/search-harness/20260906T181122.939063Z-full/`, including all three
+real-server broker tests. Eight candidate-scoring tests also passed with native
+async execution. Logs: `.context/long-phrase-{final-check,full-serial,native-async,broker}.log`.
+
+Parallel validation intermittently timed out in two existing broker integration
+tests while waiting ten seconds for initial index discovery:
+`client_deadline_propagates_and_absence_means_untimed` in the first `check`, and
+`partitioned_stream_routes_each_flush_by_primary_key` in the parallel `full`.
+Neither exercises candidate phrase scoring. The focused deadline retry and a
+fresh default-concurrency `check` passed; the final `full` used one test thread.
+No timeout or production setting was changed. The cause of these timeouts remains
+unresolved; original failures are retained in `.context/long-phrase-{check,full}.log`
+and the focused retry in `.context/long-phrase-broker-deadline-retry.log`.
+
+The WASM release build and all nine existing runtime tests passed, along with
+documentation checks and pre-commit hooks. Evidence:
+`.context/long-phrase-{wasm-build,wasm-tests,docs,final-precommit}.log`.
