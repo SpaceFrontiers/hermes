@@ -564,7 +564,7 @@ Resolved findings:
   exactly, probes only missing cells, and supports optional `backfill` (default
   true). `missing_values` supplies learned raw defaults before transforms;
   raw exports retain absence. Actual zero/negative scores are never imputed.
-  Core and broker share the same formula. The contract is `linear_v2` /
+  Core and broker share the same formula. The original coefficient contract was `linear_v2` /
   `feature_export_v2`, with candidate-scoring capability 2.
 - Sparse MaxScore was unavailable for backfill. Bounded skip-index probes now
   establish presence and score selected documents/ordinals with the existing
@@ -1036,3 +1036,87 @@ tables in `.context/review-production-{analysis,resources-analysis,bmp-breakdown
 - The extended `full` harness/real-server RPC tests, a Linux mlock experiment,
   controlled cold-cache and cross-architecture comparisons were not run in
   this pass. Lifecycle/RPC implementations and residency policy were unchanged.
+
+## Search attribution, traces and symbolic L1 (Dushanbe, 2026-09-06)
+
+This follow-up replaces the coefficient-only L1 API with required `l1.formula`
+(capability 3, `formula_v1`). Removed coefficient fields have reserved protobuf
+names/tags. `backfill` and raw missing defaults remain, with zero as the default
+for a missing formula variable. Core owns the bounded compiled expression and
+passage/document inference; server and broker translate and validate. Expressions
+compile once per request, bind at most 17 indexed inputs, and have no global cache.
+Python and TypeScript bindings and examples use the formula-only contract.
+
+Resolved correctness findings and added observability:
+
+- Native nomination without supplied text statistics bypassed the ordinary
+  searcher's query-global BM25 statistics. A two-segment regression first
+  reproduced different scores/ranking; nomination now uses the same statistics
+  owner. Optional diagnostics preserve ordinary hit identities and score bits.
+- `include_rrf_scores` returns a separate score and per-branch votes based on
+  complete organic nominations, excluding backfill/score-only features. Broker
+  attribution uses global ranks, including nominations absent from final hits.
+- `tracing=false` preserves the default path. Opt-in traces retain bounded
+  per-shard/per-branch nominations, raw scores and ordinals, query trees/common
+  filters, nomination depth/counters and shard selection, across pagination.
+  Candidate/ordinal and retained/encoded byte budgets apply before cloning.
+- RRF in L1 must be evaluated inside the passage formula, before its document
+  combiner. Global RRF can change both the best passage and winning document,
+  so the broker obtains the whole bounded union and every scored passage.
+  Shards use a constant formula for this export; the broker applies the actual
+  formula with global votes. Regressions cover below-local-top-k winners,
+  discarded passages, negative/zero multipliers, logarithms/division of RRF,
+  incomplete exports, old backends and invalid formulas before admission.
+
+### Fixed-fixture performance evidence
+
+Apple M4 arm64, Rust 1.98.1, identical debug compiler flags and warm local gRPC.
+The saved pre-formula server and new server used the same persisted 1,000-document
+seed-7 fixture, two BM25 branches, nomination depth 40 and top 20, with raw feature
+exports. Each mode started a fresh process, warmed up 20 times and measured 100
+sequential calls; no concurrent builds ran. RSS is the maximum sampled whole
+process RSS, not isolated scratch or an OS peak. These desktop debug samples are
+smoke measurements, not production throughput or evidence to change defaults.
+
+| L1 request                                            | p50 ms | p95 ms | Response bytes | Sampled RSS KiB |
+| ----------------------------------------------------- | -----: | -----: | -------------: | --------------: |
+| Previous coefficients, 0.2 title + 0.8 body           |  4.050 |  4.319 |          1,826 |          36,672 |
+| Equivalent compiled formula                           |  4.020 |  4.136 |          1,825 |          36,784 |
+| 0.2 title + 0.8 log1p(body) + 3 RRF, with attribution |  4.521 |  4.689 |          5,934 |          38,976 |
+
+The equivalent formula returned identical document IDs and f32 score bits.
+All three modes matched independently computed f64 arithmetic with checked f32
+rounding. The tiny timing difference between coefficients and the equivalent
+formula is inconclusive; the nonlinear/RRF mode performs additional ranking
+and attribution work. Raw evidence and fixture script are in
+`.context/formula-performance-samples.jsonl` and `.context/measure_l1_formulas.py`.
+
+A separate run on the same fixture/configuration compared legacy fusion with
+optional diagnostics using the new binary:
+
+| Diagnostics     | p50 ms | p95 ms | Response bytes | Sampled RSS KiB |
+| --------------- | -----: | -----: | -------------: | --------------: |
+| Off             |  3.419 |  3.579 |          1,371 |          35,648 |
+| RRF attribution |  3.710 |  4.773 |          5,517 |          36,880 |
+| Trace           |  3.627 |  3.963 |          6,184 |          36,528 |
+| Both            |  3.876 |  4.328 |          6,656 |          36,512 |
+
+All four modes returned identical IDs and score bits. Traces retained all 80
+organic branch nominations; RRF diagnostics matched the fusion scores exactly.
+Evidence: `.context/formula-diagnostics-samples.jsonl` and
+`.context/measure_search_diagnostics.py`. Earlier production observations above
+remain applicable; this follow-up did not tune ANN/LSP defaults or deploy to the
+sampled installation. Cold-cache, sustained-load, large-expression/many-passage
+and x86 comparisons remain future performance work.
+
+### Validation evidence
+
+The final required `check` passed all four steps:
+`.context/search-harness/20260906T073146.024481Z-check/`.
+The full search harness passed all eight steps, including real-server broker RPCs:
+`.context/search-harness/20260906T072445.352810Z-full/`. Eleven candidate-scoring
+regressions also passed with native async execution (no sync feature), and the
+WASM release build plus all eight runtime tests passed. Both regenerated client
+suites passed eleven tests each. Evidence includes `.context/formula-native-async.log`,
+`.context/formula-wasm-{build,tests}.log`, and
+`.context/formula-{python,typescript}-tests.log`.
