@@ -34,6 +34,7 @@ claim as implemented or as current performance.
 
 - [Hermes broker](broker.md)
 - [Segment Lifecycle and Recovery](segment-lifecycle.md)
+- [Row deletion, upserts, and compaction](row-deletion.md)
 - [Index diagnostics](diagnostics.md)
 - [Prometheus Metrics](metrics.md)
 - [Document store v3](document-store-v3.md)

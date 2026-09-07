@@ -1362,3 +1362,533 @@ All nine candidate-scoring tests also passed with native async execution
 (`cargo test --locked -p hermes-core --no-default-features --features native --lib
 query::candidate_scoring::tests`), including the 300-term exact-score checks:
 `.context/phrase-cap-native-async.log`.
+
+## Row deletion and compaction — 2026-09-07
+
+Implementation base: `7a4b380c1dedfebac5be7a02b7924b93eadb9051`
+(`origin/main`, 1.8.132). The [row-deletion contract](row-deletion.md) documents
+format 7, immutable visibility, atomic full-document upserts, exact live-key
+checks behind the existing Bloom filter, and single-segment compaction. The
+implementation operates on encoded fields, so indexed-only values survive.
+ANN codebooks, assignments, fingerprints, and surviving codes are retained.
+
+### Correctness and lifecycle evidence
+
+- `python3 scripts/check_search.py check` passed all four steps; evidence:
+  `.context/search-harness/20260907T074632.727500Z-check/`.
+- `python3 scripts/check_search.py full` passed all eight steps, including
+  1,381 core tests, 77 server tests, broker/tool tests, portable/native-without-sync
+  compilation, docs, and all three real-server broker E2E tests; evidence:
+  `.context/search-harness/20260907T075229.998139Z-full/`.
+- Follow-up regressions and final Clippy cover indexed-only numeric fields,
+  binary vectors, JSON/byte storage, missing/multi-value fast fields, all-deleted
+  dense/sparse segments, stacked PK dictionaries, stale visibility rejection,
+  and global-before-local maintenance admission. The physical-copy merger
+  rejects masked readers instead of silently discarding their visibility.
+  Logs: `.context/deletion-final-{rows,pk,capacity,clippy}.log`.
+  The five end-to-end deletion tests also pass with
+  `--no-default-features --features native` (async search without `sync`);
+  evidence: `.context/deletion-final-native-async.log`.
+- Native tests preserve old searchers through commit and compaction, reopen
+  cached Bloom filters, allow deleted keys to be reused, reject live/pending
+  duplicates, and cover abort, publication failure, cancelled commits, and
+  cancelled compactions with blocking writers. Shutdown drains the latter.
+  PK reopen coverage includes Unicode keys and distinct case variants.
+- ANN tests compare complete compacted bytes with canonical encoders for TQ,
+  IVF-TQ, binary IVF, ScaNN AH, and ScaNN binary. Sparse block tests compare raw
+  weights for Float32, Float16, UInt8, and UInt4. End-to-end BMP/MaxScore tests
+  compare surviving scores and chunk/value ordinals.
+- `hermes-wasm/build.sh`, `npm ci`, and `npm test -- --run` passed; the final
+  rebuild and 13 tests also passed after portable warning cleanup. A persisted
+  indexed-only text index reopens with tombstones, hides deleted hits/hydration,
+  preserves an old reader, and rejects a corrupt mask. Logs are under
+  `.context/deletion-wasm-*.log`.
+- A local CLI smoke test ran create/upsert/update/delete/compact/merge/reopen;
+  only the replacement remained, with one physical row and no mask. Evidence:
+  `.context/deletion-cli-smoke.log` and `.context/deletion-cli-smoke-verify.log`.
+  The initial inspection script used the wrong metadata filename; the final
+  verifier reads `metadata.json` and passes.
+
+### Matched microbenchmarks
+
+Before and after used the same unchanged `segment_merge` and `search_pipeline`
+fixtures, Rust 1.98.1, release/bench flags, and Apple M4 / 32 GiB / macOS 15.6.1.
+`RUSTFLAGS` was unset. Criterion used 20 samples, 0.5 s warmup and 1 s measurement.
+The binaries were built separately and copied before execution; baseline source
+was a detached checkout of the SHA above. No agent-owned compiler/test ran
+during measurements, but other work on the shared machine was not controlled.
+
+The first pass ran before then after. A second pass reversed order and repeated
+all merge cases plus the three search cases below. Numbers are Criterion point
+estimates in microseconds; large variation prevents production latency claims.
+These fixtures measure clean segments with no deletion masks. They do not
+measure large-corpus deletion scans, dirty compaction, cold disk I/O, or recall.
+
+| Fixture                              | Before, pass 1 | After, pass 1 | Before, reverse pass | After, reverse pass |
+| ------------------------------------ | -------------: | ------------: | -------------------: | ------------------: |
+| Copy fast columns, 2 × 4,096 rows    |          26.46 |         37.15 |                30.39 |               40.46 |
+| Missing fast column, 2 × 4,096 rows  |          27.03 |         28.16 |                27.40 |               28.93 |
+| Copy fast columns, 2 × 65,536 rows   |          74.28 |         68.96 |                77.49 |               51.20 |
+| Missing fast column, 2 × 65,536 rows |          52.62 |         52.32 |                58.85 |               55.65 |
+| Dense top 10, multi-thread search    |          51.88 |         36.56 |                54.64 |               36.08 |
+| Hybrid top 200, multi-thread search  |         561.52 |        497.69 |               498.47 |              340.07 |
+| Dense top 200, current-thread search |         191.41 |        203.17 |               175.92 |              156.55 |
+
+`/usr/bin/time -l` measured whole-process peak RSS, including fixture building
+and Criterion, rather than allocator-only scratch. Merge RSS was 55.8 → 64.7 MiB
+in pass 1 and 60.0 → 61.0 MiB in the reverse pass. Full-search RSS was
+84.7 → 91.0 MiB; the matched three-case repeat was 74.8 → 76.2 MiB. These
+measurements cannot isolate mask residency because the fixtures have no masks.
+The exact mask file cost is `24 + 8 * ceil(rows / 64)` bytes; reader masks use
+one bit per physical row, with separate PK live-ordinal masks and compressed
+row-statistic columns accounted as described in the design.
+
+Raw logs: `.context/deletion-bench-{before,after}-{segment_merge,search_pipeline}.log`,
+`.context/deletion-bench-repeat-{before,after}-{segment_merge,search_pipeline}.log`,
+and `.context/deletion-bench-environment.txt`. Criterion samples are under
+`.context/deletion-bench-run/target/criterion/`. The reverse pass includes the
+final physical-copy visibility guard; subsequent changes only add tests/docs.
+
+### Remaining review findings and limits
+
+- The small clean-copy merge fixture regressed in both passes (about 10 µs,
+  33–40%). The larger copy fixture improved, and current-thread search changed
+  direction between passes. This was unresolved at that stage; the follow-up
+  below profiles the empty-dictionary cost and removes it. These microbenchmarks
+  do not establish a production throughput change.
+- The initial implementation compacted dirty merges automatically and wrote a
+  scratch segment first. The follow-up below removes that default cost: ordinary
+  merges retain masks, and explicit compaction rewrites each final output directly.
+  No cold-storage, large-corpus throughput, or cross-architecture measurement was run.
+- Compaction has explicit bounded scratch admission. Very large row maps or
+  high-frequency positioned terms can exceed the supplied budget and return an
+  error; there is no silent truncation or unbounded fallback.
+- Bloom filters retain deleted keys as false positives. Heavy churn can reduce
+  their selectivity; exact live-key checks preserve correctness. Adaptive Bloom
+  rebuilding and long-running churn throughput were not measured here.
+- Format 7 requires rebuilding older indexes. Updates replace full documents
+  and permit one pending insertion/update per key per commit. RPC mutation
+  endpoints/cross-shard atomic updates are outside this native-core/CLI change.
+  BM25 statistics remain physical until compaction.
+
+## Explicit compaction and performance review — 2026-09-07
+
+The follow-up changes ordinary merge to retain tombstones. `ForceMerge.compact`
+(and the Python/TypeScript helpers and CLI `merge --compact`) compacts each final
+output once, including a singleton. The existing optimizer selects segments from
+physical/deleted metadata counts at a configurable ratio (default 0.30; 0 disables).
+It shares task slots, CPU pools, global/local merge capacity and the optimizer BP
+gate. One automatic compaction is allowed globally, followed by a 60-second
+completion cooldown. This requires the existing optimizer to be enabled; it does
+not create another worker pool. Compaction scratch defaults to 256 MiB.
+
+### Review findings and implemented improvements
+
+- **Default merge cost:** encoded payloads remain on their ordinary copy/remap
+  paths. Only mask words are remapped (`O(physical_rows / 64)`). Address-preserving
+  single-source reorder/ANN rewrites reuse the exact immutable mask file. Explicit
+  compaction writes directly from final sources; it does not compact intermediate
+  merge outputs or reconstruct indexed-only values from the document store.
+- **Search and primary keys:** clean searches borrow `None` without allocating a
+  deletion bitmap; dirty searches borrow the generation's mask and apply it before
+  top-k/pruning admission. A final visibility wrapper protects generic scorers.
+  PK Bloom bits are never cleared. Exact dictionary membership is checked against
+  a precomputed live-ordinal bitmap, keeping insert checks free of per-key row
+  scans. The bitmap is rebuilt once per changed visibility generation.
+- **Compaction CPU:** fast columns previously encoded every 4,096-row chunk twice
+  to produce a leading directory, allocating a temporary value vector per row.
+  They now retain a bounded prefix of encoded chunks and use existing value
+  iterators. The uncached suffix uses the same deterministic second-pass encoder.
+  Cache capacity (including vector capacities) is capped at a quarter of remaining
+  scratch; directory entries reserve another quarter and chunk encoding half.
+- **Compaction memory:** physical row maps now reserve `4 * (physical + live)`
+  bytes instead of `8 * physical`, using validated deletion counts. They reject
+  unexpected extra survivors before reallocating. At 50% deletion this saves 25%
+  of row-map storage; at 90% it saves 45%. Chunk maps retain a conservative bound
+  where the live virtual-record count is not known in advance.
+- **Empty dictionary overhead:** a macOS `sample` profile found FST registry
+  initialization dominating the small numeric-only merge fixture in both main
+  and this branch (957/940 top-of-stack samples respectively in the two captures).
+  The owning block-index encoder now caches only its canonical empty encoding,
+  bounded by a test to 128 bytes. It retains no FST build registry and leaves the
+  nonempty path unchanged. Tests compare complete bytes and empty lookup behavior.
+- **Ordering and statistics:** compaction stably filters physical and per-field
+  BMP order, rebuilds affected block/statistic metadata, and retains BP history.
+  Previously reordered surviving BMP layouts lose convergence; compaction neither
+  resets nor consumes the lineage's attempt budget. Index-info aggregates counts
+  in one pass; the broker computes a weighted ratio from summed counts.
+- **Lifecycle cost/correctness:** measurement found that CLI exit could interrupt
+  retired-file cleanup. Row mutation/merge commands now stop workers, release
+  writer snapshots, and drain core cleanup, including on maintenance errors.
+  ForceMerge now uses Commit's admission rule: cancellation before obtaining the
+  writer starts no task; admitted work owns the writer through reader refresh.
+  Detached failures are logged. Both issues have failing-before/passing-after
+  regression tests (`compaction-{cli-drain,rpc-admission}-{red,green}.log`).
+
+### Matched measurements
+
+All figures below use the same Apple M4 / 32 GiB Mac, Rust 1.98.1, default
+sync/native features and unchanged fixtures between each pair. `RUSTFLAGS` and
+`CARGO_ENCODED_RUSTFLAGS` were unset. No task-owned compiler or test ran during
+measurements; other applications on this shared machine were not controlled.
+These are synthetic CPU/allocator fixtures, not production latency or recall.
+
+The `segment_merge` benchmark now includes `row_compaction/mixed_fast_columns`:
+one primary-key text column plus eight numeric columns, missing values, one
+multi-value column, 50% deleted rows, and a 32 MiB compaction budget. Fixture
+building/deletion/validation is outside timing. Each iteration calls the actual
+compactor and overwrites one unpublished RAM output. The baseline binary was
+preserved before the chunk cache, iterator and row-map improvements; a final
+binary also includes the empty-FST cache. Criterion used 20 samples, 0.5-second
+warmup and 1-second requested measurement (extended for slow iterations).
+
+| Physical rows |    Before | Chunk/map changes | Before, reverse repeat | Chunk/map changes, reverse repeat |     Final |
+| ------------- | --------: | ----------------: | ---------------------: | --------------------------------: | --------: |
+| 4,096         | 3.1107 ms |         1.8308 ms |              3.1188 ms |                         1.7829 ms | 1.8179 ms |
+| 65,536        | 113.25 ms |         60.287 ms |              113.25 ms |                         62.288 ms | 60.138 ms |
+
+This is about **42–47% less compaction time**, with the improvement surviving
+reversed execution order. Complete `.fast` outputs match byte-for-byte at both
+sizes: 153,906 and 2,477,059 bytes. Captures and SHA-256 digests are recorded in
+`.context/compaction-perf-evidence.json` and `compaction-perf-{before,final}-*.fast`.
+The fixture's first 65K setup attempt hit `QueueFull`; the harness was corrected
+to wait for admission, and both compared binaries use that corrected setup.
+
+Peak whole-process RSS **increased**: 145.2 → 163.6 MiB in the first pair and
+133.6 → 146.1 MiB in the reverse pair; final was 161.4 MiB. RSS includes index
+building, source readers, allocator retention and output buffers, so it does not
+isolate scratch. The encoded cache trades bounded memory for CPU, within the
+existing cap. Physical map allocation is separately bounded by the exact formula
+above; a regression verifies a mostly-deleted map fits that smaller budget and
+refuses growth beyond its admitted survivor count.
+
+The earlier small clean-merge regression was investigated rather than dismissed.
+With a 1-second warmup and 3-second measurement, the unchanged 2 × 4,096 numeric
+fixture measured 27.801 µs on `origin/main` versus 34.104 µs before the empty-FST
+fix. Final measured 5.328 µs; the reversed main repeat was 36.501 µs. The broad
+spread demonstrates machine noise, but removal of repeated empty-registry work
+is clear. A final all-case run measured 4.772/4.579 µs for 4K copy/missing columns
+and 27.701/17.056 µs for 64K copy/missing columns. This benefit applies to empty
+term dictionaries; it is not a claim that populated text merges improve equally.
+The sampled profiles are attribution evidence, not the source of timing numbers.
+
+A separate matched **debug CLI** fixture used two 4,096-row segments with a stored
+primary key, numeric fast field, indexed-only 129-token text, and 50% deletion.
+Three runs rotated execution order and checked all 4,096 surviving keys after
+each command. After adding cleanup draining, median default merge was 0.10 s
+(range 0.10–0.65), explicit compaction 0.39 s (0.39–0.40), and the initial implicit
+compaction implementation 0.40 s (0.38–0.47). Median RSS was 29.8/31.7/30.8 MiB,
+respectively. The old command could leave retired files, so its command time does
+not include an equivalent cleanup guarantee. Both final modes left only owned
+segment files. This run predates the chunk/FST optimizations; it establishes the
+cost distinction of the API flag, not final release throughput.
+
+Raw evidence: `.context/compaction-perf-{before,after,final}.log`,
+`.context/compaction-perf-repeat-{before,after}.log`,
+`.context/compaction-clean-{main,current,final,main-repeat}.log`,
+`.context/compaction-clean-sample-{main,current}.txt`, and
+`.context/compaction-cost/final/`. Build logs and binary hashes accompany the
+fixture captures. Ignore Criterion's automatic cross-run percentage overlays;
+the table above compares the recorded point estimates from the named binaries.
+
+### Remaining limits and follow-up measurements
+
+- No large-corpus ANN deletion/compaction, cold-storage throughput, x86/AVX2,
+  sustained churn, or production p99 measurement was run. Defaults were not tuned
+  from these fixtures. The 30% trigger and cooldown are configurable policy.
+- Visibility-only refresh currently reopens the affected segment's compact
+  metadata, including validation, while payload mappings remain evictable.
+  Sharing more immutable decoded metadata across visibility generations needs a
+  separate measured change to reader ownership; this review does not claim that
+  a deletion costs only the mask write.
+- Deletion still scans affected PK columns. Persisted Bloom filters can lose
+  selectivity under heavy churn, although exact live-key checks remain correct.
+  Neither adaptive Bloom rebuilding nor a new reverse PK-to-row index was added.
+- Oversized compaction maps, terms, positions or column values fail before
+  publication when the supplied scratch budget cannot cover them. Global pacing
+  also conservatively cools down admission-skipped attempts; busy workloads can
+  defer compaction until a later scan. Failure retries use existing capped
+  exponential backoff, rather than an unbounded busy loop.
+
+### Final validation
+
+- The regular `check` harness passed in
+  `.context/search-harness/20260907T091258.286326Z-check/`; a later parallel `full`
+  also passed in `20260907T093125.569030Z-full/` before the performance refinements.
+- Final `RUST_TEST_THREADS=1 python3 scripts/check_search.py full` passed all eight
+  steps in `.context/search-harness/20260907T100254.254219Z-full/`: 1,389 core,
+  80 server and 5 tool unit tests, broker tests, native-without-sync and portable
+  compilation, docs, and all three real-server broker E2E tests. Individual
+  concurrency tests retain their own worker/runtime concurrency.
+- Two parallel final attempts hit the broker harness's 10-second discovery wait;
+  the later failure log contains `Address already in use` from its bind/drop port
+  probe. Isolated retry passed. Serial test scheduling avoided that harness race;
+  production settings and the test timeouts were not changed. Failure evidence:
+  `20260907T092846.698857Z-full/03-test.log` and
+  `20260907T095930.504752Z-full/03-test.log`.
+- Final WASM build and all 13 tests passed, including persisted visibility and
+  corruption handling (`.context/compaction-review-wasm-{build,test}.log`).
+  Python and TypeScript client unit tests each passed 12 tests, including flag
+  serialization and deletion statistics; generated bindings were refreshed using
+  the repository scripts (`.context/compaction-{python,ts}-*.log`).
+- Final CLI smoke verified default merge retains 8,192 physical/4,096 live rows,
+  then explicit singleton compaction leaves 4,096 physical/live rows and no
+  tombstones. All 4,096 indexed-only text matches retain their exact primary keys,
+  and no retired segment files remain (`.context/compaction-final-smoke.log`).
+  Documentation/link checks and `git diff --check` passed.
+
+## Second deletion review: identity, cancellation, and overlapping maintenance
+
+This pass traced native mutation admission through manager publication, PK cache
+refresh, ordinary merge, compaction, and retirement. It also checked the shared
+fast-column decoder used by native async and WASM builds. Three additional bugs
+were reproduced before fixing them:
+
+- A document with two primary-key values reserved its first value but persisted
+  its last value in the single-value fast column. Inserts and updates now share
+  one validator that requires exactly one nonempty text key, capped at 65,536
+  bytes. Validation precedes reservations and staged deletion; ordinary deduped
+  inserts cannot admit a key too large for the deletion API. The regression
+  verifies rejected input leaves no pending mutation, preserves the original
+  row, and does not reserve either invalid insertion key.
+- Cancellation could stop the ANN compactor's survivor iterator while the helper
+  still returned success with a truncated run. The outer compactor already
+  rejected publication after cancellation. The helper now checks cancellation
+  before finishing its footer as well. The regression cancels during label
+  writes, while complete-byte comparisons still cover all five ANN encodings.
+- Optimizer retry records survived replacement of their source segments.
+  Failure admission now checks current metadata under the publication lock;
+  both ordinary and vector-generation replacement remove retired records under
+  that lock. A late failure cannot recreate an obsolete entry. Cleanup hashes
+  only retired IDs, rather than scanning the entire retry table on each merge.
+  The regression reproduces a failed compaction followed by ordinary merge and
+  verifies that a subsequent failure for the old ID leaves no retry record.
+
+Failing-before evidence is retained in `.context/review2-pk-before.log`,
+`.context/review2-ann-cancel-before.log`, and `.context/review2-retry-before.log`.
+
+Additional correctness coverage includes:
+
+- An ordinary merge paused during copying while another commit updates a row
+  and deletes additional keys. The merge must carry the latest masks, retain
+  all physical rows, preserve a still-pending insertion reservation, and keep
+  pre-deletion and pre-merge readers valid. The fixture uses 65- and 67-row
+  sources so source boundaries cross bitmap words. Subsequent explicit
+  compaction preserves exactly the expected live keys and replacement value.
+- An injected PK visibility-load failure after durable update/delete
+  publication, followed by abort and a recovery commit. Reservations remain
+  conservative, the replacement survives, and its published deletion is not
+  replayed. Deleted keys become reusable after successful refresh.
+- A deterministic reference-map test spanning 24 batches of mixed inserts,
+  updates, deletes, aborts, ordinary merges, both compaction entry points, old
+  snapshots, and reopen. It checks exact keys and versions through indexed-only
+  text and numeric fast fields, including duplicate admission after Bloom reopen.
+- All 128 bitmap offsets against all source lengths from 0 through 130,
+  checking every output row, prior tombstones, neighboring live rows and padding.
+- A 33-chunk fast column with missing values and a one-row final chunk. A 4 MiB
+  budget forces cache overflow, while 16 MiB caches the entire encoded column;
+  complete `.fast` bytes and every decoded value/presence bit match.
+- Full deletion-file bytes compared against a scalar text-key reference scan
+  over stacked dictionaries with different local ordinal orderings.
+
+Deletion now resolves target dictionary ordinals once per segment, then uses
+the existing batch column decoder to test integer membership. The target set is
+bounded by the admitted key count; no corpus-sized reverse index is introduced.
+Both dictionary resolution and scanning use the existing background CPU pool,
+and the decoder propagates cancellation without processing the rest of a column.
+This removes per-row text decoding, dictionary lookup and string hashing.
+
+The publication lock still spans deletion preparation and persistence. Existing
+searcher snapshots remain usable, but acquiring a new manager snapshot or
+publishing maintenance can wait behind that commit. This pass reduces that work;
+it does not claim a bounded production p99 or introduce optimistic rebase/retry
+semantics. Large cold-storage, ANN-heavy and sustained-churn measurements remain
+outstanding, as do x86 measurements. Defaults remain unchanged.
+
+### Deletion commit measurements
+
+The existing `segment_merge` benchmark now also measures
+`row_deletion/commit_64_keys`: each iteration copies identical immutable RAM
+index files, opens a fresh writer, initializes PK state, and stages 64 evenly
+spaced keys. Only `writer.commit()` is timed, including publication and PK
+visibility refresh. Setup, live/physical-count verification, and worker shutdown
+remain outside timing. The saved binaries bracket the ordinal-scan change and
+use the same benchmark source, Rust 1.98.1 release/default native+sync flags,
+Apple M4 / 32 GiB Mac, and unset `RUSTFLAGS`/`CARGO_ENCODED_RUSTFLAGS`.
+No task-owned build or test ran during measurement.
+
+Initial 10-sample runs with 0.5-second warmup/1-second requested measurement
+were noisy: 4K rows measured 389.74 → 400.86 µs, then 498.94 → 1,465.7 µs;
+the latter optimized interval spanned 629–2,686 µs. The 65K case improved in
+both pairs (12.625 → 4.411 ms and 15.695 → 5.549 ms). Longer runs used 1-second
+warmup and 3-second requested measurement, retaining 10 samples and alternating
+binary order between sizes:
+
+| Physical rows / deleted keys | String scan | Ordinal scan | Time reduction | Peak process RSS, before → after |
+| ---------------------------- | ----------: | -----------: | -------------: | -------------------------------: |
+| 4,096 / 64                   |   339.08 µs |    278.97 µs |          17.7% |              123.25 → 126.33 MiB |
+| 65,536 / 64                  |   10.835 ms |    3.0113 ms |          72.2% |              123.70 → 130.47 MiB |
+
+Long-run timing intervals were 337.98–340.57 / 277.19–280.23 µs and
+10.799–10.890 / 2.9817–3.0421 ms respectively. RSS includes all benchmark
+fixtures, setup, worker pools, and allocator retention, so these figures do not
+isolate the deletion target set. The integer set adds bounded temporary storage;
+the optimization is primarily a CPU improvement. Short-run RSS changed in the
+opposite direction (130.81 → 126.73 and 141.78 → 135.39 MiB), reinforcing the
+need to avoid inferring an isolated allocation delta from process peaks.
+
+Raw logs are `.context/review2-deletion-{before,after}.log`, their `-repeat`
+variants, and `review2-deletion-{small,large}-{before,after}.log`.
+`.context/review2-deletion-evidence.json` records fixtures, environment, binary
+hashes and timing/RSS values. Criterion's automatic cross-run comparison lines
+refer to its last result, not necessarily the intended pair; the table uses
+the named binaries' recorded point estimates. These figures do not establish
+production tail latency or cold-storage throughput.
+
+### Validation of this pass
+
+- `python3 scripts/check_search.py check` passed in
+  `.context/search-harness/20260907T112132.747688Z-check/`.
+- Final `RUST_TEST_THREADS=1 python3 scripts/check_search.py full` passed all
+  eight stages in `20260907T113345.954895Z-full/`, including 1,397 core tests,
+  80 server tests, broker/tool tests, native async and portable compilation,
+  documentation, and three real-server E2E tests. Serial test scheduling avoids
+  the previously observed broker port-probe race; concurrency regressions still
+  exercise their own concurrent tasks and multithread runtimes.
+- The new sequence test initially used a stable segment ID as an array index;
+  this test-fixture error was corrected to use the searcher's segment map before
+  the successful final run. The earlier full failure is recorded in
+  `20260907T112643.811977Z-full/`.
+- Native without sync passed all 18 selected deletion/visibility tests,
+  including the mixed sequence and scalar-versus-batch mask-byte comparison
+  (`.context/review2-native-async-final.log`). The shared-code WASM rebuild and
+  all 13 JavaScript tests passed (`review2-wasm-{build,tests}.log`).
+- Documentation/link checks passed (76 files, 281 links, 20 benchmark targets),
+  and `git diff --check` passed. Client/protocol files were unchanged in this
+  pass; their earlier validation is recorded above.
+
+### Mutation surfaces and portable writer review (September 7, 2026)
+
+Delete/upsert now reach every writable surface: native core/CLI, IndexService,
+broker, Python/TypeScript clients, and WASM LocalIndex. The additive RPCs preserve
+explicit commit and whole-document/chunk semantics. The server holds the existing
+exclusive writer guard during staged mutations; four shared admission permits
+bound conversion and staging. Started blocking workers own their permit/guard
+through cancellation. Envelope limits are shared by the server and broker from
+`hermes-proto/mutations.rs`: 100,000 deletion keys / 8 MiB key bytes and 1,000
+replacement documents / 32 MiB encoded bytes. Broker partition error mapping
+validates total accounting, unique error positions, and bounds; it never invents
+successful operations from an incomplete backend response. Cross-shard publication
+remains non-atomic and mutations are not automatically retried.
+
+Portable writes reuse the primary-key reservation/Bloom implementation, global
+ordinal batch scanner, and mask encoder. Portable reopen builds its Bloom from
+fast dictionaries; it does not yet persist a Bloom cache. Memory includes the
+existing fast readers, Bloom bits (10 bits/key plus 100,000-key headroom), pending
+key reservations, and dirty-segment live-key bitmaps. RAM data bytes remain shared
+with the directory. Mask matching retains the bounded key-ordinal set and one
+physical-row bitset. There is no corpus-sized reverse key map.
+
+Review found quadratic metadata scans when refreshing many segment visibilities
+or replacing many cached PK readers. Refresh now iterates visibility identities
+once, looks up membership in metadata maps, and replaces readers with set
+membership. Portable output protection/retirement also computes an ID set once
+per operation. These sets are temporary and proportional to metadata, not rows.
+Prepared live-key bitmaps are not decoded twice during portable initialization.
+
+A failed/cancelled portable builder poisons the pending transaction until abort,
+preventing an upsert from committing only its deletion. Metadata-save cancellation
+is reconciled against the durable generation before cleanup or replay. All mask
+and segment output IDs are claimed before writes. Portable open reclaims known
+unreferenced segment artifacts; storage synchronization tracks attempted file
+writes so retries can remove orphan files after successful metadata publication.
+LocalIndex storage requires atomic per-file replacement and one writable instance
+per namespace. RemoteIndex/IpfsIndex remain readers. Replacement batches preserve
+the existing JS/serde conversion semantics and count JSON bytes without a second
+serialized payload buffer.
+
+New coverage includes RPC pre-admission size checks, stable partial-error positions,
+concurrent same-key replacement, cancellation while awaiting the writer, two-server
+partition routing and indexed-only chunks, malformed backend accounting, client
+forwarding and single-item failures, portable build failure/cancellation, both
+sides of metadata rename, storage failure before/after metadata replacement,
+abort, reopen, and Bloom key reuse. Validation logs and measured evidence follow below.
+
+The TypeScript transport test also reproduced loss of batch error details at
+its default 4 MiB receive cap: 100,000 rejected deletions produced a 7,883,486-byte
+response. TypeScript now uses the same bounded 50 MiB send/receive caps as Python.
+The real gRPC regression receives every error and preserves index 99,999.
+
+Validation for the mutation-surface extension:
+
+- `python3 scripts/check_search.py check` passed all four stages in
+  `.context/search-harness/20260907T121315.750336Z-check/`.
+- `RUST_TEST_THREADS=1 python3 scripts/check_search.py full` passed all eight
+  stages in `.context/search-harness/20260907T121523.104566Z-full/`: 1,397 core
+  tests, 82 server tests, 57 broker unit tests, 13 broker integration tests,
+  tool tests and four real-server broker tests. The expanded single/partitioned
+  mutation E2E suite passed again in `.context/mutations-broker-e2e-final.log`.
+- After the metadata-scan optimization, 52 deletion/PK tests passed in each of
+  native sync and native async builds (`mutations-native-final-tests.log` and
+  `mutations-native-async-tests.log`). These include complete deletion-mask byte
+  comparisons, old snapshots, merge/compaction, and cancellation regressions.
+- The portable writer's two fault-injection integration tests passed with
+  `cargo test -p hermes-core --no-default-features --features wasm --test portable_mutations`.
+  They exercise failed/cancelled builds and failed/cancelled metadata rename.
+- WASM release build and all 19 Vitest tests passed. Python's 13 unit tests and
+  TypeScript's 14 tests passed, including the real gRPC maximum-deletion-batch
+  transport regression. Bindings were regenerated through repository scripts.
+- Native all-target Clippy and portable `--features wasm --lib` Clippy passed
+  with `-D warnings`. Portable Clippy also exposed two existing conditional/
+  nested-control-flow warnings; those small no-op control-flow cases were fixed.
+  Documentation contracts, formatting and `git diff --check` passed.
+
+The shared-core refactor was measured against the saved pre-extension ordinal-scan
+binary using unchanged `row_deletion/commit_64_keys` fixtures, the same release
+compiler/flags/machine, 10 samples, 1-second warmup and 3-second requested
+measurement. No task-owned builds/tests ran during these measurements. Small and
+large fixtures alternated binary order; peak RSS includes fixture setup and worker
+pools. Host process activity and binary SHA-256 values are captured in
+`.context/mutations-perf-evidence.json`.
+
+| Physical rows / deleted keys |          Before extension |           After extension | Peak process RSS, before → after |
+| ---------------------------- | ------------------------: | ------------------------: | -------------------------------: |
+| 4,096 / 64                   | 593.14 µs (572.49–618.69) | 635.18 µs (582.17–670.62) |              125.92 → 114.69 MiB |
+| 65,536 / 64                  | 6.2745 ms (5.7011–6.8714) | 5.7149 ms (5.4895–6.2066) |              121.84 → 123.56 MiB |
+
+The timing intervals overlap in both cases. These runs do not establish a
+speedup or a regression; earlier measurements in this document came from a
+different period of host load and should not be used as the before value for
+this change. Memory peaks also include allocator retention. The removal of
+quadratic segment-metadata scans is an algorithmic improvement; this single-
+segment fixture does not measure that scaling benefit. No scheduling or
+compaction defaults were changed based on these measurements.
+
+### Canonical upsert API naming
+
+The unreleased replacement API is named `upsert` across native/portable writers,
+CLI, gRPC server/broker, Python, TypeScript, and WASM LocalIndex. RPC bindings are
+regenerated from `UpsertDocuments(UpsertDocumentsRequest)`. Error messages and
+usage examples use the same terminology. This is a naming change: insertion of
+missing keys, complete replacement of existing documents/chunks, commit semantics,
+limits and encoded storage are unchanged. No performance algorithm or defaults
+changed; the preceding measured evidence still applies.
+
+Validation after the rename:
+
+- `RUST_TEST_THREADS=1 python3 scripts/check_search.py full` passed all eight
+  stages, including the four `check` stages and four real-server broker tests.
+  Evidence: `.context/search-harness/20260907T125925.873829Z-full/`.
+- Regenerated Python and TypeScript bindings; all 13 Python and 14 TypeScript
+  tests passed, including the real gRPC transport regression.
+- Both portable writer fault-injection tests passed. The WASM release build
+  and all 19 Vitest tests passed with the generated `upsertDocument` and
+  `upsertDocuments` exports.
+- A CLI smoke test invoked `upsert --help`, inserted a missing key, replaced
+  that key, and verified one live document with only its replacement searchable.
+  Logs: `.context/upsert-cli-smoke.log`, `.context/upsert-portable-tests.log`,
+  `.context/upsert-wasm-tests.log`, `.context/upsert-python-tests.log`, and
+  `.context/upsert-ts-tests.log`.
+- Source/binding scans found no remaining old replacement API identifiers;
+  formatting and `git diff --check` passed. No new correctness or performance
+  findings remain from this naming pass.
