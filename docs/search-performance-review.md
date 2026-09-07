@@ -1892,3 +1892,96 @@ Validation after the rename:
 - Source/binding scans found no remaining old replacement API identifiers;
   formatting and `git diff --check` passed. No new correctness or performance
   findings remain from this naming pass.
+
+## Hybrid fast-only text filters — 2026-09-07
+
+The reported `type = journal-article` failure is confirmed on 1.8.132. A read-only
+probe of a document shard returned three hits for a standalone type filter,
+three for unfiltered fusion, and zero for the same fusion with the type filter;
+none of the responses was truncated. The production field is
+`field type: text<raw_ci> [fast]`: it has a fast column and no inverted postings.
+The probe used the public word `quantum` against `short_document`, top three,
+and a 1.5-second server budget. These three live samples establish the mismatch,
+not production latency percentiles. Local evidence is retained in
+`.context/type-filter-production-{metadata,evidence}.json`.
+
+Server fusion converts common filters once and wraps every nomination branch
+in core `FilteredQuery`, including RRF, formula ranking, candidate export and
+feature collection. That wrapper prefers a complete document bitmap. Previously,
+`TermQuery::as_doc_bitset` treated absent inverted postings as an empty bitmap,
+while the ordinary term scorer matched the fast column. This emptied every
+branch before scoring, independent of embedding availability or the hyphen in
+the type value. The new behavior-named regression failed on that exact mismatch
+before the fix (`.context/type-filter-red.log`).
+
+Core now materializes fast-only equality on native/sync and portable execution,
+preserving global text ordinals, missing/empty values, and existing first-value
+semantics for multi-value fast columns. Indexed terms keep posting-based
+membership. Single-value materialization reuses the existing batch decoder,
+adding caller-controlled early exit and 2 KiB of stack scratch; it does not
+allocate a document-sized candidate heap or change persisted bytes. The existing
+16 MiB bitmap and 64-filter limits still apply. Tests cover a 200,001-document
+segment above the generic scorer-fallback cap, positive/negative Boolean filters,
+date/type combinations, unchanged scores/ordinals across fusion modes, two-shard
+broker requests and WASM branch filters.
+
+Deadline-aware scans discard incomplete bitmaps. The ordinary fast-text scorer
+also checks the deadline while skipping nonmatching values. Bitmap enumeration
+captures each observed document ID once: a second `doc()` call could otherwise
+turn into `TERMINATED` between the check and the bitmap write. A deterministic
+regression covers that cancellation boundary, and batch-reader tests cover early
+exit inside/across batches and remapped text dictionaries across merged blocks.
+
+The first large-fixture attempt exposed repeated blockwise-linear header decoding
+when materialization reused scalar fast-field reads. It was stopped after a CPU
+sample identified that path, then single-value materialization was changed to
+batch reads. The related general limitation remains: ordinary fast-only term
+scans and multi-value first-value scans still use the existing scalar decoder;
+their codec-dependent cost is not a linear-time guarantee. This change makes no
+new performance claim for those paths and changes no compression/default policy.
+
+Warm local RPC samples used the same persisted 10,000-document fixture, Apple M4,
+Rust 1.98.1, default debug server build flags and 20 warmups plus 100 sequential
+requests per mode. The first 9,950 documents are books; the last 50 are journal
+articles. Two text branches request top three. The saved pre-fix server was built
+at `7076b38d`; the intervening `7a4b380c` change only bumps release versions.
+The fixture metadata SHA-256 stayed
+`b3f3f04e9abf73e4f78cbf646f0d72eb37de19a2230e314fb69b26921a395c43`.
+
+| Request                           |                  Before p50 / p95 | After p50 / p95 | Correctness                     |
+| --------------------------------- | --------------------------------: | --------------: | ------------------------------- |
+| Standalone fast-only type filter  |                    6.69 / 9.00 ms |  2.90 / 3.66 ms | Same IDs and score bits         |
+| Unfiltered hybrid                 |                    6.01 / 6.99 ms |  2.78 / 3.12 ms | Same IDs and score bits         |
+| Hybrid with indexed-type control  |                    5.18 / 6.38 ms |  2.55 / 2.93 ms | Same IDs and score bits         |
+| Hybrid with fast-only type filter | 1.48 / 1.67 ms, incorrectly empty |  3.08 / 3.72 ms | Matches indexed control exactly |
+
+Maximum sampled server RSS across the four modes was 40,912 KiB before and
+37,520 KiB after; this includes mapped pages and heap, not a separate heap profile.
+No builds from this workspace ran during sampling, but the shared host was not
+controlled. Unchanged controls also became faster, so these before/after times
+are not evidence of a general speedup. The corrected fast-only filter cost about
+0.54 ms more than the indexed control in the after run. A fast-only field still
+requires reading its column; indexing that field and rebuilding existing data
+would remove that scan. This fix does not add a request cache: branches retain
+the existing filter ownership and bounded memory lifetime. Script and raw samples:
+`.context/measure_type_filter.py`, `.context/type-filter-{before,after}-samples.jsonl`.
+
+All eight full-harness steps passed with `RUST_TEST_THREADS=1` and the isolated
+native build directory: `.context/search-harness/20260907T135854.914377Z-full/`.
+This includes 1,373 core unit tests, server/broker/tool checks, native-without-sync
+and portable compilation, documentation and all three real-server broker tests.
+The one-thread setting avoids the previously recorded broker discovery flake;
+no production timeout or concurrency setting changed. Thirteen targeted common
+filter tests also passed with native async execution, and the WASM release build
+and all 13 runtime tests passed. Logs:
+`.context/type-filter-{full-release,native-async,wasm-build,wasm-tests}.log`.
+
+The earlier full run caught an invalid new RRF test request: `candidate_depth`
+is only accepted for L1/exports. Correcting that test fixture in server and broker
+tests made the regression and final full run pass. Its initial failure remains
+in `.context/search-harness/20260907T133822.951694Z-full/`. An exploratory run
+was intentionally stopped while replacing the scalar scan; the harness logged
+an interrupt-cleanup `Operation not permitted` error in
+`.context/search-harness/20260907T133111.044272Z-full/`. Neither is an unresolved
+failure of the final checks. The earlier native-async phrase-ordinal discrepancy
+and parallel broker discovery flake remain separate recorded findings.
