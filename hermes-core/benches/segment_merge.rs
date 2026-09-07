@@ -95,5 +95,202 @@ fn bench_segment_merge(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_segment_merge);
+/// Exercise the production compactor; setup, deletion, validation and optional
+/// byte captures remain outside timing. The output is overwritten each iteration.
+fn bench_row_compaction(c: &mut Criterion) {
+    use hermes_core::{Index, IndexConfig, NoMergePolicy};
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let mut group = c.benchmark_group("row_compaction");
+    group.sample_size(20);
+    for count in [4_096u32, 65_536] {
+        let dir = RamDirectory::new();
+        let mut sb = SchemaBuilder::default();
+        let id = sb.add_text_field("id", false, false);
+        sb.set_primary_key(id);
+        let mut columns = Vec::new();
+        for n in 0..8 {
+            let field = sb.add_u64_field(&format!("value{n}"), false, false);
+            sb.set_fast(field, true);
+            sb.set_multi(field, n == 7);
+            columns.push(field);
+        }
+        let schema = sb.build();
+        let (index, mut writer) = runtime.block_on(async {
+            let index = Index::create(
+                dir.clone(),
+                schema,
+                IndexConfig {
+                    merge_policy: Box::new(NoMergePolicy),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+            let mut writer = index.writer();
+            writer.init_primary_key_dedup().await.unwrap();
+            for i in 0..count {
+                let mut doc = Document::new();
+                doc.add_text(id, format!("key{i:08}"));
+                for (n, &field) in columns.iter().enumerate() {
+                    if !(i + n as u32).is_multiple_of(7) {
+                        doc.add_u64(field, u64::from(i) * 17 + n as u64);
+                        if n == 7 {
+                            doc.add_u64(field, u64::from(i) * 31);
+                        }
+                    }
+                }
+                loop {
+                    match writer.add_document(doc.clone()) {
+                        Ok(()) => break,
+                        Err(hermes_core::Error::QueueFull) => {
+                            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                        }
+                        Err(error) => panic!("fixture admission failed: {error}"),
+                    }
+                }
+            }
+            writer.commit().await.unwrap();
+            for i in (0..count).step_by(2) {
+                writer.delete_primary_key(&format!("key{i:08}")).unwrap();
+            }
+            writer.commit().await.unwrap();
+            (index, writer)
+        });
+        let searcher =
+            runtime.block_on(async { index.reader().await.unwrap().searcher().await.unwrap() });
+        assert_eq!(searcher.segment_readers().len(), 1);
+        let source = &searcher.segment_readers()[0];
+        let merger = SegmentMerger::new(index.schema().clone());
+        let output = SegmentId::new();
+        let budget = 32 * 1024 * 1024;
+        let (meta, _) = runtime
+            .block_on(merger.compact(&dir, source, output, budget))
+            .unwrap();
+        assert_eq!(meta.num_docs, count / 2);
+        if let Ok(prefix) = std::env::var("HERMES_COMPACTION_BYTES") {
+            use hermes_core::Directory;
+            let path = hermes_core::segment::SegmentFiles::new(output.0).fast;
+            let bytes = runtime.block_on(async {
+                dir.open_read(&path)
+                    .await
+                    .unwrap()
+                    .read_bytes()
+                    .await
+                    .unwrap()
+            });
+            std::fs::write(format!("{prefix}-{count}.fast"), bytes.as_slice()).unwrap();
+        }
+        group.throughput(Throughput::Elements(u64::from(count)));
+        group.bench_with_input(
+            BenchmarkId::new("mixed_fast_columns", count),
+            &count,
+            |b, _| {
+                b.iter(|| {
+                    black_box(
+                        runtime
+                            .block_on(merger.compact(&dir, source, output, budget))
+                            .unwrap(),
+                    )
+                });
+            },
+        );
+        runtime.block_on(writer.shutdown()).unwrap();
+    }
+    group.finish();
+}
+
+/// End-to-end deletion publication and PK visibility refresh. Each iteration
+/// starts from identical immutable files; copying/opening/staging/validation
+/// and worker shutdown stay outside the reported duration.
+fn bench_row_deletion(c: &mut Criterion) {
+    use hermes_core::{Directory, DirectoryWriter, Index, IndexConfig, NoMergePolicy};
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let mut group = c.benchmark_group("row_deletion");
+    group.sample_size(10);
+    for count in [4_096u32, 65_536] {
+        let config = IndexConfig {
+            num_indexing_threads: 1,
+            merge_policy: Box::new(NoMergePolicy),
+            ..Default::default()
+        };
+        let files = runtime.block_on(async {
+            let dir = RamDirectory::new();
+            let mut schema = SchemaBuilder::default();
+            let id = schema.add_text_field("id", false, false);
+            schema.set_primary_key(id);
+            let index = Index::create(dir.clone(), schema.build(), config.clone())
+                .await
+                .unwrap();
+            let mut writer = index.writer();
+            writer.init_primary_key_dedup().await.unwrap();
+            for i in 0..count {
+                let mut doc = Document::new();
+                doc.add_text(id, format!("key{i:08}"));
+                loop {
+                    match writer.add_document(doc.clone()) {
+                        Ok(()) => break,
+                        Err(hermes_core::Error::QueueFull) => {
+                            tokio::time::sleep(std::time::Duration::from_millis(1)).await
+                        }
+                        Err(error) => panic!("fixture admission failed: {error}"),
+                    }
+                }
+            }
+            writer.commit().await.unwrap();
+            writer.shutdown().await.unwrap();
+            let mut files = Vec::new();
+            for path in dir.list_files(std::path::Path::new("")).await.unwrap() {
+                let bytes = dir
+                    .open_read(&path)
+                    .await
+                    .unwrap()
+                    .read_bytes()
+                    .await
+                    .unwrap();
+                files.push((path, bytes));
+            }
+            files
+        });
+        group.throughput(Throughput::Elements(u64::from(count)));
+        group.bench_with_input(
+            BenchmarkId::new("commit_64_keys", count),
+            &count,
+            |b, &count| {
+                b.iter_custom(|iterations| {
+                    runtime.block_on(async {
+                        let mut elapsed = std::time::Duration::ZERO;
+                        for _ in 0..iterations {
+                            let dir = RamDirectory::new();
+                            for (path, bytes) in &files {
+                                dir.write(path, bytes.as_slice()).await.unwrap();
+                            }
+                            let index = Index::open(dir, config.clone()).await.unwrap();
+                            let mut writer = index.writer();
+                            writer.init_primary_key_dedup().await.unwrap();
+                            for key in (0..count).step_by(count as usize / 64) {
+                                writer.delete_primary_key(&format!("key{key:08}")).unwrap();
+                            }
+                            let start = std::time::Instant::now();
+                            assert!(writer.commit().await.unwrap());
+                            elapsed += start.elapsed();
+                            let searcher = index.reader().await.unwrap().searcher().await.unwrap();
+                            assert_eq!(searcher.num_docs(), count - 64);
+                            assert_eq!(searcher.segment_readers()[0].num_docs(), count);
+                            writer.shutdown().await.unwrap();
+                        }
+                        elapsed
+                    })
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    bench_segment_merge,
+    bench_row_compaction,
+    bench_row_deletion
+);
 criterion_main!(benches);
