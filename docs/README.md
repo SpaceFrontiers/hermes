@@ -68,6 +68,7 @@ claim as implemented or as current performance.
 - [Training workflows and task contracts](training-objectives-and-curricula.md)
 - [Generation evaluation](generation-eval.md)
 - [Candidate backfill and linear L1 ranking](candidate-rescoring.md)
+- [Passage evidence for document nominations](document-nominated-passages.md)
 - [Large-candidate-pool retrieval evaluation](retrieval-pool-eval.md)
 - [Configurable MoE design](moe-design.md)
 - [SOTA LLM design (2024–2026) + shared retrieval embeddings — research notes](llm-design-and-rag-embeddings.md)
