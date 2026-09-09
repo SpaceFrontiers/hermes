@@ -1985,3 +1985,590 @@ an interrupt-cleanup `Operation not permitted` error in
 `.context/search-harness/20260907T133111.044272Z-full/`. Neither is an unresolved
 failure of the final checks. The earlier native-async phrase-ordinal discrepancy
 and parallel broker discovery flake remain separate recorded findings.
+
+## 2026-09-09: measuring retained segment candidates for L1
+
+This is a design experiment, not a serving change. Retaining already-produced
+segment candidates improves formula top-K recall on mixed segments, but it can
+add substantial L1 work without improving recall on clustered segments. The
+measurements do not support enabling it universally.
+
+### Method and invariant
+
+The isolated checkout at `.context/segment-l1-measure-worktree` is based on
+`6989e797` (1.8.134). Test-only hooks observe completed segment result lists in
+the existing searcher, **after** its shared threshold is raised and **before**
+its shard merge discards results. They do not alter segment depth, shared vertical
+thresholds, BMP's global LSP selection, search concurrency or scoring kernels.
+L1 runs after nomination; its predictions never feed retrieval thresholds.
+The normal nomination lists remain included, with addresses, scores and passage
+rows checked against the captured copies on every extra-candidate request.
+
+Each branch keeps a bounded heap ordered by its existing raw score and canonical
+address tie-break. With normal depth `d` and extra allowance `e`, this heap keeps
+at most `d + e` candidates from completed segment results. It does not capture
+all visited documents or guarantee an independent per-segment top-d. A candidate
+pruned inside segment execution remains unavailable. This is one specific extra
+selection policy; the experiment does not establish its optimality.
+
+The five compared policies use three nomination branches and final top-10:
+
+| Policy     | Retrieval depth per branch | Maximum retained slots across branches |
+| ---------- | -------------------------: | -------------------------------------: |
+| Baseline   |                         20 |                                     60 |
+| Extras 20  |                         20 |                                    120 |
+| Extras 80  |                         20 |                                    300 |
+| Deeper 40  |                         40 |                                    120 |
+| Deeper 100 |                        100 |                                    300 |
+
+Retained slots include duplicates across branches, so document unions are smaller.
+The deeper controls have the same maximum retained allowance, not necessarily the
+same actual union or read cost. They use the core interface; an RPC caller must
+also satisfy the existing result-window/candidate oversubscription limits.
+
+All policies use the existing core candidate scorer, preserve organic scores,
+backfill missing cells, and apply the formula
+`bm25 + 2 * ln(1 + sparse) + 8 * dense`. The features are four-term BM25,
+12-dimension BMP sparse retrieval and 128-dimensional F32 flat dense retrieval.
+Document features use MAX; the passage fixture aligns three body/sparse/dense
+ordinals per document and applies MAX after passage L1. Some documents have no
+sparse or dense field. The formula and generator were fixed before sampling.
+BMP uses its normal block/heap pruning with gamma 0; a separate capped case uses
+one global gamma 2. Each case keeps that setting fixed across all five policies.
+
+The fixed seeded corpus has 32 topics and 16,384 documents, laid out as one,
+four or 16 mixed segments, 16 topic-clustered segments, or 16 uneven segments
+(one holds 80% of the corpus). Additional cases cover capped BMP and three
+passages per document. A 65,536-document mixed fixture checks scale. A one-search-
+thread repeat uses the **same persisted files** as the four-thread mixed fixture.
+Fixture file hashes are retained with the raw results.
+
+Exhaustive core feature scoring over every fixture document (every stored passage
+for the passage case) defines the reference top-10. **Recall below is agreement
+with that formula reference, not human relevance or teacher-labelled recall.**
+There were no representative production requests or relevance labels available
+in the workspace. The generator is synthetic; the binary IVF fields used by the
+live installation are not represented by this F32 flat dense fixture.
+
+### Results
+
+Every cell below is **formula recall@10; median core latency**. Latency includes
+nomination, pool assembly and L1, with compilation, fixture creation, expression
+compilation, statistics preparation, reference scoring, assertions, JSON and RPC
+outside the timed region. Each policy has 32 queries repeated four times, with
+rotating policy order. All sampling uses the same release binary on Apple M4
+arm64, rustc 1.98.1, two Tokio workers and four search threads unless noted.
+All payloads fit in memory; these are warm, sequential-request measurements.
+
+| Fixture                                           |       Baseline |      Extras 20 |       Extras 80 |      Deeper 40 |      Deeper 100 |
+| ------------------------------------------------- | -------------: | -------------: | --------------: | -------------: | --------------: |
+| 16k documents, 1 segment                          | 75.0%; 0.28 ms | 75.0%; 0.28 ms |  75.0%; 0.28 ms | 94.7%; 0.34 ms | 100.0%; 0.47 ms |
+| 16k documents, 4 mixed segments                   | 75.0%; 0.28 ms | 94.7%; 0.32 ms |  99.7%; 0.40 ms | 94.7%; 0.35 ms | 100.0%; 0.50 ms |
+| 16k documents, 16 mixed segments                  | 75.0%; 0.50 ms | 94.7%; 0.59 ms | 100.0%; 0.74 ms | 94.7%; 0.64 ms | 100.0%; 0.86 ms |
+| 16k documents, 16 clustered segments              | 75.0%; 0.24 ms | 75.0%; 0.53 ms |  75.0%; 0.73 ms | 94.7%; 0.31 ms | 100.0%; 0.47 ms |
+| 16k documents, 16 uneven segments                 | 75.0%; 0.38 ms | 85.1%; 0.50 ms |  85.3%; 0.58 ms | 94.7%; 0.49 ms | 100.0%; 0.70 ms |
+| 16k documents, 16 mixed segments, gamma 2         | 71.6%; 0.45 ms | 91.9%; 0.56 ms | 100.0%; 0.70 ms | 91.9%; 0.59 ms | 100.0%; 0.83 ms |
+| 16k documents, 3 passages, 16 segments            | 56.2%; 0.86 ms | 86.2%; 1.00 ms | 100.0%; 1.30 ms | 86.2%; 1.06 ms |  99.7%; 1.61 ms |
+| 65k documents, 16 mixed segments                  | 48.4%; 0.99 ms | 71.2%; 1.07 ms |  98.1%; 1.32 ms | 71.2%; 1.19 ms |  98.1%; 1.55 ms |
+| 16k documents, 16 mixed segments, 1 search thread | 75.0%; 0.75 ms | 94.7%; 0.83 ms | 100.0%; 0.95 ms | 94.7%; 0.96 ms | 100.0%; 1.31 ms |
+
+For 65k documents, Extras 80 retained about 286 documents versus 60 in the
+baseline and supplied 5.16 previously unnominated documents to the final top-10
+on average. Its p95 was 1.77 ms versus 1.29 ms baseline and 1.90 ms Deeper 100.
+On 16k mixed segments, Extras 20 supplied 2.16 new top-10 documents per request,
+and Extras 80 supplied 2.50; 30 of the 32 queries benefited from extra winners.
+On clustered segments both supplied **zero** new winning documents despite
+retaining about 116 and 281 documents. Their respective median L1 times grew
+from 0.06 ms baseline to 0.34 and 0.52 ms. Captured candidates from other segments
+could not recover the stronger candidates discarded inside the topic's segment.
+
+The uneven case gained approximately ten recall points from Extras 20, but
+Deeper 40 gained approximately twenty points at a similar median cost. Raising
+the extra allowance to 80 barely improved its recall. More retained rows alone
+are therefore a poor reason to spend additional backfill budget. Segment merging
+and corpus layout can materially change the benefit.
+
+### Pruning, work and memory
+
+Normal nomination document identities and order were unchanged in the paired
+extra/baseline measurements. Native text scores sometimes varied by one float
+ULP across repeated executions; the captured row was always byte-identical to
+its originating normal row within that execution. Scoring schedules can vary
+under the shared threshold without changing its policy.
+
+BMP blocks scored per request confirm that extras did not obtain their gains by
+requesting deeper BMP work: approximately 221 blocks for both baseline and
+Extras 80 on the 16k mixed fixture, versus 490 for Deeper 100; approximately 377
+versus 377 versus 1,132 on the 65k fixture. Small run-to-run block-count variation
+is retained in the samples; copying captured results can affect scheduling even
+though thresholds are published before capture. There is no claim that the
+instruction trace or elapsed nomination time is identical.
+
+Separate untimed allocator passes measured requested allocation bytes and the
+maximum increase in live heap from request start. They exclude assertion/report
+allocations and include temporary search/scoring buffers. These are not absolute
+heap residency, mmap residency or process RSS; thread overlap affects the peak.
+For the 16k mixed fixture:
+
+| Policy     | Extra capture buffers | Median allocated bytes per request | Largest observed heap increase | Backfilled component values | Charged exact-vector / BMP bytes |
+| ---------- | --------------------: | ---------------------------------: | -----------------------------: | --------------------------: | -------------------------------: |
+| Baseline   |                 0 KiB |                          1.324 MiB |                      177.6 KiB |                         223 |                   18.3 / 8.4 KiB |
+| Extras 20  |               8.8 KiB |                          1.413 MiB |                      193.3 KiB |                         424 |                  34.6 / 16.0 KiB |
+| Extras 80  |              21.9 KiB |                          1.570 MiB |                      198.1 KiB |                         869 |                  70.7 / 32.6 KiB |
+| Deeper 100 |                 0 KiB |                          2.190 MiB |                      205.6 KiB |                         869 |                  70.7 / 32.6 KiB |
+
+Capture-buffer figures include the bounded heap's normal candidates as well as
+its extras. Component counts include each query component, not just one value
+per feature. Charged reads are the scorer's vector/BMP admission accounting;
+text mmap probes and OS page faults are not represented by those byte totals.
+The complete initial process peaked at 281.6 MiB RSS including fixture building
+and exhaustive references; it cannot be attributed to any one policy. No builds
+from this workspace ran during timed sampling. Other activity on the shared Mac
+was uncontrolled, so small latency differences should not be generalized.
+
+### Evidence and limits
+
+There are 5,760 timed requests and 360 separate memory requests across the nine
+fixture/thread cases. Raw rows include normal nomination signatures, pool size,
+new winners, formula/pool recall, phase timings, BMP work and feature-read
+accounting. Artifacts:
+
+- `.context/segment-l1-measure-results/`: the seven 16k cases, environment,
+  fixture hashes, raw JSONL, and CSV/Markdown/JSON summaries.
+- `.context/segment-l1-measure-large/`: the 65k mixed case.
+- `.context/segment-l1-measure-single-thread/`: one-thread repeat over the same
+  16k mixed index files.
+- `.context/analyze_segment_l1.py`: summary calculations.
+- `.context/segment-l1-measurement.patch`: test-only instrumentation and harness
+  for a detached checkout of `6989e797`; no public API is added.
+- `.context/segment-l1-measure-{build,run,large,single-thread}.log`: commands'
+  build/execution logs. Memory instrumentation is disabled during timed passes.
+
+The ignored unit harness is invoked as follows, after applying the experiment
+patch to its detached checkout:
+
+```sh
+CARGO_TARGET_DIR="$PWD/.context/segment-l1-measure-build" CARGO_BUILD_JOBS=4 \
+  cargo test --locked --release \
+  --manifest-path .context/segment-l1-measure-worktree/Cargo.toml \
+  -p hermes-core --lib segment_nomination_measurement::measure --no-run
+SEGMENT_MEASURE_OUTPUT="$PWD/.context/segment-l1-measure-results" \
+  SEGMENT_MEASURE_DOCS=16384 SEGMENT_MEASURE_QUERIES=32 \
+  SEGMENT_MEASURE_REPEATS=4 SEGMENT_MEASURE_THREADS=4 \
+  <test-binary> --exact segment_nomination_measurement::measure \
+  --ignored --nocapture --test-threads=1
+python3 .context/analyze_segment_l1.py
+```
+
+`SEGMENT_MEASURE_FIXTURE=doc_s16` selects the scale/thread repeats; their output
+roots must differ. Use `SEGMENT_MEASURE_DOCS=65536` for the scale repeat and
+`SEGMENT_MEASURE_THREADS=1` with the shared persisted fixture for the thread
+repeat. Correctness smoke runs use 512 documents and two queries; their timings
+are not included in the performance summaries.
+
+Read-only live metadata collection found one existing shard with 40 segments,
+26,291,811 physical documents, segment sizes from 557 to 4,187,252 and median
+4,724. The smallest 24 segments contain 67,071 documents. This motivated the
+uneven fixture; it is not a measurement of live recall or latency. No production
+query workload, process, deployment, index or schema was changed.
+
+Production relevance, x86 performance, binary IVF, cold payloads, concurrent
+requests/ingestion, RRF-dependent formulas and phrase-feature costs remain
+unmeasured. In particular, formulas containing RRF still require ranks at the
+correct global scope before final selection. The experiment supports a bounded
+opt-in trial on representative queries; it does not justify a default change or
+predict a production speedup.
+
+The experiment's 512-document smoke cases passed with both native sync and native
+without sync; their logs are `.context/segment-l1-measure-smoke.log` and
+`.context/segment-l1-measure-async-smoke.log`. The repository's required
+`python3 scripts/check_search.py check` passed with `RUST_TEST_THREADS=1`, including
+formatting, focused Clippy, core/server/broker/tool tests and native-async
+compilation. Evidence is in
+`.context/search-harness/20260909T052512.176694Z-check/`. Full RPC/WASM checks were
+not rerun: the main checkout changes only this report, and the instrumentation
+exists only in the isolated experiment checkout under `cfg(test)`.
+
+`python3 .context/run_segment_l1.py --output <new-directory>` automates creating the
+detached checkout, applying the patch, building, measuring and summarizing. The
+source, raw measurements, summaries and instructions are also packaged in
+`.context/segment-l1-measurement.tar.gz`; fixture index files are regenerated,
+not included in the archive.
+
+## 2026-09-09: feature reads and scoring review
+
+This subsection records the initial design and measurement pass, before the
+implementation follow-up below.
+The invariant is identical candidates, organic scores, raw missing/zero values,
+passage ordinals, formula outputs and request-wide work/read budgets. The cost
+model separates segment/feature setup and scheduling, selected payload reads,
+scoring kernels, feature assembly and formula evaluation.
+
+### Measured opportunity: amortize CPU scheduling
+
+The native server awaits `score_candidates_with_retrieved_and_rrf` directly in
+`hermes-server/src/search_service.rs`. Core groups candidates by segment and
+processes those groups sequentially in
+`hermes-core/src/query/candidate_scoring/execution.rs`. Each BMP component and
+each dense/binary scoring batch independently enters `install_search_cpu`.
+Consequently, a small pool spread across 16 segments can incur approximately
+30 separate synchronous CPU-pool handoffs. The text probes, feature assembly
+and formula loop run on the calling thread. This differs from L0's coarser
+native search dispatch.
+
+The experiment freezes each candidate pool and its organic branch lists, then
+compares the existing L1 call with the **same call** entered once through the
+shared search CPU pool. Nested calls then stay on that worker. Both paths still
+process segments sequentially; no parallel segment scorer, scoring algorithm,
+candidate expansion or pruning change is involved. The experiment polls the
+mmap future with `now_or_never()` and asserts that every read is immediately
+ready. It does not block arbitrary async I/O on a Rayon worker. A serving design
+would need bounded async admission/completion around core CPU work, preserving
+lazy-directory, current-thread runtime, cancellation and WASM behavior.
+
+Median L1 latency, including plan validation, feature backfill, prediction and
+sorting, but excluding retrieval, expression parsing, statistics and RPC:
+
+| Fixture / branch depth              | Mean pool | Current call | One worker entry | Median reduction |
+| ----------------------------------- | --------: | -----------: | ---------------: | ---------------: |
+| 1 segment / 20                      |      57.6 |      69.2 us |          64.4 us |               7% |
+| 16 mixed segments / 20              |      57.6 |     320.9 us |         123.7 us |              61% |
+| 16 mixed segments / 100             |     246.8 |     520.8 us |         263.8 us |              49% |
+| 16 uneven segments / 20             |      57.6 |     180.4 us |          91.6 us |              49% |
+| 16 clustered segments / 20          |      57.6 |      60.8 us |          56.9 us |               7% |
+| 16 segments, passage features / 20  |      59.2 |     402.3 us |         179.9 us |              55% |
+| 16 segments, passage features / 100 |     281.1 |     768.8 us |         502.5 us |              35% |
+
+For the mixed 16-segment case, p95 changed from 478 to 154 us at depth 20,
+and from 893 to 307 us at depth 100. The one-segment/clustered cases supply most
+nominees from one segment, so consolidating dispatch has little to amortize;
+their small median changes are inconclusive and their p95 did not improve.
+
+A separate repeat with **one** search-pool thread over the same mixed index
+changed medians from 242 to 115 us and from 403 to 243 us respectively. The gain
+therefore does not require scoring segments in parallel. Worker locality and
+execution scheduling both change; the entire latency difference should not be
+described as a measurement of queue wait alone.
+
+The native-without-sync control also passed the same byte comparisons. In that
+build `install_search_cpu` is already inline, so both invocation styles should
+perform the same work. Measured medians were 105.4/105.7 us at depth 20 and
+233.8/235.3 us at depth 100, showing no useful difference. This is a control
+within that build, not a recommendation to disable native search parallelism.
+
+Separate instrumented passes explain the difference. For the small mixed pool,
+BMP/vector dispatch spans totalled about 218 us per request, while their nested
+kernel spans totalled about 21 us. With one worker entry those figures were
+about 11.6 and 10.5 us. These spans overlap, contain instrumentation overhead,
+and come from eight queries; they are attribution evidence, not an additive
+latency breakdown or replacements for the unprofiled timing samples.
+
+Every comparison checks the complete serialized results and feature rows,
+including ordering, scores, missing values and passage ordinals, byte for byte.
+Backfilled component counts and charged bytes also match: approximately
+223 components, 18.25 KiB of exact vectors and 8.40 KiB of BMP payload at depth
+20; 869 components, 70.72 KiB and 32.64 KiB at depth 100. No candidates are
+discarded to obtain the improvement.
+
+Memory is essentially unchanged by scheduling. The mixed depth-100 call
+allocated a median 373.9 KiB through 3,407 allocations in either mode, with a
+largest observed live-heap increase of 67.6 KiB. This shows a separate opportunity
+to reduce temporary allocations. These numbers include only L1 and must not be
+compared directly with the previous section's whole-search allocation totals.
+
+### Further findings, in suggested implementation order
+
+1. **Reduce text cursor setup and reuse bounded scratch.**
+   `term::score_term_candidates` creates a posting iterator for every component
+   in every occupied segment. `BlockPostingIterator::owned` allocates two
+   128-element `u32` buffers and decodes block zero before the first target seek,
+   even when the first candidate belongs to a later block. It also maintains
+   position-frequency prefixes although ordinary BM25 probes need no positions.
+   In the one-worker profile, text backfill took about 58 us for the small mixed
+   pool and 71 us for the large one, versus approximately 10/21 us for BMP
+   and less than 1 us for the dense arithmetic. This makes text setup/probing a
+   more promising next target than changing the formula evaluator. A targeted
+   first seek and reusable decode buffers belong in the existing posting reader;
+   retain positional cursor semantics for phrase consumers. The fixture does
+   not isolate how much time any one of these changes would save.
+
+2. **Reduce feature assembly allocations.**
+   `execution.rs` builds nested document feature vectors, tree maps for passage
+   rows, and another document-to-location tree for every document-scope feature.
+   `DocumentExpression::score` then allocates a `(ordinal, score)` vector for each
+   component/document reduction. Chunk-field sets are rebuilt per segment and
+   again per output document; model-bearing results clone old positions before
+   replacing them. Reuse admitted scratch, hoist the field set, and evaluate
+   contiguous row/location spans through the existing combiner. Preserve strict
+   ordinal reduction order, missing versus zero, negative boosts, and the
+   difference between `MAX(a) + MAX(b)` and `MAX(a + b)`. Flat internal storage
+   should still produce the same owned export rows at the boundary.
+
+3. **Prepare each scoring query once.**
+   L0 already shares `PreparedBmpQuery` across segment scorers. L1's
+   `score_bmp_candidates` rebuilds its quantized/sorted vectors, candidate mask
+   and phase-one metadata for every segment/component, even though point scoring
+   uses no LSP or block-pruning plan. `score_vector_candidates` similarly
+   recomputes the query norm and F16 representation on every segment call;
+   the F16 copy is unused by F32/UInt8 kernels. Reuse immutable preparation in
+   the existing core plan, keeping segment-specific BMP scale and field/dimension
+   validation at execution. In the one-worker mixed depth-100 profile, BMP
+   preparation totalled about 4.5 us; vector preparation **including its output
+   and raw-buffer allocations** totalled about 6.4 us. This is a smaller follow-up
+   than scheduling or text work on this fixture, not a measured speedup yet.
+
+4. **Share payload reads when several branches use the same field.**
+   Each feature/component currently resolves locations and reads its selected
+   vectors independently. Two dense queries over the same body field can read
+   and copy the same flat rows twice; multiple sparse queries can validate and
+   traverse the same forward vector repeatedly. A bounded field/segment batch
+   could resolve the union of missing logical cells, read a row once, and apply
+   the existing kernels for each required query before scattering scores back
+   to branch slots. Preserve organic values even when another branch needs the
+   same row, and charge both distinct payload bytes and component work. This
+   needs a repeated-field/multi-query fixture: the measured three-field workload
+   does not quantify its benefit.
+
+5. **Treat lazy text reads and MaxScore presence discovery separately.**
+   `reserve_candidate_text_reads` looks up term metadata before lazy reads;
+   `get_postings`/`get_positions` then look it up again and request the complete
+   term range. Mmap returns byte views, but a lazy backend can materialize those
+   ranges for very few candidates. Reader-owned prepared term handles, selected
+   block reads, and bounded I/O batching deserve a cold/remote benchmark.
+   Separately, `maxscore_candidate_locations` invokes
+   `SparseIndex::probe_candidates(..., None, ...)`, which probes **all retained
+   dimensions** to discover field presence and ordinals; scoring then probes the
+   query dimensions. Reuse discovery across compatible branches before
+   considering a format change. Looking only at query dimensions would turn
+   present-but-zero values into missing values and change formulas with missing
+   defaults. The current production metadata uses BMP, and the local benchmark
+   also uses BMP, so this is a conditional finding rather than its measured cost.
+
+The dense path already sorts physical targets and coalesces adjacent flat-vector
+reads. BMP already has an evictable forward representation and validates only
+selected payloads. Those are useful existing mechanisms to build on. A
+short-circuit in the BMP arithmetic loop after the query dimensions are exhausted
+could avoid some work, but `BmpForward::vector` still validates the complete
+selected vector first. Do not remove that validation or pin every vector to
+make warm measurements look better. Gapped-read coalescing and prefetch should
+be evaluated against bytes touched and cold page faults as well as elapsed time.
+
+### Formula cost and correctness constraints
+
+The compiled formula `bm25 + 2 * ln(1 + sparse) + 8 * dense` costs about
+1.7 us per small document pool and 7.3 us per large document pool in a replay of
+the existing model scorer, with **zero allocations** in those document-only
+passes. Passage merge/reduction raises those figures to 5.9 and 28.6 us and
+allocates scratch in `model.rs`. Replacing the expression package is therefore
+low priority for these requests. Longer formulas, RRF contribution processing,
+and documents with many passages need their own measurements.
+
+L1 still backfills branches that are absent from the formula. An inference-only
+request could potentially use a formula-dependency mask, but a mask alone would
+break raw exports and broker RRF: the broker deliberately asks shards to run a
+constant formula while exporting every raw branch. Passage nomination must also
+remain intact. Treat pruning unused feature reads as an explicit execution-plan
+optimization with export requirements, not a change to formula or missing-value
+semantics.
+
+Scoring more segment candidates should follow this cleanup, then be remeasured.
+These results demonstrate savings without changing candidate recall; they do
+not establish that a larger pool is free. Additional missing features still
+require payload access, and the extra pool must remain bounded. Per-segment
+parallelism is another proposal, not part of this experiment: it must share the
+request's work/read admission and CPU capacity, account for simultaneous scratch,
+and be tested under concurrent queries before a throughput claim.
+
+### Reproduction and validation
+
+Evidence is under `.context/feature-scoring-review/`, based on `6989e797`:
+
+- `measurement.patch`: the complete test-only patch for a detached checkout.
+  `original-segment-measurement.patch` retains the preceding experiment.
+- `results/`: five fixture layouts, raw JSONL and summaries.
+- `single-thread/`: the same mixed fixture with one search-pool thread.
+- `async-control/`: native-without-sync byte-equivalence and scheduling control.
+- `analyze.py`: summary calculations and paired work/byte-count audit.
+- `build.log`, `run.log`, `single-thread.log`, `focused-tests.log`.
+
+The experiment reuses the preceding section's 16,384-document mmap indexes,
+compiler, release profile and machine (Rust 1.98.1, Apple M4/arm64). It uses
+32 fixed-seed queries, depths 20/100, 12 repetitions and rotating variant order,
+with allocation and phase instrumentation disabled during latency measurements.
+There are **9,216 timed L1 calls**, 192 separate phase samples and 192 separate
+allocation samples across the four-thread and one-thread runs. Formula replay
+is separate: 384 timing estimates of 64 full-pool evaluations and 384 allocation
+passes. It includes passage/context reduction and score checks, but excludes
+copying the input rows. The native-without-sync control adds 512 timed L1 calls,
+32 phase samples, 32 allocation samples, and 64 formula timing/allocation pairs;
+its timings are kept separate. No builds from this workspace ran during timed sampling;
+other activity on the shared Mac was uncontrolled.
+
+After applying the patch and building the same optimized core unit-test binary:
+
+```sh
+FEATURE_MEASURE_DATA="$PWD/.context/segment-l1-measure-results" \
+  FEATURE_MEASURE_OUTPUT="$PWD/.context/feature-scoring-review/results" \
+  FEATURE_MEASURE_REPEATS=12 FEATURE_MEASURE_THREADS=4 \
+  <test-binary> --exact \
+  segment_nomination_measurement::feature_reads::measure_features \
+  --ignored --nocapture --test-threads=1
+python3 .context/feature-scoring-review/analyze.py \
+  .context/feature-scoring-review/results
+```
+
+Set `FEATURE_MEASURE_THREADS=1`, `FEATURE_MEASURE_FIXTURE=doc_s16`, and a new output
+directory for the control. The preceding section's runner regenerates the
+fixture files when needed. Optimized focused candidate-scoring tests passed
+in both native builds (13 passed, one existing manual benchmark ignored in each).
+The main checkout only
+changes this report; the earlier `check` result at the same source revision
+remains applicable. RPC, WASM, x86, cold payloads, production binary vectors and
+concurrent-query throughput are not validated by these measurements. No serving
+change, publication or production mutation was made for this review.
+
+The source, samples, analyzer and standalone reproduction instructions are
+packaged in `.context/feature-scoring-review.tar.gz`. Fixture indexes and compiled
+binaries are excluded; the included patch regenerates the fixtures. The report
+passed Prettier, `git diff --check`, and the repository's documentation/ownership
+contract check for this review.
+
+## 2026-09-09: implemented feature-read and scoring improvements
+
+The follow-up implements the measured scheduling improvement and reduces
+repeated preparation and temporary allocations. It does **not** enable the
+earlier retained-segment-candidate proposal. Candidate nomination, pruning,
+scores, raw exports, formulas, storage/wire formats and request limits retain
+their existing semantics.
+
+### Implementation and ownership
+
+- `Searcher::run_search_cpu` polls the existing borrowed scoring future on the
+  shared search pool when called from a multithread Tokio runtime. A poll that
+  encounters pending I/O returns to the original task, releasing the worker.
+  The worker enters the caller's Tokio handle for async directory operations.
+  There is no spawned/detached scoring task or second scorer: a request drop
+  drops its future after any active scoped poll returns. Native current-thread
+  and non-Tokio callers, native without sync, and WASM keep their existing path.
+- The existing posting reader accepts reusable decode buffers and starts
+  selected probes at their first requested block. Ordinary posting iteration
+  and its position-prefix semantics are retained. Request-owned text scratch
+  is reused across components and segments.
+- BMP query quantization is cached per immutable component, with bounded
+  replacement when segment dimensions differ. Segment dequantization remains
+  local. Dense query norms are cached per component, and F16 query copies are
+  built only for F16 segments. These caches never outlive the scoring request;
+  they contain query preparation, not corpus payloads.
+- Document feature reduction groups sorted location spans in one reusable
+  vector, replacing per-document trees/vectors. Small reductions use the same
+  combiner with inline storage. Passage/context inference uses a fixed feature
+  array and inline score scratch, validates duplicate ordinals before inference,
+  and preserves ordinal order for strict float reductions. Chunk-field sets are
+  prepared once, and formula results construct their new positions directly.
+
+The request still computes all required missing features, including unused
+formula branches needed for raw export and broker RRF. Overlapping payload-read
+sharing, lazy text range planning, MaxScore presence-discovery changes and
+per-segment parallelism remain separate proposals. No new cache or candidate
+policy is enabled for these purposes.
+
+### Before/after measurements
+
+Both binaries use the same compiler, release flags, host and persisted fixtures
+from the review: Rust 1.98.1, Apple M4/arm64, warm mmap, 16,384 documents, 32
+fixed-seed queries, three branches and the same nonlinear formula. The before
+binary is based on `6989e797`; the after binary contains this implementation.
+
+The before run saves the complete organic branch lists, candidate pools and
+serialized expected results/features. The after run replays those saved inputs
+and compares **every output byte**, rather than allowing retrieval to select a
+different candidate pool. All comparisons passed, and the paired component,
+vector-byte and BMP-payload charges are identical. The candidate counts below
+are means; latency cells are p50/p95 in microseconds and cover L1 only.
+
+| Fixture / branch depth                     | Pool docs | Before p50/p95 | After p50/p95 |
+| ------------------------------------------ | --------: | -------------: | ------------: |
+| 1 segment / 20                             |      57.6 |       72 / 122 |       51 / 61 |
+| 1 segment / 100                            |     246.8 |      205 / 267 |     155 / 192 |
+| 16 mixed segments / 20                     |      57.6 |      316 / 583 |      94 / 112 |
+| 16 mixed segments / 100                    |     246.8 |      518 / 989 |     200 / 236 |
+| 16 clustered segments / 20                 |      57.6 |        57 / 73 |       42 / 50 |
+| 16 clustered segments / 100                |     246.7 |      174 / 211 |     130 / 168 |
+| 16 uneven segments / 20                    |      57.6 |      165 / 239 |       68 / 81 |
+| 16 uneven segments / 100                   |     246.8 |      404 / 523 |     183 / 205 |
+| 16 segments, passage features / 20         |      59.2 |      392 / 675 |     147 / 182 |
+| 16 segments, passage features / 100        |     281.1 |     754 / 1105 |     427 / 507 |
+| 16 mixed segments, one search thread / 20  |      57.6 |      241 / 321 |      93 / 113 |
+| 16 mixed segments, one search thread / 100 |     246.8 |      400 / 497 |     196 / 227 |
+
+Thus the mixed four-thread case improves median L1 latency by approximately
+70% at depth 20 and 61% at depth 100. Comparing with the before binary's
+experimental one-worker mode isolates the remaining opportunity approximately:
+121/256 us before versus 94/200 us after, another approximately 22% reduction
+from preparation/allocation changes. This is not a separate kernel benchmark.
+
+Separate allocator passes show lower allocation traffic, with a small increase
+in the live heap from retaining reusable scratch until request completion:
+
+| Case                        | Allocated KiB before/after | Allocations before/after | Largest heap increase KiB before/after |
+| --------------------------- | -------------------------: | -----------------------: | -------------------------------------: |
+| Mixed segments, depth 20    |                  199 / 104 |               1664 / 961 |                            17.6 / 19.8 |
+| Mixed segments, depth 100   |                  374 / 234 |              3407 / 1382 |                            67.6 / 70.0 |
+| Passage features, depth 20  |                  216 / 133 |              2123 / 1430 |                            32.8 / 35.5 |
+| Passage features, depth 100 |                  548 / 414 |              5880 / 3600 |                          154.0 / 155.9 |
+
+Across the fixtures, the largest observed per-request live-heap increase rises
+by approximately 1.9–4.3 KiB. These are requested allocation bytes and heap
+changes measured around L1; they do not describe absolute heap, mmap residency
+or process RSS. Query-preparation residency scales with the admitted active
+components and their vector dimensions, so the table does not establish a
+universal scratch increment for arbitrarily large formulas/queries.
+
+The small passage-formula replay drops from 5.9 to 4.6 us, and the large replay
+from 28.9 to 22.4 us; both now allocate no scratch for these at-most-three-passage
+fixtures. Larger reductions spill to bounded heap storage; 17/65-passage tests
+cover that boundary. The formula library and arithmetic are unchanged.
+
+There are 18,432 timed calls across the two binaries and six fixture/thread
+cases, with phase and allocation accounting disabled during timing. Half use
+the normal caller and half retain the earlier worker-entry control. Separate
+passes contain 384 phase samples and 384 allocation samples, plus formula
+replays. Compilation and full validation finished before the timed after run;
+no builds from this workspace overlapped either timed comparison. Activity on
+the shared Mac was otherwise uncontrolled. This is warm single-request evidence,
+not a production throughput, x86, cold I/O or relevance benchmark. The source
+changes no architecture-sensitive scoring or retrieval defaults.
+
+### Validation and evidence
+
+`python3 scripts/check_search.py full` passed all eight steps, including the
+entire `check` sequence, native-without-sync and portable builds, API docs and
+the broker's real-server tests. The core suite passed 1,407 tests with 18 existing
+manual benchmarks ignored. Evidence:
+`.context/search-harness/20260909T064235.450347Z-full/`.
+
+The new regressions cover CPU-pool resumption after pending I/O, cancellation
+and panic/error propagation, current-thread runtimes, posting seek/position
+equivalence with recycled buffers, spill-sized passage reductions, and distinct
+queries across segments using BMP, F32, F16, UInt8 and binary vectors. Existing
+organic-score, missing-value, phrase, reorder and admission tests also passed.
+The WASM release build, clean npm install and all 20 WASM tests passed.
+The native-without-sync candidate-scoring run passed 15 tests, with one existing
+manual benchmark ignored.
+
+Evidence under `.context/feature-scoring-implementation/` includes:
+
+- `before/`, `after/`, `before-single-thread/`, `after-single-thread/`: raw
+  JSONL and summaries; `frozen/*.json` contains the persisted before inputs and
+  expected output bytes.
+- `before-measurement.patch`, `after-measurement.patch`: complete experiment
+  source for detached checkouts of the base revision, including the production
+  change in the latter. The fixture builder belongs to the before experiment;
+  the after experiment reuses those index files and frozen pools.
+- `instrument_after.py`, `compare.py`, `analyze.py`, compiler/runtime logs,
+  validation logs and fixture/environment hashes.
+
+The reproduction source and measurements are bundled as
+`.context/feature-scoring-implementation.tar.gz`; compiled binaries and index
+files are excluded. Recreating an index assigns new segment IDs, so regenerate
+its frozen pools with the before binary before running the after comparison.
