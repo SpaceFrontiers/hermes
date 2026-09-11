@@ -237,3 +237,20 @@ checksums, index format and segment count, warmup/iteration counts, and raw
 samples. Report quality alongside speed, specify cache state and timing
 boundaries, and repeat comparisons in interleaved processes. A best-of-three
 microbenchmark or CPU smoke run does not establish production GPU throughput.
+
+### Row compaction copy paths
+
+`segment_merge` includes `row_compaction/{pattern}/{rows}` at 4096 and 65536
+physical rows. `mixed_fast_columns` deletes alternating rows from one segment
+with eight numeric columns (including missing and multi-values) and a primary
+key. `clustered_mixed_fields` and `scattered_mixed_fields` add indexed/stored text,
+merge 1024-row source segments, and delete respectively one contiguous quarter
+or every fourth row. Setup, deletion publication and count validation occur
+outside timing. Compaction uses a 32 MiB scratch budget and a RAM directory.
+
+Set `HERMES_COMPACTION_BYTES=/path/prefix` to capture each validated `.fast`
+output as `prefix-{pattern}-{rows}.fast`. Different legal block boundaries can
+change complete-file bytes; compare copied source blocks byte-for-byte and all
+decoded values in regression tests. Measure process peak RSS separately from
+map scratch and output size. These fixtures do not measure remote I/O or ANN
+throughput; ANN correctness tests cover encoded survivor bytes across all formats.
