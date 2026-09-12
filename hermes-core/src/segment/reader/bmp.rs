@@ -908,14 +908,6 @@ impl BmpIndex {
     #[cfg(any(feature = "native", feature = "wasm", test))]
     pub(crate) fn visit_real_slots_for_rewrite(
         &self,
-        visitor: impl FnMut(usize),
-    ) -> crate::Result<()> {
-        self.visit_real_slots_for_rewrite_cancellable(&|| Ok(()), visitor)
-    }
-
-    #[cfg(any(feature = "native", feature = "wasm", test))]
-    pub(crate) fn visit_real_slots_for_rewrite_cancellable(
-        &self,
         check_cancel: &(impl Fn() -> crate::Result<()> + Sync),
         mut visitor: impl FnMut(usize),
     ) -> crate::Result<()> {

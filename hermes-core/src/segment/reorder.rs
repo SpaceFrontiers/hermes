@@ -1639,10 +1639,7 @@ fn reorder_bmp_field_blockwise(
         use rayon::prelude::*;
         install_on_pool(rayon_pool.as_deref(), || {
             bmp_refs.par_iter().try_for_each(|bmp| {
-                bmp.visit_real_slots_for_rewrite_cancellable(
-                    &|| check_cancellation(cancellation),
-                    |_| {},
-                )
+                bmp.visit_real_slots_for_rewrite(&|| check_cancellation(cancellation), |_| {})
             })
         })?;
     }
@@ -2331,7 +2328,7 @@ pub(crate) fn rewrite_bmp_field(
                     // Identity reblocking never consumes the inverse map.
                     // Preserve source virtual order, including interior padding.
                     let mut real = Vec::with_capacity(bmp.num_real_docs() as usize);
-                    bmp.visit_real_slots_for_rewrite_cancellable(
+                    bmp.visit_real_slots_for_rewrite(
                         &|| check_cancellation(cancellation.as_deref()),
                         |vid| real.push(vid as u32),
                     )?;

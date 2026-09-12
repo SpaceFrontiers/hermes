@@ -538,7 +538,7 @@ pub(crate) fn build_vid_maps(
     let mut virtual_to_real = vec![u32::MAX; num_virtual];
     let mut real_to_virtual = Vec::with_capacity(expected_real);
     debug_assert_eq!(ids.len(), virtual_to_real.len() * 4);
-    bmp.visit_real_slots_for_rewrite_cancellable(check_cancel, |vid| {
+    bmp.visit_real_slots_for_rewrite(check_cancel, |vid| {
         virtual_to_real[vid] = real_to_virtual.len() as u32;
         real_to_virtual.push(vid as u32);
     })?;
