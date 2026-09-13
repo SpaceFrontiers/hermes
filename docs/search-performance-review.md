@@ -2786,3 +2786,143 @@ Harness evidence is in `.context/search-harness/20260911T180857.540199Z-check/`.
   may need bounded read-ahead/coalescing; remote latency, cold mmap residency,
   ANN throughput, and x86 were not measured here. The local fixture results must
   not be generalized to those workloads or used to change defaults.
+
+## Content-hash upserts (2026-09-13)
+
+The schema's `content_hash` marker enables exact comparison against a committed
+live row. The primary-key fast dictionary and column supply a compact inverse
+row map; hashes remain stored-only. Equal hashes queue no indexing work and
+stage no tombstones. Pending insertions still require commit; pending deletions
+still require their replacement. The tests compare every persisted byte for
+no-ops and cover abort, failed/cancelled reads, failed commit/retry, old readers,
+reopen, merged dictionaries, compaction, JSON conversion and RPC accounting.
+
+The initial measurement exposed a pre-existing bounded-decoder allocation bug:
+a 16 KiB result retained 268,435,456 bytes of capacity. This exceeded store-cache
+admission and caused repeated decompression. The shared limited Zstd decoder now
+uses the frame's decoded-size hint (bounded by the caller's limit), with a 512 KiB
+initial capacity and bounded streaming fallback for unknown sizes. Small blocks
+retain their actual size and enter the existing byte-bounded cache. Tests verify
+both dictionary modes, unknown-size frames and oversized-output rejection.
+This also restores ordinary document-store cache admission under its existing
+budgets; no compression bytes or cache-budget defaults changed.
+
+### Fixture and measurements
+
+Same executable/compiler/flags/host, schema marker off versus on: Rust 1.98.1,
+release profile, Apple M4, macOS 15.6.1, RAM directory, one indexing worker,
+NoMergePolicy, 2,000 distinct keys with 3,840-byte stored/indexed text bodies,
+and three complete unchanged-upsert passes. Each phase includes commit; document
+cloning is timed equally. Three alternating runs per mode use separate processes.
+Timing begins after fixture document generation and writer initialization.
+Correctness/lookup-memory checks are outside timing; process peak RSS includes
+setup, validation and runtime overhead.
+
+Medians (minimum–maximum) across three runs:
+
+| Measurement                           |             Marker off |           Marker on |
+| ------------------------------------- | ---------------------: | ------------------: |
+| Initial insert + commit, ms           |    42.81 (41.25–58.46) | 41.76 (41.48–41.82) |
+| 6,000 unchanged upserts + commits, ms | 125.38 (124.09–131.22) |    3.63 (3.56–3.63) |
+| Process peak RSS, MiB                 | 108.55 (107.23–108.92) | 74.23 (67.33–77.33) |
+| Physical / live rows afterward        |          8,000 / 2,000 |       2,000 / 2,000 |
+| Inverse-map allocation, bytes         |                      0 |               8,000 |
+
+Unchanged-upsert time improved about 34.5× on this fixture. Initial insertion
+showed no apparent slowdown within the observed variation. Measurements waited
+for concurrent builds to finish; this is a desktop RAM microbenchmark, not a
+production latency or cross-architecture result. The earlier allocation-bug runs
+had background macOS activity and are diagnostic only.
+
+Reproduce the fixture (each mode in a separate process for RSS measurement):
+
+```sh
+HERMES_CONTENT_HASH_BENCH_ENABLED=false cargo test -p hermes-core --release content_hash_performance_fixture --lib -- --ignored --nocapture
+HERMES_CONTENT_HASH_BENCH_ENABLED=true cargo test -p hermes-core --release content_hash_performance_fixture --lib -- --ignored --nocapture
+```
+
+### Validation and remaining costs
+
+`CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0
+RUST_TEST_THREADS=1 python3 scripts/check_search.py full` passed: 1,621 principal
+suite tests, four real-server broker tests, strict Clippy, both compile boundaries
+and API docs. The WASM build and all 21 JS tests passed. Portable transaction tests
+also passed independently. Documentation links passed. Earlier builds exhausted
+disk space; deleting this workspace's disposable debug artifacts and disabling
+debug information/incremental compilation resolved that environmental failure.
+
+- Native Rust upsert is now async to perform stored-field I/O safely. RPC/client
+  wire formats are unchanged. Metadata format 8 protects the schema setting;
+  versions 6 and 7 migrate without segment payload rewrites.
+- The inverse map uses four bytes per key, capped at 64 MiB per segment.
+  Larger dictionaries warn and use a constant-scratch column scan per matching
+  key. This fallback preserves semantics but is not constant-time row resolution.
+  A persisted evictable inverse column would need a separate format design and
+  large-corpus measurement; it is not introduced here.
+- Native hash readers share a 32 MiB decoded-store cache. Portable readers retain
+  no decoded blocks. Large uncached documents still require whole-block
+  decompression to read one stored hash. Store directories and overlapping old/
+  new inverse maps add residency during refresh; no corpus hash cache is retained.
+- Changed-hash upserts pay the fingerprint read followed by normal replacement.
+  The mixed workload below measures this cost for a small RAM corpus. Neither
+  fixture establishes cold-storage latency, ANN ingestion throughput,
+  tail latency, huge-segment fallback cost, or x86 behavior. No architecture-
+  sensitive, merge, indexing, or search defaults were changed.
+
+Raw runs, executable/source hashes and machine metadata are in
+`.context/content-hash-performance/`; the initial allocation-bug measurements are
+preserved in its `pre-allocation-fix/` subdirectory. Full harness evidence is in
+`.context/search-harness/20260913T051535.864903Z-full/`.
+
+### One percent unchanged rows
+
+The parameterized fixture also measures 1% unchanged and 99% changed upserts.
+All primary keys already exist: this measures the hash-read cost before normal
+replacement, not a workload dominated by unseen keys. Every hundredth row keeps
+its initial hash and body; the other 1,980 rows update both on each of three
+passes. Bodies remain 3,840 bytes. Thus 6,000 upserts include exactly 60 no-ops
+when enabled. Document generation is outside timing; cloning, ingestion, and
+each commit are timed. Process peak RSS includes fixture generation and
+post-timing validation.
+
+Same Apple M4, macOS 15.6.1, Rust 1.98.1, release profile, RAM directory, one
+indexing worker, and NoMergePolicy as above. Both modes use the same executable.
+Seven runs per mode alternate OFF/ON and ON/OFF pair order, each in a separate
+process. Measurements ran after compiler and test activity finished; ordinary
+desktop activity remained. Medians (minimum–maximum):
+
+| Measurement                       |             Marker off |              Marker on |
+| --------------------------------- | ---------------------: | ---------------------: |
+| Initial insert + commit, ms       |    43.27 (42.48–55.47) |    43.37 (42.14–45.48) |
+| 6,000 mixed upserts + commits, ms | 129.57 (127.12–139.77) | 130.79 (127.30–132.66) |
+| Process peak RSS, MiB             | 115.28 (110.94–119.12) | 138.44 (135.19–147.34) |
+| Physical / live rows afterward    |          8,000 / 2,000 |          7,940 / 2,000 |
+| Inverse-map allocation, bytes     |                      0 |                 31,760 |
+
+The enabled median was 0.94% slower, within the overlapping timing variation;
+this does not establish a statistically significant throughput difference.
+Exactly 60 replacements were avoided in every enabled run, with the same live
+row count. Median process peak RSS increased by 23.16 MiB. The inverse map is
+only 31,760 bytes here; stored-block caching and allocator/runtime retention
+also contribute to process memory. RSS alone does not attribute that increase
+to individual components. No cache or indexing defaults changed.
+
+Reproduce (run separately per mode to measure RSS):
+
+```sh
+HERMES_CONTENT_HASH_BENCH_DUPLICATE_PERCENT=1 HERMES_CONTENT_HASH_BENCH_ENABLED=false cargo test -p hermes-core --release content_hash_performance_fixture --lib -- --ignored --nocapture
+HERMES_CONTENT_HASH_BENCH_DUPLICATE_PERCENT=1 HERMES_CONTENT_HASH_BENCH_ENABLED=true cargo test -p hermes-core --release content_hash_performance_fixture --lib -- --ignored --nocapture
+```
+
+Omitting the percentage retains the all-unchanged workload. The new fixture
+generates documents for each pass outside timing, so its RSS is not directly
+comparable with the earlier all-unchanged fixture's RSS. This remains a small
+RAM measurement without merges, cold I/O, ANN, or tail-latency coverage.
+
+Raw runs, summaries, executable/source hashes, host configuration, process
+snapshots, and runner scripts are in `.context/content-hash-performance-1pct/`.
+`CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0
+RUST_TEST_THREADS=1 python3 scripts/check_search.py check` passed after the
+fixture change; evidence is in
+`.context/search-harness/20260913T053616.945219Z-check/`. This follow-up changes
+only the ignored benchmark and documentation; it does not change runtime code.
