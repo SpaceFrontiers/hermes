@@ -102,89 +102,120 @@ fn bench_row_compaction(c: &mut Criterion) {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let mut group = c.benchmark_group("row_compaction");
     group.sample_size(20);
-    for count in [4_096u32, 65_536] {
-        let dir = RamDirectory::new();
-        let mut sb = SchemaBuilder::default();
-        let id = sb.add_text_field("id", false, false);
-        sb.set_primary_key(id);
-        let mut columns = Vec::new();
-        for n in 0..8 {
-            let field = sb.add_u64_field(&format!("value{n}"), false, false);
-            sb.set_fast(field, true);
-            sb.set_multi(field, n == 7);
-            columns.push(field);
-        }
-        let schema = sb.build();
-        let (index, mut writer) = runtime.block_on(async {
-            let index = Index::create(
-                dir.clone(),
-                schema,
-                IndexConfig {
-                    merge_policy: Box::new(NoMergePolicy),
-                    ..Default::default()
-                },
-            )
-            .await
-            .unwrap();
-            let mut writer = index.writer();
-            writer.init_primary_key_dedup().await.unwrap();
-            for i in 0..count {
-                let mut doc = Document::new();
-                doc.add_text(id, format!("key{i:08}"));
-                for (n, &field) in columns.iter().enumerate() {
-                    if !(i + n as u32).is_multiple_of(7) {
-                        doc.add_u64(field, u64::from(i) * 17 + n as u64);
-                        if n == 7 {
-                            doc.add_u64(field, u64::from(i) * 31);
+    for pattern in [
+        "mixed_fast_columns",
+        "clustered_mixed_fields",
+        "scattered_mixed_fields",
+    ] {
+        for count in [4_096u32, 65_536] {
+            let dir = RamDirectory::new();
+            let mut sb = SchemaBuilder::default();
+            let id = sb.add_text_field("id", false, false);
+            sb.set_primary_key(id);
+            let mut columns = Vec::new();
+            for n in 0..8 {
+                let field = sb.add_u64_field(&format!("value{n}"), false, false);
+                sb.set_fast(field, true);
+                sb.set_multi(field, n == 7);
+                columns.push(field);
+            }
+            let body =
+                (pattern != "mixed_fast_columns").then(|| sb.add_text_field("body", true, true));
+            let schema = sb.build();
+            let (index, mut writer) = runtime.block_on(async {
+                let index = Index::create(
+                    dir.clone(),
+                    schema,
+                    IndexConfig {
+                        merge_policy: Box::new(NoMergePolicy),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .unwrap();
+                let mut writer = index.writer();
+                writer.init_primary_key_dedup().await.unwrap();
+                for i in 0..count {
+                    let mut doc = Document::new();
+                    doc.add_text(id, format!("key{i:08}"));
+                    if let Some(body) = body {
+                        doc.add_text(
+                            body,
+                            format!("common common common group{} retained text", i % 17),
+                        );
+                    }
+                    for (n, &field) in columns.iter().enumerate() {
+                        if !(i + n as u32).is_multiple_of(7) {
+                            doc.add_u64(field, u64::from(i) * 17 + n as u64);
+                            if n == 7 {
+                                doc.add_u64(field, u64::from(i) * 31);
+                            }
                         }
                     }
-                }
-                loop {
-                    match writer.add_document(doc.clone()) {
-                        Ok(()) => break,
-                        Err(hermes_core::Error::QueueFull) => {
-                            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                    loop {
+                        match writer.add_document(doc.clone()) {
+                            Ok(()) => break,
+                            Err(hermes_core::Error::QueueFull) => {
+                                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                            }
+                            Err(error) => panic!("fixture admission failed: {error}"),
                         }
-                        Err(error) => panic!("fixture admission failed: {error}"),
+                    }
+                    if body.is_some() && (i + 1).is_multiple_of(1024) {
+                        writer.commit().await.unwrap();
                     }
                 }
-            }
-            writer.commit().await.unwrap();
-            for i in (0..count).step_by(2) {
-                writer.delete_primary_key(&format!("key{i:08}")).unwrap();
-            }
-            writer.commit().await.unwrap();
-            (index, writer)
-        });
-        let searcher =
-            runtime.block_on(async { index.reader().await.unwrap().searcher().await.unwrap() });
-        assert_eq!(searcher.segment_readers().len(), 1);
-        let source = &searcher.segment_readers()[0];
-        let merger = SegmentMerger::new(index.schema().clone());
-        let output = SegmentId::new();
-        let budget = 32 * 1024 * 1024;
-        let (meta, _) = runtime
-            .block_on(merger.compact(&dir, source, output, budget))
-            .unwrap();
-        assert_eq!(meta.num_docs, count / 2);
-        if let Ok(prefix) = std::env::var("HERMES_COMPACTION_BYTES") {
-            use hermes_core::Directory;
-            let path = hermes_core::segment::SegmentFiles::new(output.0).fast;
-            let bytes = runtime.block_on(async {
-                dir.open_read(&path)
-                    .await
-                    .unwrap()
-                    .read_bytes()
-                    .await
-                    .unwrap()
+                writer.commit().await.unwrap();
+                if body.is_some() {
+                    writer.force_merge().await.unwrap();
+                }
+                for i in 0..count {
+                    let deleted = match pattern {
+                        "mixed_fast_columns" => i.is_multiple_of(2),
+                        "clustered_mixed_fields" => i >= count / 4 && i < count / 2,
+                        _ => i.is_multiple_of(4),
+                    };
+                    if deleted {
+                        writer.delete_primary_key(&format!("key{i:08}")).unwrap();
+                    }
+                }
+                writer.commit().await.unwrap();
+                (index, writer)
             });
-            std::fs::write(format!("{prefix}-{count}.fast"), bytes.as_slice()).unwrap();
-        }
-        group.throughput(Throughput::Elements(u64::from(count)));
-        group.bench_with_input(
-            BenchmarkId::new("mixed_fast_columns", count),
-            &count,
-            |b, _| {
+            let searcher =
+                runtime.block_on(async { index.reader().await.unwrap().searcher().await.unwrap() });
+            assert_eq!(searcher.segment_readers().len(), 1);
+            let source = &searcher.segment_readers()[0];
+            let merger = SegmentMerger::new(index.schema().clone());
+            let output = SegmentId::new();
+            let budget = 32 * 1024 * 1024;
+            let (meta, _) = runtime
+                .block_on(merger.compact(&dir, source, output, budget))
+                .unwrap();
+            assert_eq!(
+                meta.num_docs,
+                if body.is_some() {
+                    count * 3 / 4
+                } else {
+                    count / 2
+                }
+            );
+            if let Ok(prefix) = std::env::var("HERMES_COMPACTION_BYTES") {
+                use hermes_core::Directory;
+                let path = hermes_core::segment::SegmentFiles::new(output.0).fast;
+                let bytes = runtime.block_on(async {
+                    dir.open_read(&path)
+                        .await
+                        .unwrap()
+                        .read_bytes()
+                        .await
+                        .unwrap()
+                });
+                std::fs::write(format!("{prefix}-{pattern}-{count}.fast"), bytes.as_slice())
+                    .unwrap();
+            }
+            group.throughput(Throughput::Elements(u64::from(count)));
+            group.bench_with_input(BenchmarkId::new(pattern, count), &count, |b, _| {
                 b.iter(|| {
                     black_box(
                         runtime
@@ -192,9 +223,9 @@ fn bench_row_compaction(c: &mut Criterion) {
                             .unwrap(),
                     )
                 });
-            },
-        );
-        runtime.block_on(writer.shutdown()).unwrap();
+            });
+            runtime.block_on(writer.shutdown()).unwrap();
+        }
     }
     group.finish();
 }

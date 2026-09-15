@@ -2572,3 +2572,357 @@ The reproduction source and measurements are bundled as
 `.context/feature-scoring-implementation.tar.gz`; compiled binaries and index
 files are excluded. Recreating an index assigns new segment IDs, so regenerate
 its frozen pools with the before binary before running the after comparison.
+
+## Compaction copy-path audit — 2026-09-11
+
+This is a code audit, not a new benchmark or implementation change. The reviewed
+compaction, row-map, store, ANN and fast-column files match fetched `origin/main`.
+Ordinary merge and explicit compaction have different costs: the latter does not
+yet consistently bypass decoding/rebuilding of unaffected blocks.
+
+Current behavior:
+
+- `segment/merger/compact.rs::compact_columns` rebuilds every surviving fast
+  column and row-statistic column into 4,096-row output chunks. It resolves text
+  ordinals back to strings and uses scalar value access. There is no clean source
+  block copy path. Its bounded encoded-prefix cache avoids a second encoding for
+  cached chunks; overflow chunks are encoded twice.
+- `compact_postings` reads each external term's complete postings and position
+  streams, collects surviving entries/positions, then constructs and serializes
+  a new posting list. It does not copy unaffected posting blocks. Scratch is
+  admitted but still scales with the largest processed term, and large terms
+  can exceed the budget. Text chunk maps and norms also retain arrays.
+- `segment/store.rs::append_compacted` skips fully dead store blocks and copies
+  intact dictionary-free compressed blocks with remapped block metadata. Mixed
+  blocks and all retained dictionary-dependent blocks are decompressed and
+  recompressed. Even the classification step currently scans row membership.
+- Flat-vector compaction preserves encoded values but, for a field with any
+  survivors, reads every payload batch and writes each surviving vector
+  separately. It does not coalesce surviving intervals or skip all-dead batches.
+  ANN compaction scans run labels repeatedly, copies byte-aligned codes per
+  survivor, and repacks TQ/ScaNN packed lanes; it does not bypass repacking for
+  clean runs. No ANN retraining occurs.
+- BMP compaction skips graph construction but still builds record maps and an
+  identity permutation, then reblocks surviving records and rebuilds pruning
+  metadata. Forward payload bytes are copied per surviving record. MaxScore
+  sparse compaction decodes/remaps address columns for every block while
+  retaining weight codes and quantizer parameters.
+- The physical `RowMap` retains two u32 arrays costing `4 * (physical + live)`
+  bytes, before chunk maps and encoder scratch. For 100 million physical rows
+  with 10% deleted, this alone is 760 MB (about 725 MiB). The default admission
+  policy rejects such a map; it is not an allocation the 256 MiB cap permits.
+- Force merge with compaction performs the ordinary merge hierarchy first, then
+  compacts final outputs. It therefore writes merged payloads before rewriting
+  their surviving data. Direct segment compaction avoids that initial merge.
+
+Proposed improvements, not implemented or measured by this audit:
+
+1. Replace dense physical row maps with the existing immutable visibility bitmap,
+   a compact prefix-popcount index, and survivor iteration. Preserve efficient
+   reverse lookup where needed or pass old/new IDs together through bounded
+   encoder batches; repeated expensive select operations could undo CPU savings.
+   Apply corresponding bounded mapping to chunk and BMP address spaces.
+2. Classify source blocks/ranges as dead, intact or mixed. Drop dead payloads
+   before I/O, copy intact compatible payloads, and decode/rebuild mixed blocks
+   through the existing encoders. Fast columns already support variable-sized
+   blocks with local dictionaries in the ordinary merger, so retaining clean
+   source boundaries is format-compatible. Batch-decode dirty blocks instead
+   of repeating scalar codec/header work.
+3. Stream posting reconstruction and positions in bounded blocks, preserving
+   compatible encoded streams where possible. A surviving posting block is not
+   automatically copyable: deleting a nonmatching document between two postings
+   changes their ID gap. For a live row, `new_id = old_id - deleted_before(old_id)`;
+   constant shift over an encoded ID range can permit payload copying with base
+   metadata adjustment, while changing shifts require address reconstruction.
+   Position cursors, chunk IDs and pruning metadata have their own constraints.
+4. Coalesce adjacent encoded vector/forward payloads into bounded range copies,
+   retain clean ANN runs or suitably aligned packed blocks, and repack only
+   affected groups. Removing packed lanes can change destination alignment, so
+   clean source bytes alone do not prove a packed block can be copied.
+5. Consider a later fused final merge/compaction pass while retaining ordinary
+   merge's default behavior and the existing publication/ownership protocol.
+
+Clean-block copying is distribution-dependent. At the default 30% deleted-row
+threshold, independent random deletions touch essentially every moderately sized
+block; clustered deletions can leave long copyable intervals. Large source fast
+blocks make this distinction especially important. Benchmark both distributions,
+multiple deletion ratios, dictionary/non-dictionary stores, frequent positioned
+terms and vector formats before claiming an overall speedup. Include bytes read,
+copied and rebuilt, peak scratch and process RSS, output size, and query/encoded
+payload equivalence. Smaller maps and streaming term construction address memory
+growth even when no whole block is copyable.
+
+The earlier 42–47% mixed-column compaction improvement measured an encoded cache
+and related changes; process RSS increased in that comparison. It is not evidence
+that the proposed block/range paths exist or that lower memory has been measured.
+
+## Compaction copy and streaming implementation — 2026-09-11
+
+The preceding copy-path audit describes the baseline before this implementation.
+The new paths preserve format 7 and survivor ordering. Ordinary merges, optimizer
+thresholds/capacity and immutable publication remain unchanged.
+
+Implemented in the owning components:
+
+- Physical row maps share the visibility bitmap and retain a u32 rank prefix per
+  64 rows. Chunk maps own bitmap/rank state instead of two document arrays.
+  Norm and chunk-output allocations reserve their admitted sizes explicitly.
+- Fast fields skip dead blocks, copy intact encoded blocks and local dictionaries,
+  and batch-decode mixed ranges of at most 4096 source rows. Mixed text does not
+  materialize a merged global dictionary.
+- Postings retain bounded encoded directories, skip dead payload blocks, and
+  rebase intact block headers while preserving encoded gaps/TFs. Mixed survivors
+  share a 128-entry output buffer across source blocks; it flushes before a copied
+  block. Current positions copy intact encoded ranges and decode one partial
+  block at a time. The codec/footer helpers remain in the existing posting owner.
+- Flat vectors skip all-dead batches before I/O and copy survivor intervals in
+  bounded batches. ANN ordinals/binary codes and BMP forward payloads also copy
+  intervals. Clean ANN runs and aligned TQ/ScaNN groups copy their encoded bytes;
+  other groups use the owning repackers. ScaNN copy widths use the format's
+  padding-aware helper, including odd sub-block counts.
+- Zero-budget BMP reblocking no longer constructs the unused inverse map.
+
+### Matched measurements
+
+Apple M4 (Mac16,13), 32 GiB, aarch64 macOS, rustc 1.98.1 / LLVM 22.1.8,
+Cargo's normal optimized bench profile, no RUSTFLAGS override. Both saved
+executables use the same expanded `segment_merge` fixture; the baseline is
+`6c4e1ded` with only the benchmark-fixture changes. Compaction uses a 32 MiB
+scratch budget and a RAM directory. Setup/deletion/validation are outside timing.
+Three runs per executable alternate before/after order (B/A, A/B, B/A), with
+20 samples, 1 s warmup and 2 s measurement. No task-owned builds or tests overlap
+measurement. Numbers below are medians of the three Criterion point estimates.
+
+| Fixture                      | Physical rows |    Before |     After | Time reduction |
+| ---------------------------- | ------------: | --------: | --------: | -------------: |
+| Alternating, numeric columns |         4,096 |  1.935 ms |  1.492 ms |          22.9% |
+| Alternating, numeric columns |        65,536 | 61.559 ms | 27.058 ms |          56.0% |
+| Clustered, mixed fields      |         4,096 |  2.850 ms |  0.928 ms |          67.4% |
+| Clustered, mixed fields      |        65,536 | 45.393 ms | 14.605 ms |          67.8% |
+| Scattered, mixed fields      |         4,096 |  3.287 ms |  2.780 ms |          15.4% |
+| Scattered, mixed fields      |        65,536 | 52.352 ms | 41.025 ms |          21.6% |
+
+The alternating fixture deletes 50% of one segment's rows. Mixed fixtures first
+merge 1024-row sources and then delete 25%, contiguously or every fourth row.
+They include missing/multi-value numeric fields and indexed/stored text, but do
+not measure ANN throughput or position-heavy queries.
+
+Memory evidence distinguishes scratch from process residency. At 100 million
+physical rows and 90 million survivors, the old physical map required 760,000,000
+bytes; the new shared-bitmap rank table requires 6,250,004 bytes (about 122 times
+smaller). This is a layout calculation, not a process-RSS benchmark. The existing
+visibility bitmap is common input-reader state. Chunk bitmap/rank scratch is
+about 0.1875 bytes per physical chunk, plus the retained output labels/norms.
+A regression compacts an 8192-document, position-bearing term in 64 KiB of posting
+scratch where the previous decoded-entry admission alone required 512 KiB.
+
+`/usr/bin/time -l` records both RSS and macOS peak memory footprint. Equal-work
+runs use the same executables with `--test row_compaction` (one benchmark
+invocation plus validation per fixture), three times each in alternating order.
+These figures include fixture construction, source readers and RAM output; they
+are not isolated compactor heap measurements.
+
+| Measurement               | Before median (range), MiB | After median (range), MiB |
+| ------------------------- | -------------------------: | ------------------------: |
+| Equal-work peak RSS       |     135.47 (130.17–138.08) |    141.75 (136.53–142.02) |
+| Equal-work peak footprint |        54.94 (48.67–60.17) |       48.61 (45.00–51.53) |
+| Criterion peak RSS        |     190.45 (188.31–203.81) |    199.64 (199.58–201.33) |
+| Criterion peak footprint  |        50.98 (49.55–51.52) |       51.14 (50.52–51.86) |
+
+Whole-process RSS did not improve: the equal-work median is approximately 4.6%
+higher, while peak footprint is approximately 11.5% lower with overlapping run
+ranges. Criterion also performs different iteration counts as throughput changes.
+The evidence supports substantially smaller mapping/term scratch and lower CPU
+cost; it does not establish a general process-RSS reduction.
+
+Retaining source-local column boundaries has a small size cost in these fixtures.
+At 65,536 physical rows, captured `.fast` sizes are:
+
+| Fixture                      | Before bytes | After bytes | Change |
+| ---------------------------- | -----------: | ----------: | -----: |
+| Alternating, numeric columns |    2,477,059 |   2,477,374 | +0.01% |
+| Clustered, mixed fields      |    3,712,690 |   3,719,999 | +0.20% |
+| Scattered, mixed fields      |    3,717,152 |   3,835,464 | +3.18% |
+
+Complete files can differ because legal block boundaries differ. Regressions
+compare copied fast/posting/position payload bytes, all five complete ANN output
+formats, source-local text/missing/multi-value semantics, and query/position
+results. A heavy scattered-deletion test also verifies that 64 sparse posting
+blocks coalesce into one output block. Failure coverage includes malformed
+posting lengths/footer overflow, directory budgets, injected position-write
+failure, cancellation during copies, concurrent visibility changes and ownership
+drain. The review caught and fixed the odd-sub-block ScaNN padding copy error
+before release.
+
+Validation: `RUST_TEST_THREADS=1 python3 scripts/check_search.py check` passed
+(1588 tests, 26 existing ignores, strict Clippy, ownership checks, native build
+without sync). An earlier parallel broker run hit loopback port collisions
+(`Address already in use`); the serial rerun passed. Native async compaction tests
+passed (24, one existing ignored benchmark). `hermes-wasm/build.sh`, `npm ci`
+and `npm test -- --run` passed (20 tests). `full` was not run: this change does
+not alter lifecycle/RPC protocols. The existing lifecycle/concurrency regressions
+are included in the passing harness.
+
+Raw logs, captures and summary are in `.context/compaction-copy-measurements/`;
+compiler/executable/source hashes are in `.context/compaction-copy-build-metadata.json`.
+Harness evidence is in `.context/search-harness/20260911T180857.540199Z-check/`.
+
+### Remaining costs and review findings
+
+- Final merge plus compaction remains two passes. Fusing them is separate work.
+- Mixed fast chunks that overflow the bounded encoded cache are encoded twice
+  because their directory precedes payload. More source-local blocks can enlarge
+  files/directories; a future mixed-block packing policy needs size and query
+  measurements as well as compaction time.
+- Posting/position directories still scale with encoded block count and must fit
+  admission. Legacy positions retain an explicitly bounded whole-list fallback.
+  Current external postings remain external after shrinking; inline conversion
+  is not part of the streaming path.
+- BMP retains its forward record map and identity permutation and rebuilds block
+  membership/pruning metadata. MaxScore sparse still visits and remaps blocks
+  while preserving encoded weight bits. Row-statistic/norm output still scans
+  surviving rows. These paths are not blanket raw-copy operations.
+- The new posting payload reader issues block-sized lazy reads. Remote backends
+  may need bounded read-ahead/coalescing; remote latency, cold mmap residency,
+  ANN throughput, and x86 were not measured here. The local fixture results must
+  not be generalized to those workloads or used to change defaults.
+
+## Content-hash upserts (2026-09-13)
+
+The schema's `content_hash` marker enables exact comparison against a committed
+live row. The primary-key fast dictionary and column supply a compact inverse
+row map; hashes remain stored-only. Equal hashes queue no indexing work and
+stage no tombstones. Pending insertions still require commit; pending deletions
+still require their replacement. The tests compare every persisted byte for
+no-ops and cover abort, failed/cancelled reads, failed commit/retry, old readers,
+reopen, merged dictionaries, compaction, JSON conversion and RPC accounting.
+
+The initial measurement exposed a pre-existing bounded-decoder allocation bug:
+a 16 KiB result retained 268,435,456 bytes of capacity. This exceeded store-cache
+admission and caused repeated decompression. The shared limited Zstd decoder now
+uses the frame's decoded-size hint (bounded by the caller's limit), with a 512 KiB
+initial capacity and bounded streaming fallback for unknown sizes. Small blocks
+retain their actual size and enter the existing byte-bounded cache. Tests verify
+both dictionary modes, unknown-size frames and oversized-output rejection.
+This also restores ordinary document-store cache admission under its existing
+budgets; no compression bytes or cache-budget defaults changed.
+
+### Fixture and measurements
+
+Same executable/compiler/flags/host, schema marker off versus on: Rust 1.98.1,
+release profile, Apple M4, macOS 15.6.1, RAM directory, one indexing worker,
+NoMergePolicy, 2,000 distinct keys with 3,840-byte stored/indexed text bodies,
+and three complete unchanged-upsert passes. Each phase includes commit; document
+cloning is timed equally. Three alternating runs per mode use separate processes.
+Timing begins after fixture document generation and writer initialization.
+Correctness/lookup-memory checks are outside timing; process peak RSS includes
+setup, validation and runtime overhead.
+
+Medians (minimum–maximum) across three runs:
+
+| Measurement                           |             Marker off |           Marker on |
+| ------------------------------------- | ---------------------: | ------------------: |
+| Initial insert + commit, ms           |    42.81 (41.25–58.46) | 41.76 (41.48–41.82) |
+| 6,000 unchanged upserts + commits, ms | 125.38 (124.09–131.22) |    3.63 (3.56–3.63) |
+| Process peak RSS, MiB                 | 108.55 (107.23–108.92) | 74.23 (67.33–77.33) |
+| Physical / live rows afterward        |          8,000 / 2,000 |       2,000 / 2,000 |
+| Inverse-map allocation, bytes         |                      0 |               8,000 |
+
+Unchanged-upsert time improved about 34.5× on this fixture. Initial insertion
+showed no apparent slowdown within the observed variation. Measurements waited
+for concurrent builds to finish; this is a desktop RAM microbenchmark, not a
+production latency or cross-architecture result. The earlier allocation-bug runs
+had background macOS activity and are diagnostic only.
+
+Reproduce the fixture (each mode in a separate process for RSS measurement):
+
+```sh
+HERMES_CONTENT_HASH_BENCH_ENABLED=false cargo test -p hermes-core --release content_hash_performance_fixture --lib -- --ignored --nocapture
+HERMES_CONTENT_HASH_BENCH_ENABLED=true cargo test -p hermes-core --release content_hash_performance_fixture --lib -- --ignored --nocapture
+```
+
+### Validation and remaining costs
+
+`CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0
+RUST_TEST_THREADS=1 python3 scripts/check_search.py full` passed: 1,621 principal
+suite tests, four real-server broker tests, strict Clippy, both compile boundaries
+and API docs. The WASM build and all 21 JS tests passed. Portable transaction tests
+also passed independently. Documentation links passed. Earlier builds exhausted
+disk space; deleting this workspace's disposable debug artifacts and disabling
+debug information/incremental compilation resolved that environmental failure.
+
+- Native Rust upsert is now async to perform stored-field I/O safely. RPC/client
+  wire formats are unchanged. Metadata format 8 protects the schema setting;
+  versions 6 and 7 migrate without segment payload rewrites.
+- The inverse map uses four bytes per key, capped at 64 MiB per segment.
+  Larger dictionaries warn and use a constant-scratch column scan per matching
+  key. This fallback preserves semantics but is not constant-time row resolution.
+  A persisted evictable inverse column would need a separate format design and
+  large-corpus measurement; it is not introduced here.
+- Native hash readers share a 32 MiB decoded-store cache. Portable readers retain
+  no decoded blocks. Large uncached documents still require whole-block
+  decompression to read one stored hash. Store directories and overlapping old/
+  new inverse maps add residency during refresh; no corpus hash cache is retained.
+- Changed-hash upserts pay the fingerprint read followed by normal replacement.
+  The mixed workload below measures this cost for a small RAM corpus. Neither
+  fixture establishes cold-storage latency, ANN ingestion throughput,
+  tail latency, huge-segment fallback cost, or x86 behavior. No architecture-
+  sensitive, merge, indexing, or search defaults were changed.
+
+Raw runs, executable/source hashes and machine metadata are in
+`.context/content-hash-performance/`; the initial allocation-bug measurements are
+preserved in its `pre-allocation-fix/` subdirectory. Full harness evidence is in
+`.context/search-harness/20260913T051535.864903Z-full/`.
+
+### One percent unchanged rows
+
+The parameterized fixture also measures 1% unchanged and 99% changed upserts.
+All primary keys already exist: this measures the hash-read cost before normal
+replacement, not a workload dominated by unseen keys. Every hundredth row keeps
+its initial hash and body; the other 1,980 rows update both on each of three
+passes. Bodies remain 3,840 bytes. Thus 6,000 upserts include exactly 60 no-ops
+when enabled. Document generation is outside timing; cloning, ingestion, and
+each commit are timed. Process peak RSS includes fixture generation and
+post-timing validation.
+
+Same Apple M4, macOS 15.6.1, Rust 1.98.1, release profile, RAM directory, one
+indexing worker, and NoMergePolicy as above. Both modes use the same executable.
+Seven runs per mode alternate OFF/ON and ON/OFF pair order, each in a separate
+process. Measurements ran after compiler and test activity finished; ordinary
+desktop activity remained. Medians (minimum–maximum):
+
+| Measurement                       |             Marker off |              Marker on |
+| --------------------------------- | ---------------------: | ---------------------: |
+| Initial insert + commit, ms       |    43.27 (42.48–55.47) |    43.37 (42.14–45.48) |
+| 6,000 mixed upserts + commits, ms | 129.57 (127.12–139.77) | 130.79 (127.30–132.66) |
+| Process peak RSS, MiB             | 115.28 (110.94–119.12) | 138.44 (135.19–147.34) |
+| Physical / live rows afterward    |          8,000 / 2,000 |          7,940 / 2,000 |
+| Inverse-map allocation, bytes     |                      0 |                 31,760 |
+
+The enabled median was 0.94% slower, within the overlapping timing variation;
+this does not establish a statistically significant throughput difference.
+Exactly 60 replacements were avoided in every enabled run, with the same live
+row count. Median process peak RSS increased by 23.16 MiB. The inverse map is
+only 31,760 bytes here; stored-block caching and allocator/runtime retention
+also contribute to process memory. RSS alone does not attribute that increase
+to individual components. No cache or indexing defaults changed.
+
+Reproduce (run separately per mode to measure RSS):
+
+```sh
+HERMES_CONTENT_HASH_BENCH_DUPLICATE_PERCENT=1 HERMES_CONTENT_HASH_BENCH_ENABLED=false cargo test -p hermes-core --release content_hash_performance_fixture --lib -- --ignored --nocapture
+HERMES_CONTENT_HASH_BENCH_DUPLICATE_PERCENT=1 HERMES_CONTENT_HASH_BENCH_ENABLED=true cargo test -p hermes-core --release content_hash_performance_fixture --lib -- --ignored --nocapture
+```
+
+Omitting the percentage retains the all-unchanged workload. The new fixture
+generates documents for each pass outside timing, so its RSS is not directly
+comparable with the earlier all-unchanged fixture's RSS. This remains a small
+RAM measurement without merges, cold I/O, ANN, or tail-latency coverage.
+
+Raw runs, summaries, executable/source hashes, host configuration, process
+snapshots, and runner scripts are in `.context/content-hash-performance-1pct/`.
+`CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0
+RUST_TEST_THREADS=1 python3 scripts/check_search.py check` passed after the
+fixture change; evidence is in
+`.context/search-harness/20260913T053616.945219Z-check/`. This follow-up changes
+only the ignored benchmark and documentation; it does not change runtime code.

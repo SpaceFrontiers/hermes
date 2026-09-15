@@ -3595,7 +3595,7 @@ async fn bench_forward_index_build() {
     }
     for round in 0..3 {
         let t = std::time::Instant::now();
-        let fwd = build_forward_index_from_blocks(&[&bmp], budget);
+        let fwd = build_forward_index_from_blocks(&[&bmp], budget, &|| Ok(())).unwrap();
         println!(
             "block-level fwd build round {}: {:.1}ms ({} terms, {} postings)",
             round,
