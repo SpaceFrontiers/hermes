@@ -2926,3 +2926,30 @@ RUST_TEST_THREADS=1 python3 scripts/check_search.py check` passed after the
 fixture change; evidence is in
 `.context/search-harness/20260913T053616.945219Z-check/`. This follow-up changes
 only the ignored benchmark and documentation; it does not change runtime code.
+
+## Shared-resource logging — 2026-09-15
+
+The search CPU pool, store cache, and BMP I/O gate registries keep weak
+references. Once their last owner drops, reopening an index recreates these
+resources and previously repeated all three process-wide INFO announcements.
+Each resource kind now announces its first successful creation at INFO;
+subsequent creations, including different settings, are available at DEBUG
+(`RUST_LOG=info,hermes_core::index=debug`). Reusing a live resource stays silent.
+The logging state is one `OnceLock<()>` per resource kind, with no retained
+resource ownership or growing configuration history. No storage formats,
+execution policy, or resource lifetime changed.
+
+`hermes-core/tests/resource_logging.rs` exercises three open/drop cycles with
+two overlapping index handles per cycle. Before the fix, each resource emitted
+three INFO records; afterward it emits one INFO and two DEBUG records. The
+regression passes with default features and native without sync. This is log
+count evidence, not a latency or memory benchmark; no performance improvement
+is claimed. The change is native-only, so no WASM build or lifecycle/RPC `full`
+run is required.
+
+`CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0
+python3 scripts/check_search.py check` passed, including focused Clippy,
+core/server/broker/tool tests with metrics, and the native-without-sync compile
+boundary. Evidence: `.context/search-harness/20260915T104311.838948Z-check/`.
+`uv run scripts/check_docs.py` also passed; direct system Python lacked
+`markdown_it`, so the documented uv environment was used.
