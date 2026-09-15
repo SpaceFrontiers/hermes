@@ -2953,3 +2953,92 @@ core/server/broker/tool tests with metrics, and the native-without-sync compile
 boundary. Evidence: `.context/search-harness/20260915T104311.838948Z-check/`.
 `uv run scripts/check_docs.py` also passed; direct system Python lacked
 `markdown_it`, so the documented uv environment was used.
+
+## Latest staged primary-key mutations — 2026-09-15
+
+Upsert and delete now operate on the latest accepted version of an ID, including
+queued documents, active builders, and flushed-but-unpublished segments. An equal
+staged content hash is a no-op without stored-block I/O. Different IDs remain
+independent. Ordinary add retains duplicate rejection. Accepted mutations do not
+force a commit, and rejected queue/budget admission preserves the previous row.
+
+The PK owner holds one row handle and optional exact hash per latest staged key.
+A row handle serializes attachment to a builder row against cancellation. A
+cancelled queued row can skip indexing; an encoded row is recorded in the owning
+segment's cancellation list. The existing owned commit transaction materializes
+one visibility bitmap at a time and publishes these masks with committed-row
+deletions. No persisted or wire format changes. No replacement writer, hash
+index, or corpus payload reconstruction is introduced.
+
+Pending PK metadata is bounded at 64 MiB, with conservative accounting for hashes,
+keys, handles, retained hash-table capacity, projected table growth, and sixteen
+bytes per superseded row. This also bounds repeated replacements of one ID.
+Commit/abort clears the pending sequence; table capacity may remain cached and
+continues to count toward the budget. The budget excludes caller documents,
+bounded channel payloads, builder memory, and immutable segment metadata. Existing
+100,000-key / 8 MiB pending-deletion limits still apply. Exceeding a limit is an
+explicit error requiring commit, not an implicit publication or dropped row.
+Encoded superseded rows remain physical until compaction, and retain the existing
+one-bit-per-physical-row visibility residency after publication.
+
+### Diagnostic performance comparison
+
+Compared base `d6b4109d` with the staged-mutation implementation using the same
+fixture, Apple M4, macOS 15.6.1, Rust 1.98.1, and unoptimized test profile with
+`CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0`.
+The fixture uses RAM storage, one indexing worker, NoMergePolicy, 2,000 IDs,
+3,840-byte stored/indexed bodies, and three complete upsert/commit passes. The
+content-hash marker is enabled in both binaries. Document generation is outside
+timing; cloning and commit are included. Each run performs 2,000 initial inserts
+followed by exactly 6,000 upserts.
+
+Three runs per binary and workload alternated before/after pair order. No builds
+or other workspace benchmarks overlapped the retained paired runs; ordinary
+macOS applications, including a busy VPN process, remained active. Medians
+(minimum–maximum), with RSS measured in separate processes including setup and
+validation:
+
+| Workload / measurement                |                       Before |                        After |
+| ------------------------------------- | ---------------------------: | ---------------------------: |
+| 1% unchanged: insert + commit, ms     |       478.58 (478.56–494.95) |       484.54 (484.31–498.37) |
+| 1% unchanged: upserts + commits, ms   | 1,448.52 (1,427.15–1,468.17) | 1,452.12 (1,447.46–1,455.67) |
+| 1% unchanged: peak RSS, MiB           |       156.84 (154.44–157.69) |       157.97 (137.52–158.23) |
+| 100% unchanged: insert + commit, ms   |       481.67 (480.11–484.68) |       484.83 (483.77–486.26) |
+| 100% unchanged: upserts + commits, ms |          17.43 (17.28–17.76) |          17.26 (17.10–17.39) |
+| 100% unchanged: peak RSS, MiB         |        105.70 (94.78–117.34) |       114.97 (111.22–117.16) |
+
+The mixed-workload median differed by +0.25%, within the overlapping timing
+variation. Both binaries produced 7,940 physical / 2,000 live rows at 1% unchanged,
+and 2,000 physical / 2,000 live rows at 100% unchanged. RSS ranges overlap and do
+not isolate individual allocations. This diagnostic does not establish release
+throughput, cold-I/O behavior, x86 performance, or tail latency. It exercises the
+existing committed-upsert path's overhead; correctness tests separately exercise
+repeated staged mutations. Existing worker, merge, and search tuning defaults
+were not changed.
+
+Raw paired runs, process snapshots, executable hashes, environment, and scripts
+are in `.context/staged-mutations/`. Initial non-paired measurements overlapped
+other workspace benchmarks and are excluded from conclusions. Reproduce each
+workload with the ignored `content_hash_performance_fixture`, setting
+`HERMES_CONTENT_HASH_BENCH_ENABLED=true` and
+`HERMES_CONTENT_HASH_BENCH_DUPLICATE_PERCENT=1` or `100`, with the same profile on
+both revisions.
+
+### Validation
+
+The behavior regression first failed on the old pending-insertion rejection.
+Coverage now includes same-hash no-ops without stored reads, reverting to the old
+committed hash after a staged change, different IDs with equal hashes, queued and
+flushed rows, queue-full and budget rejection, indexed-only fields, chunk removal,
+abort, commit failure/retry, cancelled owned commits, portable cancellation after
+rename, old readers, reopen, merge/compaction, and RPC accepted counts.
+
+The final `python3 scripts/check_search.py full` passed with debug information and
+incremental compilation disabled and `RUST_TEST_THREADS=1`: strict Clippy, native
+and portable compile boundaries, core/server/broker/tool tests, API docs, and all
+four real-server broker tests. Evidence is in
+`.context/search-harness/20260915T175450.058137Z-full/`. The WASM release build and
+all 22 JavaScript tests passed; four portable fault-injection tests also passed.
+Initial WASM and real-server failures were stale assertions requiring staged
+mutation rejection; they were updated to verify acceptance and final visibility.
+Documentation links and formatting passed.
