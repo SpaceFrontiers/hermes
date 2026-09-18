@@ -121,6 +121,8 @@ def commands(args):
             "--all-targets",
         ],
     ]
+    # Check the broker alone: workspace feature unification enables core writers.
+    steps.append(["cargo", "check", "--locked", "-p", "hermes-broker", "--all-targets"])
     if args.mode == "full":
         steps += [
             [
@@ -287,6 +289,8 @@ def main():
                 "CRITERION_HOME", str(ROOT / ".context/search-harness/criterion")
             )
             report["criterion_directory"] = env["CRITERION_HOME"]
+        if args.mode != "bench":
+            env["RUSTFLAGS"] = f"{env.get('RUSTFLAGS', '')} -Dwarnings".strip()
         env["RUSTDOCFLAGS"] = f"{env.get('RUSTDOCFLAGS', '')} -D warnings".strip()
         for index, command in enumerate(steps, 1):
             print(f"[{index}/{len(steps)}] {shlex.join(command)}", flush=True)

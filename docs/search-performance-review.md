@@ -10272,3 +10272,15 @@ local contention limitation is retained in the evidence rather than hidden by a
 timeout increase. Final local evidence is under
 `.context/search-harness/20260918T200126.221893Z-full/` and
 `.context/release-review/`. No new throughput claim is made for the module cleanup.
+
+Linux CI exposed a missing feature boundary: the standalone broker disables core
+writers, but Seismic encoding helpers were still compiled and failed the strict
+unused-code check. Writer-only modules, imports, and functions now use the same
+native/WASM/test gates as their callers. No writer bytes or reader behavior
+change. The local harness now checks the broker independently and treats compiler
+warnings as errors, matching CI rather than relying on workspace feature unification.
+
+Remaining repository dependency alerts are recorded in PR #191. Existing `lru`
+and frontend/test/build-tooling advisories are outside this search-feature review;
+the critical GitPython alert references a removed training lockfile. A passing
+Cargo Audit job is not a claim that all repository dependency alerts are resolved.
