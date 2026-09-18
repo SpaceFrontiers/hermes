@@ -1,0 +1,17 @@
+{
+  "archive": "reports.zip",
+  "bytes": 787087,
+  "sha256": "18480bb9c44287747f7d1f88bbcdca83eca1a8f2178e3d13620d7c70859c7492",
+  "full_cpu_sample_archive": {
+    "path": ".context/systemic-profile-v2-evidence.tar.gz",
+    "bytes": 74496359,
+    "sha256": "b61191a6f1b2abdfa7d560ab6d3df8800a71f2c08575127982853682bb80b92f"
+  },
+  "notes": [
+    "Full sample archive verified against all 83 manifest entries locally.",
+    "Reports omit binaries and perf data; source overlay, locks, build metadata, query lists, index manifests and run script are included.",
+    "Software CPU-clock sampling; this VM does not expose hardware performance counters.",
+    "Inclusive stacks have incomplete unwinding; use self costs for attribution.",
+    "Instrumented task-clock/query includes harness overhead and is not a latency benchmark."
+  ]
+}

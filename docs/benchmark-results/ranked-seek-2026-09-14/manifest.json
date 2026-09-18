@@ -1,0 +1,28 @@
+{
+  "archive": "results.zip",
+  "bytes": 6517736,
+  "sha256": "a0ce7adc18a65d31cc204a28aff034ee5d7e0569d4b09a1842fdc09cca0c5ee3",
+  "files": 375,
+  "full_archives": [
+    {
+      "path": ".context/ranked-seek-cloud-evidence.tar.gz",
+      "bytes": 153910595,
+      "sha256": "c73be65a09e397a01ed65491c54197d43b2349ee9142267f271cbeff988025a6",
+      "verified_files": 251
+    }
+  ],
+  "notes": [
+    "Ranked cursors probe the next decoded document before standard-library suffix lower-bound search; new blocks also use lower-bound search. The ordinary posting iterator already uses this policy. No unsafe primitive, scoring formula, representation or public setting changes.",
+    "The same seek prepare/finish owner serves sync and async text/sparse cursors. Behavioral tests interleave seeks, advances, score reads, lazy block boundaries and terminal calls on all codecs and high document IDs against materialized posting oracles.",
+    "Controls retain the original group-capable executor and the immediate frozen phrase-frequency candidate, on identical immutable rounded and group-impact indexes. Improvements must be evaluated against both, not only an intermediate prototype.",
+    "Every full cloud archive was downloaded and verified against its external SHA256 and every manifest entry before packaging. This ZIP is also verified entry by entry.",
+    "Binaries and raw perf data are omitted from the compact ZIP; full archive hashes, frozen source, locks, adapters, gates, raw latency samples, profiles and memory evidence are retained.",
+    "Official timings cover all 962 queries on all 5,032,104 documents. The separate 714-term workload is derived from those queries; it does not change the official query mix.",
+    "Every gate compares exact COUNT with Tantivy and pruned Hermes top-10/100/1000 ordered IDs and score bits with Hermes exhaustive collection. Cross-engine score or ranking identity is not claimed.",
+    "Cloud timings use the same Cascade Lake VM, Rust 1.98.1, native CPU optimization, LTO and one query CPU, seven samples after ten-second warmup. ARM timings use the first 100,000 documents, two fixtures, eleven rotated samples and fifteen-second warmup.",
+    "Published latency aggregates are geometric means of per-query median microseconds, not pooled-request percentiles.",
+    "CPU software sampling, query diagnostics, builds, index audits, hashing and artifact transfers are separate from latency measurements. These results do not establish cold-cache or concurrent-ingest performance.",
+    "Document-order binary arrays remain on the VM; archives retain their hashes, lengths and regeneration code. Index files are represented by per-file manifests.",
+    "Indexing memory budget is a writer buffer budget, not a limit on process RSS. Heap, mapped file pages and process peak RSS are distinct measurements."
+  ]
+}

@@ -248,3 +248,13 @@ automatic compaction may run globally, followed by a separate completion cooldow
 It does not reset exhausted BP attempt counts or consume a BP attempt. Filtering a
 previously reordered BMP layout invalidates convergence while retaining its order,
 so any allowed follow-up BP uses the existing bounded deepening policy.
+
+## Seismic follow-up accounting
+
+The optimizer shares cooldown and capacity gates with Seismic maintenance, but
+its stopping criterion differs from BP's bounded deepening attempts. Seismic
+uses persisted `seismic_no_progress_passes`: productive published replacements
+reset it and remain eligible, while consecutive unchanged-debt replacements stop
+at `--optimizer-max-unconverged-passes`. Zero still disables automatic follow-ups.
+Failed/cancelled publication changes no persisted progress state; existing failure
+backoff remains separate. BMP's total partial-pass bound is unchanged.

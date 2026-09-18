@@ -1,0 +1,54 @@
+{
+  "dictionary-arm-fixture-4096.json": {
+    "bytes": 3256,
+    "sha256": "06a0f2308681a6a56ea545b7b43662ee18c9fbae2f72e4387ef62f7d6cee5cd4"
+  },
+  "fixture-after.json": {
+    "bytes": 1514,
+    "sha256": "13d6ec016e32552cf0e1d006864b45c3854b1c1c3522f835392ca55f24229050"
+  },
+  "impact-layout-kernel-arm.json": {
+    "bytes": 2045,
+    "sha256": "96cc3bdd2bd79dd0553048ea850025ecdca610e9560bf1a99ea99700d88170e2"
+  },
+  "impact-layout-kernel-arm.time": {
+    "bytes": 2026,
+    "sha256": "1f2af899eb2c94d6ae841492a47364885c46f5a153ec58441b258acaf2f882e4"
+  },
+  "impact-layout-kernel-arm64.sha256": {
+    "bytes": 65,
+    "sha256": "c5324445907f0edec844ad0c05440cff1e4dfe3cfe0ee3b9818c024190cbc91e"
+  },
+  "impact-layout-kernel-build.log": {
+    "bytes": 159,
+    "sha256": "3b1f3bfec0b6be090f180173c974f6313cfdaa8ee471379f8a514c04be452b40"
+  },
+  "impact-layout-kernel-build.py": {
+    "bytes": 904,
+    "sha256": "84fa7a5fc0e1e8e8cf21993decd9b5c53bd60e5f74edb34c575c4132e2be56ed"
+  },
+  "impact-layout-kernel-generate.py": {
+    "bytes": 5114,
+    "sha256": "8eb0bcef1e551bf8ab4a25fff31bc88ede00b5f60ec5deb36dc9d0e7ba7e5332"
+  },
+  "impact-layout-kernel.rs": {
+    "bytes": 9786,
+    "sha256": "220bcd5ccc79a55d64db80690bde4d0d722b02ac16ee940b047b67f57a701fe4"
+  },
+  "impact-vocabulary-arm-v2-build.py": {
+    "bytes": 914,
+    "sha256": "4113d1fbf4c5f1e587db6264ca243dc560584e314ccb63670432f47c264d9d7d"
+  },
+  "impact-vocabulary-probe-v2.rs": {
+    "bytes": 5555,
+    "sha256": "ff82e4c9ec381829790b5d5c69cb4ec4585aab81966433151cc3570119c5c5b5"
+  },
+  "machine.txt": {
+    "bytes": 377,
+    "sha256": "f6455856ffded780e22090b3a2cfbd73172a6590547d97e33a4f98ca5f25938b"
+  },
+  "package-impact-layout.py": {
+    "bytes": 3090,
+    "sha256": "e954b7c544ed11e387ffc9d5a6861970c40a4b76041223c217aec59a0448283e"
+  }
+}

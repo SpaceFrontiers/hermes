@@ -16,7 +16,15 @@ claim as implemented or as current performance.
 ## Search engineering and performance
 
 - [Search system engineering contract](search-system-contract.md)
+- [Current full-text benchmark comparison](search-benchmark-current.md)
 - [Core/server review](search-performance-review.md)
+- [Search Benchmark, the Game comparison](search-benchmark-game.md)
+- [Wikipedia benchmark results and evidence](search-benchmark-results.md)
+- [Score-bound follow-up and exact-ranking evidence](search-benchmark-ratio-results.md)
+- [Lucene 11 performance research](lucene-11-performance-research.md): pinned source findings and Hermes experiments.
+- [Bulk-scoring follow-up](search-benchmark-bulk-results.md) — full-corpus exact-count batching results and remaining gaps.
+- [Bounded posting validation reuse](search-benchmark-validation-results.md): correctness, resource policy and measurements.
+- [Dictionary block and allocation experiments](search-benchmark-dictionary-results.md)
 - [L1 candidate scoring handoff and rejected lookup design](handoffs/2026-09-05-l1-candidate-scoring.md)
 - [Rust hot-path review](rust-hot-path-review.md)
 
@@ -43,6 +51,9 @@ claim as implemented or as current performance.
 - [Prometheus Metrics](metrics.md)
 - [Document store v3](document-store-v3.md)
 - [Owned byte views and their safety contract](owned-byte-views.md)
+- [Posting block execution and Tantivy comparison](search-block-execution.md)
+- [Standalone RGB benchmark and mapping diagnosis](search-rgb-benchmark.md)
+- [RGB execution repair and measured results](search-rgb-repair.md)
 - [Hot-Metadata Pinning (meta/data residency split)](hot-metadata-pinning.md)
 - [Cold IO for merges (hot-metadata-pinning Phase 2)](cold-io.md)
 - [Merge-Time BP Reordering](merge-time-reorder.md)
@@ -53,9 +64,12 @@ claim as implemented or as current performance.
 ## Vector retrieval and compression
 
 - [Streaming ScaNN index](scann-streaming-index.md)
+- [Single-copy binary ANN storage and streaming merge](binary-vector-storage.md)
 - [FastScan layout v2 for float ScaNN leaves](fast-scan-layout-v2.md)
 - [TurboQuant (TQ) — training-free dense ANN codec](turboquant-quantization.md)
 - [Unified Dense IVF Architecture](unified-vector-quantization.md)
+- [Seismic sparse indexing](seismic-sparse-index.md) — optional third sparse algorithm alongside default BMP and MaxScore; exact values, copy merges and bounded maintenance.
+- [Compact Seismic summaries](seismic-compact-summaries.md) — measured lossless directory compression, memory/latency tradeoffs and deferred locality experiments.
 - [Forward values in BMP search passes: research and experiment](bmp-forward-search.md)
 - [BMP forward values and format compatibility](bmp-forward-index.md)
 - [BMP LSP/0 and Maximum-Grid Compression](bmp-grid-compression.md)
@@ -114,4 +128,10 @@ links and heading anchors, guide coverage here, and the benchmark inventory.
 External links need a separate network review. For results, follow the
 [benchmark reporting requirements](benchmarks.md#recorded-results-and-reporting).
 
+- [Text index formats and memory comparison](text-format-comparison.md)
+
 - [Query work diagnostics](query-work-diagnostics.md): separate traversal volume from per-unit cost.
+- [Measured query-work diagnosis](search-work-diagnosis.md): pruning, payload and scoring cost findings.
+- [Pruning and scoring setup fixes](search-pruning-fixes.md): count-aware norm setup, prepared bounds and packed decoding.
+
+- [Search merge review](search-merge-review.md) — September 17 cleanup, format reuse, BMP applicability and validation.

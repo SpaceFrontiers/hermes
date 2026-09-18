@@ -1,0 +1,30 @@
+{
+  "archive": "results.zip",
+  "bytes": 6473407,
+  "sha256": "1bc09e5ae60c50f268ade0205aff7df08a29dd84a26509f8786a6aaac9166b4c",
+  "files": 365,
+  "full_archives": [
+    {
+      "path": ".context/lazy-frequencies-cloud-evidence.tar.gz",
+      "bytes": 121483977,
+      "sha256": "53f71a8bee3dc9dfffc77e7f4aca4b26f30ce1c237ac138e1cc08a9505c95c05",
+      "verified_files": 250
+    }
+  ],
+  "notes": [
+    "The ordinary posting iterator defers frequency decoding until scoring or position reads. Document membership windows never request frequencies. Existing Vec and new fixed-buffer callers share the same frequency decoder; no encoded bytes change. Controls are the original group-capable executor and frozen compact-conjunction prototype.",
+    "The bounded frequency allocation is reused across blocks and point-probe scratch. OnceLock preserves native Send+Sync for immutable frequency and position access. Gates include resumed seeks, mixed membership/scoring/position reads and all codecs.",
+    "The automatic score-required union classification was removed after its prior full-corpus regression. The before control is frozen group-impact-v2, before that experiment.",
+    "Explicit per-term statistics are carried through decomposition. Grouping that cannot preserve them retains the original scorer; unsupported L1 backfill rejects instead of changing statistics. Named regression tests reproduced the prior rank and score errors.",
+    "No format or scoring formula changes. Both binaries use identical immutable rounded and group-impact indexes. Source changes in this phase must be considered together when interpreting code-generation effects on otherwise unchanged query classes.",
+    "Every full cloud archive was downloaded and verified against its external SHA256 and every manifest entry before packaging. This ZIP is also verified entry by entry.",
+    "Binaries and raw perf data are omitted from the compact ZIP; full archive hashes, frozen source, locks, adapters, gates, raw latency samples, profiles and memory evidence are retained.",
+    "Official timings cover all 962 queries on all 5,032,104 documents. The separate 714-term workload is derived from those queries; it does not change the official query mix.",
+    "Every gate compares exact COUNT with Tantivy and pruned Hermes top-10/100/1000 ordered IDs and score bits with Hermes exhaustive collection. Cross-engine score or ranking identity is not claimed.",
+    "Cloud timings use the same Cascade Lake VM, Rust 1.98.1, native CPU optimization, LTO and one query CPU, seven samples after ten-second warmup. ARM timings use the first 100,000 documents, two fixtures, eleven rotated samples and fifteen-second warmup.",
+    "Published latency aggregates are geometric means of per-query median microseconds, not pooled-request percentiles.",
+    "CPU software sampling, query diagnostics, builds, index audits, hashing and artifact transfers are separate from latency measurements. These results do not establish cold-cache or concurrent-ingest performance.",
+    "Document-order binary arrays remain on the VM; archives retain their hashes, lengths and regeneration code. Index files are represented by per-file manifests.",
+    "Indexing memory budget is a writer buffer budget, not a limit on process RSS. Heap, mapped file pages and process peak RSS are distinct measurements."
+  ]
+}

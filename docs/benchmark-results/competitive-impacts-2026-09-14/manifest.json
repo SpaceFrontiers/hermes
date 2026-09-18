@@ -1,0 +1,36 @@
+{
+  "archive": "results.zip",
+  "bytes": 8208173,
+  "sha256": "25d7e957f69708203e5089cb5b14389bc5bc5b30f3a86e3410ab859e7da012c6",
+  "files": 521,
+  "full_archives": [
+    {
+      "path": ".context/impact-vint-cloud-evidence.tar.gz",
+      "bytes": 18527275,
+      "sha256": "f09782aef15e1c87c2d967a056852519e3f539ca0cfa5f62823952f22fb195fd",
+      "verified_files": 91
+    },
+    {
+      "path": ".context/impact-groups-cloud-evidence.tar.gz",
+      "bytes": 116253814,
+      "sha256": "5c3e196c300bc50845d3848412a2595fb5202222a835a072a0a9f8ab904374b0",
+      "verified_files": 211
+    }
+  ],
+  "notes": [
+    "L0-only impact-v1 and group-impact-v2 are separate frozen formats. Bounds retain the same canonical BM25 scores; counts remain exact.",
+    "Full-corpus and ARM rebuilds use one indexing worker and no background merges, followed by force_merge. Matching document-order hashes and logical layouts were required before timing. The v2 group build also matches L0 record coverage.",
+    "The cloud historical index has a different layout/order and is only a separate context control. Before/new-binary results on unchanged layouts are retained; they must not be attributed to impact metadata.",
+    "Impact records and matching group records are copied unchanged during compatible merges; regrouped group metadata is computed from bounded existing frontiers without decoding posting payloads.",
+    "Group bounds replace some L0 metadata checks on ARM but do not reduce standalone blocks scored versus L0-only. ARM latency is flat; use complete cloud results before interpreting scale effects.",
+    "Every full cloud archive was downloaded and verified against its external SHA256 and every manifest entry before packaging. This ZIP is also verified entry by entry.",
+    "Binaries and raw perf data are omitted from the compact ZIP; full archive hashes, frozen source, locks, adapters, gates, raw latency samples, profiles and memory evidence are retained.",
+    "Official timings cover all 962 queries on all 5,032,104 documents. The separate 714-term workload is derived from those queries; it does not change the official query mix.",
+    "Every gate compares exact COUNT with Tantivy and pruned Hermes top-10/100/1000 ordered IDs and score bits with Hermes exhaustive collection. Cross-engine score or ranking identity is not claimed.",
+    "Cloud timings use the same Cascade Lake VM, Rust 1.98.1, native CPU optimization, LTO and one query CPU, seven samples after ten-second warmup. ARM timings use the first 100,000 documents, two fixtures, eleven rotated samples and fifteen-second warmup.",
+    "Published latency aggregates are geometric means of per-query median microseconds, not pooled-request percentiles.",
+    "CPU software sampling, query diagnostics, builds, index audits, hashing and artifact transfers are separate from latency measurements. These results do not establish cold-cache or concurrent-ingest performance.",
+    "Document-order binary arrays remain on the VM; archives retain their hashes, lengths and regeneration code. Index files are represented by per-file manifests.",
+    "Indexing memory budget is a writer buffer budget, not a limit on process RSS. Heap, mapped file pages and process peak RSS are distinct measurements."
+  ]
+}

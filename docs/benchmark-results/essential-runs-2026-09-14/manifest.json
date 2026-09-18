@@ -1,0 +1,26 @@
+{
+  "archive": "results.zip",
+  "bytes": 21503226,
+  "sha256": "8bc734cb1cfdcea363852bd24ae02ce91f540be0c7743d04d04ddc360da5a9a2",
+  "files": 204,
+  "stored_files": 139,
+  "aliases": 65,
+  "full_archives": [
+    {
+      "phase": "essential-runs",
+      "bytes": 92563160,
+      "sha256": "a748df4a8ebd3cfaccd4d4e7255019522cc3ad5effb675e9614c4bbe88b53277",
+      "verified_files": 143
+    }
+  ],
+  "notes": [
+    "Same full 5,032,104-document fixture, all 962 official and 714 supplemental queries, four commands, seven rotated complete-pass samples after ten-second warmup per engine/command, CPU 2 for both driver and engines. This additional runner does not silently replace the upstream benchmark protocol.",
+    "Selected source and candidate use the same immutable rounded index and compiler/flags. Tantivy binary and index match the preceding verified controls. The candidate changes only scoring.rs over the archived selected source; no format, ranking-model or query-list route changes.",
+    "Candidate single-essential windows append decoded scored runs directly, preserving existing windows, pruning, predicates and exact canonical contributions. Multiple essential cursors retain dense union materialization; both share one run visitor and scorer.",
+    "Fresh candidate gates cover all 1676 queries on rounded and group indexes: COUNT against Tantivy, top-10/100/1000 against exhaustive scoring, and complete cross-source ordered top-1000 IDs/score bits/count against verified V4. Local ARM canonical and merged fixtures pass the same independent oracles.",
+    "No new WASM build for native performance iterations, per the user instruction. Native tests, Clippy, raw ARM samples, process memory, immutable-byte manifests, cloud software profiles and validated nonempty address-range disassembly are retained.",
+    "All indexing, compilation, correctness gates, profiling, large transfers and hash verification occur outside latency measurement. Software annotation is not hardware-cycle attribution; any unsuccessful annotation is recorded explicitly.",
+    "Exact duplicate files are stored once; restore_aliases.py recreates and verifies every original logical path. Binaries and raw perf data remain in the separately hashed full archive.",
+    "Warm single-query comparisons do not establish cold-cache, concurrent-ingest, sparse-index or overall search-engine superiority."
+  ]
+}

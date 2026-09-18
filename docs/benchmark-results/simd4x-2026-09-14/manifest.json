@@ -1,0 +1,28 @@
+{
+  "archive": "results.zip",
+  "bytes": 7646576,
+  "sha256": "7fa3a3b8e3d49475a9b235b8e7ea216a8750660fd4b9ef5d3a9ec15fbdcf126d",
+  "files": 362,
+  "full_archives": [
+    {
+      "path": ".context/simd4x-cloud-evidence.tar.gz",
+      "bytes": 19137895,
+      "sha256": "95834e702eeb397178688510fd6a3fc7da259f5a0c04daf83c26fdefff0bcfd5"
+    },
+    {
+      "path": ".context/simd4x-tail-cloud-evidence.tar.gz",
+      "bytes": 73118337,
+      "sha256": "a19f929e8289f04e6a9f93bcf74fbf4055761df14cd7c9ffc062c68d13cbad43"
+    }
+  ],
+  "notes": [
+    "Every full cloud archive was verified against its external SHA256 and every manifest entry before packaging.",
+    "Binaries and perf data are omitted from this compact bundle; exact hashes, frozen source, locks, run scripts, raw latency samples and gates are included.",
+    "V1 uses library BitPacker4x for full blocks and exact horizontal tails. V2 retains existing rounded tails. Both are opt-in; the default remains rounded.",
+    "Cloud rebuilds have different document-order hashes because indexing used four threads. Rebuild comparisons measure resulting indexes, not an isolated codec effect. Both ARM fixtures have matching document-order hashes across layouts.",
+    "Document-order binary arrays remain on the VM; the archives retain their SHA256, length and regeneration audit. Index files are represented by complete per-file manifests.",
+    "The whole-vocabulary impact-envelope storage audit is an offline format estimate, not a query speedup measurement or the actual future format size.",
+    "CPU software sampling and smaps_rollup are diagnostic, separate from uninstrumented latency measurements.",
+    "ARM results cover the same first 100,000 documents with canonical and normally merged position streams; they are not the full 5,032,104-document corpus."
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "archive": "results.zip",
+  "bytes": 45194951,
+  "sha256": "b7a90620ad24101474e22f6f97c165a811906ede08484dd7f862a881f75056e9",
+  "files": 593,
+  "full_archives": [
+    {
+      "path": ".context/phrase-plan-selected-cloud-evidence.tar.gz",
+      "bytes": 206602204,
+      "sha256": "46ca5ec700f59792ace554a03fb2b66fdbc57c2f3a897e2d28c5b89f4372f16c",
+      "verified_files": 340
+    }
+  ],
+  "notes": [
+    "The selected production source restores the best previously measured V4 ranked executor and adds selectivity-ordered phrase document and position intersections. Rejected compact-union, short-WAND and ranked-seek production changes are absent; their behavior oracles remain.",
+    "The new phrase planner preserves original-first occurrence multiplicity, exact count, canonical BM25 score bits, and slop semantics. Missing or ordinal-only token positions produce actionable query errors.",
+    "Eight configurations are timed afresh: original, best V4, immediate V9, selected phrase source, isolated shared conjunction reader, isolated canonical window accumulation on rounded; the same selected binary on matched Simd4x; and Tantivy. Group-impact indexes receive fresh correctness gates for all three new sources but are not timed in this phase.",
+    "Unchanged control gate reuse is conditional on verified binary, gate-file, source and immutable-index manifests. New selected rounded and group configurations receive all 1676 exact-count and exhaustive-ranking gates.",
+    "The two execution variants replace only scoring.rs in the frozen selected source. Their complete replacement files and SHA256s are retained, and the selected file is restored after sequential builds. Each variant passes native scoring/integration tests and fresh full-corpus rounded/group oracles. Fresh software profiles and memory cover all three new variants and Tantivy; older control profiles remain in their own prior archives.",
+    "The codec index uses the identical verified writer binary and all indexing settings from the rounded control, except existing codec selection. Document order, logical totals, all 1676 exact-count/ranking gates and complete ordered top-1000 cross-index ID/score bits must match. Index preparation may overlap untimed diagnostics, so its recorded elapsed time is provenance rather than a comparative indexing result. All preparation completes before query timing.",
+    "Canonical-window v2 adds a conservative positive-denominator guard for zero-frequency postings exposed by the public posting-list API. Unsupported parameters keep canonical reconstruction. The final guarded source has its own native build, exact full-result oracles, and paired ARM evidence; earlier unguarded local variants remain labeled separately.",
+    "Diagnostic instrumented binaries are separate from all latency binaries. Decoded-work measurements are not timings.",
+    "The previously queued final WASM build completed with 29 tests before timing. Subsequent native performance iterations do not repeat WASM builds, as requested by the user.",
+    "Every full cloud archive was downloaded and verified against its external SHA256 and every manifest entry before packaging. This ZIP is also verified entry by entry.",
+    "Binaries and raw perf data are omitted from the compact ZIP; full archive hashes, frozen source, locks, adapters, gates, raw latency samples, profiles and memory evidence are retained.",
+    "Official timings cover all 962 queries on all 5,032,104 documents. The separate 714-term workload is derived from those queries; it does not change the official query mix.",
+    "Every gate compares exact COUNT with Tantivy and pruned Hermes top-10/100/1000 ordered IDs and score bits with Hermes exhaustive collection. Cross-engine score or ranking identity is not claimed.",
+    "Cloud timings use the same Cascade Lake VM, Rust 1.98.1, native CPU optimization, LTO and one query CPU, seven samples after ten-second warmup. ARM timings use the first 100,000 documents, two fixtures, eleven rotated samples and fifteen-second warmup.",
+    "Published latency aggregates are geometric means of per-query median microseconds, not pooled-request percentiles.",
+    "CPU software sampling, query diagnostics, builds, index audits, hashing and artifact transfers are separate from latency measurements. These results do not establish cold-cache or concurrent-ingest performance.",
+    "Document-order binary arrays remain on the VM; archives retain their hashes, lengths and regeneration code. Index files are represented by per-file manifests.",
+    "Indexing memory budget is a writer buffer budget, not a limit on process RSS. Heap, mapped file pages and process peak RSS are distinct measurements."
+  ]
+}

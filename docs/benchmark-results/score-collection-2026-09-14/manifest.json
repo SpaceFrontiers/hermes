@@ -1,0 +1,26 @@
+{
+  "archive": "results.zip",
+  "bytes": 5567961,
+  "sha256": "9701909a6361d7ad8c0b2564efdb9e0495d4c85ee6d377de84acdbddba0dd2d8",
+  "files": 144,
+  "full_archives": [
+    {
+      "path": ".context/score-collection-cloud-evidence.tar.gz",
+      "bytes": 36926261,
+      "sha256": "326f21dcada22044848091b9cab5c029ab1984fdf4138d210ff17d15d04c9c9c"
+    },
+    {
+      "path": ".context/score-collection-paired-cloud-evidence.tar.gz",
+      "bytes": 22466723,
+      "sha256": "d4a9f20571c149d02851302fd6b70dd3ad2de963f321167773abdc336153c2a6"
+    }
+  ],
+  "notes": [
+    "Every full cloud archive was verified against its external SHA256 and every manifest entry before packaging.",
+    "Binaries and perf data are omitted from this compact bundle; exact hashes, frozen source, locks, run scripts, raw latency samples and gates are included.",
+    "Both score-collection builds include strict position admission and bounded shared proof caching. The only production difference is bounded score collection; no persisted format changes.",
+    "CPU software sampling and smaps_rollup are diagnostic, separate from uninstrumented latency measurements.",
+    "All engine latency comparisons use identical complete query workloads, compiler/CPU flags and immutable indexes on the same host.",
+    "ARM results cover the same first 100,000 documents with canonical and normally merged position streams; they are not the full 5,032,104-document corpus."
+  ]
+}

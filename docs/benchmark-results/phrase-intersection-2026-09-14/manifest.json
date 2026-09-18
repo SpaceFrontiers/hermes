@@ -1,0 +1,30 @@
+{
+  "archive": "results.zip",
+  "bytes": 6660290,
+  "sha256": "0902ad23a501b737d71b12fa4b223a9afd8decae3455bdedc3b7a8a27fe67e8c",
+  "files": 415,
+  "full_archives": [
+    {
+      "path": ".context/phrase-intersection-cloud-evidence.tar.gz",
+      "bytes": 113045455,
+      "sha256": "223eff5854788916aae85b4999a0c4ee9a7b4c78ae35a68df79dd06e1ff4a3f1",
+      "verified_files": 252
+    }
+  ],
+  "notes": [
+    "Exact phrases intersect original first-term starts incrementally, read later positions only while starts survive, and resume the final pair for exact frequency. Nonzero slop keeps the existing independent-interval scanner. No scoring formula or format changes.",
+    "This candidate also removes the automatic compact-union route and unused kernel after its verified full-corpus regression. Short WAND now covers all supported two-term unions; wider unions use score windows. Both source changes must be considered when interpreting complete-workload and code-generation effects.",
+    "This candidate also rejects multi-token phrases without token positions, including ordinal-only fields, and retains every default-field phrase branch. Additional routing propagates original-query errors. A baseline native/browser reproducer and parser/integration regressions pin this compatibility correction.",
+    "A baseline regression reproduces unnecessary later position reads after an empty phrase prefix. Oracles cover first-start multiplicity, repeated offsets, overflow, resumed count, all codecs, multi-block positions, false candidates, point backfill and sparse/duplicate unions.",
+    "Unchanged control gates are reused only after checking previous manifest entries, identical binary hashes and index manifests, and comparison with fresh candidate counts. Every new candidate runs every gate. All controls are timed afresh; verify-reuse.json records the source mapping.",
+    "Every full cloud archive was downloaded and verified against its external SHA256 and every manifest entry before packaging. This ZIP is also verified entry by entry.",
+    "Binaries and raw perf data are omitted from the compact ZIP; full archive hashes, frozen source, locks, adapters, gates, raw latency samples, profiles and memory evidence are retained.",
+    "Official timings cover all 962 queries on all 5,032,104 documents. The separate 714-term workload is derived from those queries; it does not change the official query mix.",
+    "Every gate compares exact COUNT with Tantivy and pruned Hermes top-10/100/1000 ordered IDs and score bits with Hermes exhaustive collection. Cross-engine score or ranking identity is not claimed.",
+    "Cloud timings use the same Cascade Lake VM, Rust 1.98.1, native CPU optimization, LTO and one query CPU, seven samples after ten-second warmup. ARM timings use the first 100,000 documents, two fixtures, eleven rotated samples and fifteen-second warmup.",
+    "Published latency aggregates are geometric means of per-query median microseconds, not pooled-request percentiles.",
+    "CPU software sampling, query diagnostics, builds, index audits, hashing and artifact transfers are separate from latency measurements. These results do not establish cold-cache or concurrent-ingest performance.",
+    "Document-order binary arrays remain on the VM; archives retain their hashes, lengths and regeneration code. Index files are represented by per-file manifests.",
+    "Indexing memory budget is a writer buffer budget, not a limit on process RSS. Heap, mapped file pages and process peak RSS are distinct measurements."
+  ]
+}

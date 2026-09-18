@@ -1,0 +1,22 @@
+{
+  "archive": "results.zip",
+  "bytes": 36835614,
+  "sha256": "5f1c660160d4746a51f3f8fd3473b243b25cd290dde814369d94bf740fad2d86",
+  "files": 111,
+  "full_archive": {
+    "bytes": 110535909,
+    "sha256": "b8fc38065f8d80f92b6b6b77ad13332760a41b7d5c6cca4b8e6f32a5d35ffc89",
+    "files": 85
+  },
+  "notes": [
+    "Diagnostic source copies only. Atomic counters and these binaries are never used for latency comparisons.",
+    "All 962 official queries and 714 supplemental terms on the immutable full corpus, all four commands, two independently equal passes. Supplemental rows are distinguished by position, not query string.",
+    "Counter meanings are defined in counter-fields.json. Payload bytes count encoded decoder input, not physical I/O, metadata, or resident memory. Inline postings are outside block decode totals.",
+    "Cross-source gates compare all ordered top-1000 IDs and raw score bits across V4, V9 and the new phrase planner, and compare each source pruned top-10/100/1000 with exhaustive results on rounded and group indexes. Exact counts agree with Tantivy.",
+    "Tantivy 0.26.0 is checksum-verified with the same pinned dependencies as the timing adapter; only diagnostic source path substitution and counters differ. Frozen sources include licenses.",
+    "Different engine document order and encodings affect block work. These counts diagnose traversal and decode work, and do not by themselves establish a speedup.",
+    "Byte-identical oracle outputs and source archives are stored once. file-aliases.json maps every omitted original path to its exact stored bytes; file-manifest.json retains all logical paths and hashes. After extracting, restore_aliases.py reconstructs and verifies those paths. No query, count, score bit or diagnostic record is dropped."
+  ],
+  "stored_files": 76,
+  "aliases": 35
+}

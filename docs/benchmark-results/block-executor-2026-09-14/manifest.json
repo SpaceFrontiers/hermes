@@ -1,0 +1,27 @@
+{
+  "archive": "results.zip",
+  "bytes": 26884167,
+  "sha256": "923b1afb2ad3134b42d4194043229e07390afe2fb75b10ef8f58fcb1e82eab86",
+  "files": 434,
+  "stored_files": 258,
+  "aliases": 176,
+  "full_archives": [
+    {
+      "phase": "block-executor",
+      "bytes": 135476723,
+      "sha256": "b70c200e720fe25d7fc572eac062beb7a35c929d3c0b99445adcd8e6fa1e50ee",
+      "verified_files": 186
+    }
+  ],
+  "notes": [
+    "Additional rotated whole-workload-pass runner; all 962 official and 714 supplemental queries, four commands, seven samples after ten-second warmup per engine/command, same CPU 2 for driver and engines. It complements the archived upstream runner rather than silently replacing it.",
+    "Original, V4, selected, shared-reader, direct-window and selected-Simd4x controls are unchanged verified binaries; the refined block-intersection candidate changes only scoring.rs and two crate-private current-block slice views in posting.rs. No format, scoring-model or query-list change.",
+    "Fresh candidate gates cover rounded and group indexes: exact COUNT against Tantivy, pruned top-10/100/1000 against exhaustive scoring, and complete ordered top-1000 IDs/score bits/counts equal verified V4 across all 1676 queries.",
+    "The native block prototype passes 29 scoring tests, focused integration suites, Clippy and both complete ARM cross-source oracles. No new WASM build was run for these native iterations, following the user instruction.",
+    "Local first-block runs are separate from the refined and clean repeats. The first refined ARM run overlapped an accidental recursive source search and is excluded from performance conclusions; refined-run-contamination.json records it. Only block-conjunction-clean-arm timing is the final refined ARM comparison.",
+    "All encoded indexes match per-file manifests before and after timing. Simd4x uses matched document order and the same selected binary. Profiling, hashing, compilation and transfers are outside latency measurement.",
+    "Disassembly records static code and source identity; normalized counts are not executed instruction or cycle measurements. Initial Apple objdump symbol filtering failed; the retained local analysis uses validated nonempty address ranges.",
+    "Exact byte duplicates are stored once with file-aliases.json and restore_aliases.py. Every original logical path retains its own size and hash; no query, score bit or timing sample is omitted. Binaries and raw perf data remain in the separately hashed full archive.",
+    "Warm single-query measurements do not establish cold-cache, concurrent-ingest, sparse-index or overall search-engine superiority."
+  ]
+}
