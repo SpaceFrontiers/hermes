@@ -76,6 +76,12 @@ Sparse workload controls include `BMP_BENCH_DOCS` (`bmp_vs_maxscore`),
 These are synthetic workload measurements; they do not establish production
 recall or throughput on a real SPLADE corpus.
 
+Current BMP/Seismic corpus comparisons include initial build, compatible merge,
+bounded maintenance, warm search, recall, live disk bytes and peak RSS. See
+[Seismic sparse indexing](seismic-sparse-index.md). Report BMP UInt8 versus
+Seismic Float32 precision alongside recall; keep generated fixtures and logs
+in ignored workspace evidence.
+
 ## Dense ANN quality and latency
 
 The ignored release-mode tests in [tq_bench.rs](../hermes-core/src/index/tests/tq_bench.rs)
@@ -254,3 +260,52 @@ change complete-file bytes; compare copied source blocks byte-for-byte and all
 decoded values in regression tests. Measure process peak RSS separately from
 map scratch and output size. These fixtures do not measure remote I/O or ANN
 throughput; ANN correctness tests cover encoded survivor bytes across all formats.
+
+## Search Benchmark, the Game
+
+The [comparison protocol](search-benchmark-game.md) describes the full Wikipedia
+fixture, fairness rules, exact-count semantics, and measurement requirements.
+See the [measured results](search-benchmark-results.md) and
+[raw samples](benchmark-results/search-game-2026-09-13/README.md).
+Build the native adapter and validate it before attaching it to upstream:
+
+```bash
+cargo build --locked --release -p hermes-core --example search_benchmark_game
+# Protocol smoke gate: exact counts against direct token matching plus the
+# pruned-vs-exhaustive VERIFY check. Run it after any adapter or query change.
+python3 scripts/search_benchmark/smoke.py target/release/examples/search_benchmark_game
+# Download/transform the corpus with the pinned upstream repository first.
+target/release/examples/search_benchmark_game index /path/to/new-hermes-index < /path/to/corpus.json
+# Copy scripts/search_benchmark/Makefile to upstream engines/hermes/Makefile.
+# Run from the upstream checkout, with absolute paths:
+HERMES_BENCH_BINARY=/path/to/search_benchmark_game HERMES_BENCH_INDEX=/path/to/hermes-index \
+  make bench ENGINES='hermes tantivy-0.26' NUM_ITER=10 WARMUP_TIME=60 \
+    COMMANDS='TOP_10 TOP_100 TOP_1000 TOP_100_COUNT COUNT'
+```
+
+`COUNT` and `TOP_*_COUNT` disable pruning through Hermes' exhaustive collector.
+`VERIFY` checks pruned top-10, top-100, and top-1000 against exhaustive results
+outside timing. All
+operations require one merged segment for the comparison. Unsupported syntax
+fails; unsupported protocol commands return `UNSUPPORTED`.
+
+For paired runs, build both Rust engines with the same compiler and release
+settings. The upstream Tantivy example enables LTO, so use
+`CARGO_PROFILE_RELEASE_LTO=true RUSTFLAGS='-C target-cpu=native'` for Hermes too.
+The adapter accepts `--indexing-threads`, `--indexing-memory-bytes`,
+`--posting-codec rounded|packed|pfor|simd4x`, `--term-dict-block-bytes`, and
+`--no-background-merges` when building an index. The opt-in
+`--posting-ratio-bounds` and `--posting-impact-bounds` options write tighter,
+score-independent block bounds on new segments. Serving accepts
+`--term-cache-blocks`, `--term-cache-bytes`, `--posting-validation-cache-bytes`,
+and `--exhaustive`; pass serving options with
+`HERMES_BENCH_ARGS`. Defaults and limits are documented in the
+[protocol](search-benchmark-game.md#runtime-controls).
+
+Preserve the upstream `results.json` after each run; the next run overwrites it.
+The comparison tools use all samples and check query sets and exact-count
+agreement. Run `scripts/search_benchmark/verify.py --help` for the full-corpus
+pruned/exhaustive verification gate, and `analyze.py --help` for grouped results.
+
+See [posting block execution](search-block-execution.md) for the latest official
+workload comparison, separate standalone-term results, and exact-reference gates.

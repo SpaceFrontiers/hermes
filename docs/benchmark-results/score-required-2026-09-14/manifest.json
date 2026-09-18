@@ -1,0 +1,29 @@
+{
+  "archive": "results.zip",
+  "bytes": 4204146,
+  "sha256": "1f49e4b93e7a7c00c87cbca412e7eec4c13087d49501ef7c353f116c1a69e8ce",
+  "files": 326,
+  "full_archives": [
+    {
+      "path": ".context/score-required-cloud-evidence.tar.gz",
+      "bytes": 146090211,
+      "sha256": "95dd996cfd4e9abeb167883726975970997ca72fa35157dfd25481d76069cfb8",
+      "verified_files": 234
+    }
+  ],
+  "notes": [
+    "The score-required executor is compared with frozen group-impact-v2 on identical rounded and group-impact indexes. No index rebuild or scoring-model change is part of this phase.",
+    "The required-term deduction sums other window bounds in canonical query order. A score-required term may lie in the MaxScore nonessential prefix; it is scored once and removed from the remaining-bound sum.",
+    "ARM correctness passes but complete-workload timing is flat. Required-term plans demonstrably activate; activation alone is not a latency gain.",
+    "The first standard check failed two style lints. Both were fixed; the final check, portable build and 23 WASM tests pass.",
+    "Every full cloud archive was downloaded and verified against its external SHA256 and every manifest entry before packaging. This ZIP is also verified entry by entry.",
+    "Binaries and raw perf data are omitted from the compact ZIP; full archive hashes, frozen source, locks, adapters, gates, raw latency samples, profiles and memory evidence are retained.",
+    "Official timings cover all 962 queries on all 5,032,104 documents. The separate 714-term workload is derived from those queries; it does not change the official query mix.",
+    "Every gate compares exact COUNT with Tantivy and pruned Hermes top-10/100/1000 ordered IDs and score bits with Hermes exhaustive collection. Cross-engine score or ranking identity is not claimed.",
+    "Cloud timings use the same Cascade Lake VM, Rust 1.98.1, native CPU optimization, LTO and one query CPU, seven samples after ten-second warmup. ARM timings use the first 100,000 documents, two fixtures, eleven rotated samples and fifteen-second warmup.",
+    "Published latency aggregates are geometric means of per-query median microseconds, not pooled-request percentiles.",
+    "CPU software sampling, query diagnostics, builds, index audits, hashing and artifact transfers are separate from latency measurements. These results do not establish cold-cache or concurrent-ingest performance.",
+    "Document-order binary arrays remain on the VM; archives retain their hashes, lengths and regeneration code. Index files are represented by per-file manifests.",
+    "Indexing memory budget is a writer buffer budget, not a limit on process RSS. Heap, mapped file pages and process peak RSS are distinct measurements."
+  ]
+}

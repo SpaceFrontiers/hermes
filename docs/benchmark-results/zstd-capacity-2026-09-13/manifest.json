@@ -1,0 +1,1010 @@
+{
+  "analysis/package-latest-cloud-evidence.py": {
+    "bytes": 3286,
+    "sha256": "4e0cbe51f313bf033495dd5bde04351106113b8c7104cebc9c3d7ba8ab9260a4"
+  },
+  "analysis/summarize-dictionary.py": {
+    "bytes": 839,
+    "sha256": "2244658fdc6f9e3f624e94cc53affd8f70cc86447f6289d02f2d95190d7f8f51"
+  },
+  "analysis/verify-latest-cloud-evidence.py": {
+    "bytes": 1716,
+    "sha256": "05b65947182cfdab4bf9f5f1931af26ec823ff06159220acb90a412bd666ebb0"
+  },
+  "cloud/adapters/capacity-1024/Makefile": {
+    "bytes": 281,
+    "sha256": "30c85f0ec41f5037442c9a59884e495c1a567fa059557947f960500dfa12ab8b"
+  },
+  "cloud/adapters/capacity-16384/Makefile": {
+    "bytes": 283,
+    "sha256": "a26279186edaac885e3ee5f264da48d493f785273402956c4a61200abe74eeec"
+  },
+  "cloud/adapters/capacity-4096/Makefile": {
+    "bytes": 281,
+    "sha256": "bdfaeadf4381bdbe42791c84033cd6cd342891e1cf3266dd6e72cc446bf355e8"
+  },
+  "cloud/adapters/capacity-before/Makefile": {
+    "bytes": 291,
+    "sha256": "3a5bd7e125564fa58419fd0d4b0ab759013c5e7c8e5f8374a6d5a849403a1c53"
+  },
+  "cloud/adapters/capacity-tantivy/Makefile": {
+    "bytes": 225,
+    "sha256": "71fca5070e7639b72a8dc97917c4ae068422318aa3799eb9a92d8f22095ea3a4"
+  },
+  "cloud/benchmark-revision.txt": {
+    "bytes": 41,
+    "sha256": "a2428b2ebe7528b7566a0552d80102b78ecaaab8fcade2cd56c3eccf42b49de0"
+  },
+  "cloud/build.log": {
+    "bytes": 130,
+    "sha256": "dbf8d8547584e152cae955d5b2cbf8cbe3ad5869a96baf0625322dc2748a6c7b"
+  },
+  "cloud/capacity-1024-search.time": {
+    "bytes": 7292,
+    "sha256": "eda79201cdf73e1a974a36b64a7193f442b60312cf9166de5a87d5fb098e1cea"
+  },
+  "cloud/capacity-16384-search.time": {
+    "bytes": 7299,
+    "sha256": "552e6fd1755bd74d6c2eeb29762dd6cacbd9cd3db972047d9d38dc7de11f7717"
+  },
+  "cloud/capacity-4096-search.time": {
+    "bytes": 7293,
+    "sha256": "0a12fb935eed7ff07a5c1148e73349cd4c876f96851ec0ba0956ae279f56e3b1"
+  },
+  "cloud/capacity-before-search.time": {
+    "bytes": 7364,
+    "sha256": "ad06e012360871d77691da89796389f74d78300127a5e0e950b4951fb5091bfe"
+  },
+  "cloud/codec-tests.log": {
+    "bytes": 1303,
+    "sha256": "02b924927fa6f97d7415bda847fabca5de9bab40bb4311c92ce163c045a8a7f0"
+  },
+  "cloud/corpus.sha256": {
+    "bytes": 265,
+    "sha256": "00e7557a979cbed426b3f58fac3654c89465f5240304ff87b6aeb1c759312ae3"
+  },
+  "cloud/dictionary-lookup-probe.rs": {
+    "bytes": 4351,
+    "sha256": "bcbdf8d6f68601793382d632006bbd9c894a72a02305595c1fef2e381caa4602"
+  },
+  "cloud/dictionary-sections.py": {
+    "bytes": 681,
+    "sha256": "fb6fb80a4fcc21f9bebdacabe6eeec91e1aaf95b92bae5a1843ab53dec9fd165"
+  },
+  "cloud/dictionary-tests.log": {
+    "bytes": 2031,
+    "sha256": "c5f63638ba8269379731452ef017d8e34da129a3ff11df1d48ca8cc21db4e5cb"
+  },
+  "cloud/evidence-manifest.json": {
+    "bytes": 12035,
+    "sha256": "422937f22591ef54690da8dce1985b5ae0e76afccc8ee778376fbc1b1c309c65"
+  },
+  "cloud/hermes-Cargo.lock": {
+    "bytes": 231783,
+    "sha256": "5ba1b6e7223f4bc72e6a8abf7efcc4ec7c9f2088d75ce15318dbfc054119ca03"
+  },
+  "cloud/hermes-dictionary-v2-manifest.json": {
+    "bytes": 7778,
+    "sha256": "2143f08322082bba8a8eef3335936fad30d3dbc0da7c6c51fa58a730c6d0141e"
+  },
+  "cloud/hermes-zstd-capacity-v1-manifest.json": {
+    "bytes": 7887,
+    "sha256": "fdb7e19319e9c3507b63c68e30125216e735bdf7e3b2bea7100ae5252ed05e1d"
+  },
+  "cloud/index-unchanged-1024.json": {
+    "bytes": 1525,
+    "sha256": "e20fb612bffd3e14b14f884d4180fefd666d31f6af3035f8b2b77b737b055997"
+  },
+  "cloud/index-unchanged-16384.json": {
+    "bytes": 1525,
+    "sha256": "64439869c9da849cb52e2e9947bff2a6d6421b2aa1d192a7f96d45445b3aca5b"
+  },
+  "cloud/index-unchanged-4096.json": {
+    "bytes": 1525,
+    "sha256": "ee2780283f3b84937d2649c84f2ecf5b148c8c4bb39ed01d0527aedc6399d3dc"
+  },
+  "cloud/index-unchanged-hermes.json": {
+    "bytes": 1525,
+    "sha256": "64439869c9da849cb52e2e9947bff2a6d6421b2aa1d192a7f96d45445b3aca5b"
+  },
+  "cloud/index-unchanged-tantivy.json": {
+    "bytes": 1437,
+    "sha256": "34b74acfc5cfc848d501b31afbff347fb79170b906507556275154ffd89113d7"
+  },
+  "cloud/integration-tests.log": {
+    "bytes": 1115,
+    "sha256": "5b64013dbc5c6a54dd503e234bc28d2629d970d2c51f6e7d06a140bed0ac276b"
+  },
+  "cloud/kernel.txt": {
+    "bytes": 175,
+    "sha256": "099c35236c57000ac9cb6355f90ac643e08db4dfdf808f5fa8ca93c627f00dd1"
+  },
+  "cloud/lookup-0-after.time": {
+    "bytes": 1024,
+    "sha256": "75c86bb4bc1c83baa6eb77c693f99408cbedfc22345d84260f10424b0d44935c"
+  },
+  "cloud/lookup-0-before.time": {
+    "bytes": 1025,
+    "sha256": "871e2d9ecad0a72cd29615e6d276d809a8c085682e1e930e51c2c3260b878ca7"
+  },
+  "cloud/lookup-1-after.time": {
+    "bytes": 1024,
+    "sha256": "744a3a6d9089de13cdae73e99bf59cb7f74231cef248466339a3c00261324044"
+  },
+  "cloud/lookup-1-before.time": {
+    "bytes": 1025,
+    "sha256": "b57b8bbad2d10bca225b795d2cedb9cfb0036d7e49201ff815087f11866ae7e2"
+  },
+  "cloud/lookup-2-after.time": {
+    "bytes": 1024,
+    "sha256": "3bc62d502df8f329d72077fba297082c214a14336cc05aa14191f7679d678416"
+  },
+  "cloud/lookup-2-before.time": {
+    "bytes": 1025,
+    "sha256": "3fcd5f3c66cf491cdbe84ee52cb9f1ba333b50a66bc8993222ae6b1bb72a7d8d"
+  },
+  "cloud/lookup-3-after.time": {
+    "bytes": 1024,
+    "sha256": "00ce76f08f6ccbd5b46dc0d81d6d1d076f9678ddb2e3ff5861b0a925ad4a8a62"
+  },
+  "cloud/lookup-3-before.time": {
+    "bytes": 1025,
+    "sha256": "cb1ff345d9bc7a2ff3935baa6c20f5ed3c54c9ad53515bc5dce5ad65293db410"
+  },
+  "cloud/lookup-4-after.time": {
+    "bytes": 1024,
+    "sha256": "d39499a53d2186b3358d78dc369776cc13c9c2c9714c3747fc7321a849ceb5ae"
+  },
+  "cloud/lookup-4-before.time": {
+    "bytes": 1025,
+    "sha256": "697885f898e4691bbf556bc7397dd01a1a8d8fccc2aace90f268629294a4e246"
+  },
+  "cloud/lookup.json": {
+    "bytes": 7898,
+    "sha256": "530cb5b8f1b0b5715c5b12faaec78f98d1a98a615f00d65b1b06ac5495d43510"
+  },
+  "cloud/lookup.time": {
+    "bytes": 1025,
+    "sha256": "ddbde377b9660989b52759158598647f3f0658f0b5a51fc164e7d6ca7d1b618d"
+  },
+  "cloud/lscpu.json": {
+    "bytes": 4464,
+    "sha256": "8b71a28e3c821d9b3e3385bb3c8b497e64ee8718f76fdc49daf123194bbd1afd"
+  },
+  "cloud/official-queries.jsonl": {
+    "bytes": 82954,
+    "sha256": "a8e8f2c1a4bede53063de22fb13be83b585683da1c28208da4921de73ce254bd"
+  },
+  "cloud/official.json": {
+    "bytes": 2958671,
+    "sha256": "9797dee1de214403c208d8755340f57cc7ca097eb6c0e78b3f0e3d9a161b5c1e"
+  },
+  "cloud/official.log": {
+    "bytes": 39991,
+    "sha256": "0b8d7fb8fb4ea2314d1388243fa785e32090994cee07a0d8c5fbf52ba9fa8ad1"
+  },
+  "cloud/paired-lookup.json": {
+    "bytes": 91926,
+    "sha256": "ebb52f9d38c27772b7c30701bfd285fbee45191f16f78a19663a5dbf30697e60"
+  },
+  "cloud/rustc.txt": {
+    "bytes": 196,
+    "sha256": "778fbc643a806f0dd123c056e66201d7e8a56a61928ec0a33171be8d6c2d5a37"
+  },
+  "cloud/sections.json": {
+    "bytes": 1044,
+    "sha256": "d1092397ef198b6ec8204d6ac692596cf2dbae98c27ea02e86fe876c20a6e4a6"
+  },
+  "cloud/source-base.txt": {
+    "bytes": 41,
+    "sha256": "b9ea4c0243533d7859e0f2943df6c2daff03a26bbc0ba5de428705b1f3db6781"
+  },
+  "cloud/supplemental-terms.jsonl": {
+    "bytes": 38676,
+    "sha256": "7a083f3f97e80929522f4e09f36652698e9af9e0af47370fe2a290b54d9cbecd"
+  },
+  "cloud/supplemental.json": {
+    "bytes": 1667117,
+    "sha256": "50b7e57f8469e54fce639e42fdf1e0d39bc79047b2002f644d28df0f5b4b616c"
+  },
+  "cloud/supplemental.log": {
+    "bytes": 701588,
+    "sha256": "6b9e805d143829c3f9c034b6bde51e568ace39296ebd239add800df104a62570"
+  },
+  "cloud/tantivy-Cargo.lock": {
+    "bytes": 40926,
+    "sha256": "5d2205388cec57509e68a3ecfc56bdf59a394ae9df47757b084a8bdb69e4f915"
+  },
+  "cloud/tantivy-Cargo.toml": {
+    "bytes": 309,
+    "sha256": "41b1c4692229631da16289aad3de453f07b85ab263e795ee75ef37390692cd31"
+  },
+  "cloud/tantivy-do_query.rs": {
+    "bytes": 7472,
+    "sha256": "ac5692808aa4f87fcba71689429b930cec72899c499cb2bbb8c1f4e1c6d1f18e"
+  },
+  "cloud/tantivy-search.time": {
+    "bytes": 6881,
+    "sha256": "2f7b1978bc1a1784ba3582a741e6b7133305e741fa47b048a63d96f6771d936a"
+  },
+  "cloud/upstream-client.py": {
+    "bytes": 5649,
+    "sha256": "811062d60b3a0ac73fb3ce0553e25a70302280d4fac4c5d3b951629ebb575ad9"
+  },
+  "cloud/verify-official-1024.engine-0.log": {
+    "bytes": 269,
+    "sha256": "72aa77a3c3b6279416a8ae161983da699451a939b26dc03ad652ed000768ac3a"
+  },
+  "cloud/verify-official-1024.engine-1.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "cloud/verify-official-1024.jsonl": {
+    "bytes": 62660,
+    "sha256": "ef17174d65e95988a69982d9662b51c1939f03ad7925b23a43f89bac0f105834"
+  },
+  "cloud/verify-official-1024.log": {
+    "bytes": 359,
+    "sha256": "2986d0e83aee0893480998c18b8508bd70ca7701242161d299c015ead8433c63"
+  },
+  "cloud/verify-official-16384.engine-0.log": {
+    "bytes": 269,
+    "sha256": "72aa77a3c3b6279416a8ae161983da699451a939b26dc03ad652ed000768ac3a"
+  },
+  "cloud/verify-official-16384.engine-1.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "cloud/verify-official-16384.jsonl": {
+    "bytes": 62660,
+    "sha256": "ef17174d65e95988a69982d9662b51c1939f03ad7925b23a43f89bac0f105834"
+  },
+  "cloud/verify-official-16384.log": {
+    "bytes": 359,
+    "sha256": "2986d0e83aee0893480998c18b8508bd70ca7701242161d299c015ead8433c63"
+  },
+  "cloud/verify-official-4096.engine-0.log": {
+    "bytes": 269,
+    "sha256": "72aa77a3c3b6279416a8ae161983da699451a939b26dc03ad652ed000768ac3a"
+  },
+  "cloud/verify-official-4096.engine-1.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "cloud/verify-official-4096.jsonl": {
+    "bytes": 62660,
+    "sha256": "ef17174d65e95988a69982d9662b51c1939f03ad7925b23a43f89bac0f105834"
+  },
+  "cloud/verify-official-4096.log": {
+    "bytes": 359,
+    "sha256": "2986d0e83aee0893480998c18b8508bd70ca7701242161d299c015ead8433c63"
+  },
+  "cloud/verify-supplemental-1024.engine-0.log": {
+    "bytes": 269,
+    "sha256": "72aa77a3c3b6279416a8ae161983da699451a939b26dc03ad652ed000768ac3a"
+  },
+  "cloud/verify-supplemental-1024.engine-1.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "cloud/verify-supplemental-1024.jsonl": {
+    "bytes": 39256,
+    "sha256": "958a707bc9c824af364156ebc6685458e935107b14b42f98b4f6141db5accc78"
+  },
+  "cloud/verify-supplemental-1024.log": {
+    "bytes": 293,
+    "sha256": "76084b9fba71fef098756f431f0ad599af7214284ba5457a717b6620f6aec529"
+  },
+  "cloud/verify-supplemental-16384.engine-0.log": {
+    "bytes": 269,
+    "sha256": "72aa77a3c3b6279416a8ae161983da699451a939b26dc03ad652ed000768ac3a"
+  },
+  "cloud/verify-supplemental-16384.engine-1.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "cloud/verify-supplemental-16384.jsonl": {
+    "bytes": 39256,
+    "sha256": "958a707bc9c824af364156ebc6685458e935107b14b42f98b4f6141db5accc78"
+  },
+  "cloud/verify-supplemental-16384.log": {
+    "bytes": 293,
+    "sha256": "76084b9fba71fef098756f431f0ad599af7214284ba5457a717b6620f6aec529"
+  },
+  "cloud/verify-supplemental-4096.engine-0.log": {
+    "bytes": 269,
+    "sha256": "72aa77a3c3b6279416a8ae161983da699451a939b26dc03ad652ed000768ac3a"
+  },
+  "cloud/verify-supplemental-4096.engine-1.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "cloud/verify-supplemental-4096.jsonl": {
+    "bytes": 39256,
+    "sha256": "958a707bc9c824af364156ebc6685458e935107b14b42f98b4f6141db5accc78"
+  },
+  "cloud/verify-supplemental-4096.log": {
+    "bytes": 293,
+    "sha256": "76084b9fba71fef098756f431f0ad599af7214284ba5457a717b6620f6aec529"
+  },
+  "cloud/zstd-capacity-cloud-capture.sh": {
+    "bytes": 3115,
+    "sha256": "a6e571bf22a7bb0d314221cbf74c01814f8fa677a995cb50e38e670208a2382f"
+  },
+  "cloud/zstd-capacity-cloud-run.sh": {
+    "bytes": 4321,
+    "sha256": "c2e91b11859fe36992267723fd91e3ac0438483c1c1f914743909d40f6e2137d"
+  },
+  "local/zstd-capacity-arm-build-driver.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "local/zstd-capacity-arm-build.log": {
+    "bytes": 159,
+    "sha256": "fb5ec70ca7904758116fe6a4bc0671273250c729489cf1a23e57e2b362c95c4a"
+  },
+  "local/zstd-capacity-arm-build.py": {
+    "bytes": 1326,
+    "sha256": "4b540a74cd75bea1cc43a8321d53ad078ffcbe8793507814fbca6c7a8fdabf61"
+  },
+  "local/zstd-capacity-arm-gates-new-1024.counts": {
+    "bytes": 6048,
+    "sha256": "11c116d821a5348ca7341e3ab18b3871768f8ff673126f15e0f4a34da5f3770b"
+  },
+  "local/zstd-capacity-arm-gates-new-1024.log": {
+    "bytes": 268,
+    "sha256": "7e1358de7aa25c5019263d26f5526102ff5685edd7b74579390503c46dfeed0b"
+  },
+  "local/zstd-capacity-arm-gates-new-16384.counts": {
+    "bytes": 6048,
+    "sha256": "11c116d821a5348ca7341e3ab18b3871768f8ff673126f15e0f4a34da5f3770b"
+  },
+  "local/zstd-capacity-arm-gates-new-16384.log": {
+    "bytes": 268,
+    "sha256": "7e1358de7aa25c5019263d26f5526102ff5685edd7b74579390503c46dfeed0b"
+  },
+  "local/zstd-capacity-arm-gates-new-4096.counts": {
+    "bytes": 6048,
+    "sha256": "11c116d821a5348ca7341e3ab18b3871768f8ff673126f15e0f4a34da5f3770b"
+  },
+  "local/zstd-capacity-arm-gates-new-4096.log": {
+    "bytes": 268,
+    "sha256": "7e1358de7aa25c5019263d26f5526102ff5685edd7b74579390503c46dfeed0b"
+  },
+  "local/zstd-capacity-arm-gates-new-legacy.counts": {
+    "bytes": 6048,
+    "sha256": "11c116d821a5348ca7341e3ab18b3871768f8ff673126f15e0f4a34da5f3770b"
+  },
+  "local/zstd-capacity-arm-gates-new-legacy.log": {
+    "bytes": 258,
+    "sha256": "3a1ae8f97d048ce83ead279c0d998f54e4091ba64eaadda6ca4a19ae5147bf38"
+  },
+  "local/zstd-capacity-arm-lookup.json": {
+    "bytes": 8368,
+    "sha256": "726d552f9d15786d02e0e8eea86a063a2e84ddb5e00a90d503647080795384a7"
+  },
+  "local/zstd-capacity-arm-official-new-1024.stderr": {
+    "bytes": 268,
+    "sha256": "7e1358de7aa25c5019263d26f5526102ff5685edd7b74579390503c46dfeed0b"
+  },
+  "local/zstd-capacity-arm-official-new-16384.stderr": {
+    "bytes": 268,
+    "sha256": "7e1358de7aa25c5019263d26f5526102ff5685edd7b74579390503c46dfeed0b"
+  },
+  "local/zstd-capacity-arm-official-new-4096.stderr": {
+    "bytes": 268,
+    "sha256": "7e1358de7aa25c5019263d26f5526102ff5685edd7b74579390503c46dfeed0b"
+  },
+  "local/zstd-capacity-arm-official-new-legacy.stderr": {
+    "bytes": 258,
+    "sha256": "3a1ae8f97d048ce83ead279c0d998f54e4091ba64eaadda6ca4a19ae5147bf38"
+  },
+  "local/zstd-capacity-arm-official-old-1024.stderr": {
+    "bytes": 268,
+    "sha256": "7e1358de7aa25c5019263d26f5526102ff5685edd7b74579390503c46dfeed0b"
+  },
+  "local/zstd-capacity-arm-official-old-16384.stderr": {
+    "bytes": 268,
+    "sha256": "7e1358de7aa25c5019263d26f5526102ff5685edd7b74579390503c46dfeed0b"
+  },
+  "local/zstd-capacity-arm-official-old-4096.stderr": {
+    "bytes": 268,
+    "sha256": "7e1358de7aa25c5019263d26f5526102ff5685edd7b74579390503c46dfeed0b"
+  },
+  "local/zstd-capacity-arm-official-old-legacy.stderr": {
+    "bytes": 258,
+    "sha256": "3a1ae8f97d048ce83ead279c0d998f54e4091ba64eaadda6ca4a19ae5147bf38"
+  },
+  "local/zstd-capacity-arm-paired-official-summary.json": {
+    "bytes": 7840,
+    "sha256": "679b3f044e26f31ceec326bf6532686d6b30533cabaee6ceb177df40f497b68a"
+  },
+  "local/zstd-capacity-arm-paired-official.json": {
+    "bytes": 3603952,
+    "sha256": "08095af4a99b057e127c3d8326807344ce4b98375a9d86bbf69a9084a04f7aa9"
+  },
+  "local/zstd-capacity-arm-paired-supplemental-summary.json": {
+    "bytes": 3128,
+    "sha256": "d2d9f44c9d3dfc404b21e93a162e20e6316da6913914be9afd22a90cc1be39e6"
+  },
+  "local/zstd-capacity-arm-paired-supplemental.json": {
+    "bytes": 2541760,
+    "sha256": "6fed3c9589f0a61243469b2983659de48c02ce0397eeba98d25ac048f03b6f78"
+  },
+  "local/zstd-capacity-arm-pipeline.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "local/zstd-capacity-arm-pipeline.py": {
+    "bytes": 714,
+    "sha256": "45304f5f0be080cb3d2c8224650273a440b4614719f03ae553c1399a85a45100"
+  },
+  "local/zstd-capacity-arm-run.log": {
+    "bytes": 3052,
+    "sha256": "8633cf3826ae3d4ddb9c1a42580e4b01d1eb4d94471963bbe0ee8e878be3a17e"
+  },
+  "local/zstd-capacity-arm-run.py": {
+    "bytes": 3734,
+    "sha256": "70b8017131dc43c96a25616ec8da6f1459338862030aac0c9143e5509823dd1c"
+  },
+  "local/zstd-capacity-arm-supplemental-new-1024.stderr": {
+    "bytes": 268,
+    "sha256": "7e1358de7aa25c5019263d26f5526102ff5685edd7b74579390503c46dfeed0b"
+  },
+  "local/zstd-capacity-arm-supplemental-new-16384.stderr": {
+    "bytes": 268,
+    "sha256": "7e1358de7aa25c5019263d26f5526102ff5685edd7b74579390503c46dfeed0b"
+  },
+  "local/zstd-capacity-arm-supplemental-new-4096.stderr": {
+    "bytes": 268,
+    "sha256": "7e1358de7aa25c5019263d26f5526102ff5685edd7b74579390503c46dfeed0b"
+  },
+  "local/zstd-capacity-arm-supplemental-new-legacy.stderr": {
+    "bytes": 258,
+    "sha256": "3a1ae8f97d048ce83ead279c0d998f54e4091ba64eaadda6ca4a19ae5147bf38"
+  },
+  "local/zstd-capacity-arm-supplemental-old-1024.stderr": {
+    "bytes": 268,
+    "sha256": "7e1358de7aa25c5019263d26f5526102ff5685edd7b74579390503c46dfeed0b"
+  },
+  "local/zstd-capacity-arm-supplemental-old-16384.stderr": {
+    "bytes": 268,
+    "sha256": "7e1358de7aa25c5019263d26f5526102ff5685edd7b74579390503c46dfeed0b"
+  },
+  "local/zstd-capacity-arm-supplemental-old-4096.stderr": {
+    "bytes": 268,
+    "sha256": "7e1358de7aa25c5019263d26f5526102ff5685edd7b74579390503c46dfeed0b"
+  },
+  "local/zstd-capacity-arm-supplemental-old-legacy.stderr": {
+    "bytes": 258,
+    "sha256": "3a1ae8f97d048ce83ead279c0d998f54e4091ba64eaadda6ca4a19ae5147bf38"
+  },
+  "local/zstd-capacity-check.log": {
+    "bytes": 649,
+    "sha256": "3ef9860f40469c327e7eee10099bbb657e69063017c2050b9eac07b194f6e88b"
+  },
+  "local/zstd-capacity-cloud-official-summary.json": {
+    "bytes": 6504,
+    "sha256": "b7ff9922c28f3dfee6ecaa5657d8006b81d4fcbbe6827b0cc44abbb6d4f2b293"
+  },
+  "local/zstd-capacity-cloud-supplemental-summary.json": {
+    "bytes": 2573,
+    "sha256": "e2a8d85eab71a98d65953ba549cdc0fbdf5aabf785e7057b25ac47898071e5bb"
+  },
+  "local/zstd-capacity-evidence-verification.txt": {
+    "bytes": 151,
+    "sha256": "da5a216641cef71ecb11c5a681ac4bb385795697bdec8b597b30ad5c8498bcd1"
+  },
+  "local/zstd-capacity-paired-lookup-summary.json": {
+    "bytes": 1819,
+    "sha256": "b11294299301e47b587e74d0ce1a6fec4cb710c200c4d89cbb8555f0e6a5bf38"
+  },
+  "local/zstd-capacity-paired-lookup.json": {
+    "bytes": 96861,
+    "sha256": "bc111a2557567cc3101c566a8f5c01bc4a735a2f081e612a8e98df996a35ba68"
+  },
+  "local/zstd-capacity-paired-lookup.log": {
+    "bytes": 1493,
+    "sha256": "616e43758b47adcbcba065a3360b101a1a38d79a816e775d7ff9c7383b2eda1d"
+  },
+  "local/zstd-capacity-paired-lookup.py": {
+    "bytes": 1324,
+    "sha256": "5aee7e8ae9af3ac17aaa7ef6a7f228ab4c08b3efb2a3c4552104c31fd16bbbea"
+  },
+  "local/zstd-capacity-portable.log": {
+    "bytes": 156,
+    "sha256": "71d1c7124c4b6c4a5cfc52869af10e255d4443fe544238d798359864fabd5577"
+  },
+  "local/zstd-capacity-wasm-build.log": {
+    "bytes": 933,
+    "sha256": "e3d218771f59fcfd818efbea70aeaef49af6c13fdeca5f9333c8dc8d29142fbb"
+  },
+  "local/zstd-capacity-wasm-test.log": {
+    "bytes": 268,
+    "sha256": "040c0caf31fa1d7e7fbedc0354914b7c348d6a909f95e468f22696f6ce9e795f"
+  },
+  "sources/hermes-dictionary-v2-manifest.json": {
+    "bytes": 7778,
+    "sha256": "2143f08322082bba8a8eef3335936fad30d3dbc0da7c6c51fa58a730c6d0141e"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/Cargo.toml": {
+    "bytes": 4788,
+    "sha256": "07db84190246dbf264c072ff9f23b12de1e1a8761bc47af77ebc6efe3a2be45f"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/benches/rust_hot_paths.rs": {
+    "bytes": 9927,
+    "sha256": "a8cb32bbde28fe993cc66f831fbeb037ae03da3118d7a6adc83d7b605ea6305f"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/examples/search_benchmark_game.rs": {
+    "bytes": 12302,
+    "sha256": "5475e86d2985dc559a8514200b2ed3770cf8f514a3e2a5304bfefb57c5a62adb"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/dsl/ql/mod.rs": {
+    "bytes": 44539,
+    "sha256": "d68d0c1a68e49b97f0af6829b9fd565e469ca7dd4c99f38351106c8acb665da0"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/dsl/ql/ql.pest": {
+    "bytes": 2401,
+    "sha256": "84d1845e64f5b25739339181fe2c370bfe65cde2105019ee39df04940f1e5b4d"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/index/mod.rs": {
+    "bytes": 39127,
+    "sha256": "358f5d142bfa46c3a8845daa5c14a32a90ad538642de80c4e81a0784fcd60373"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/index/reader.rs": {
+    "bytes": 14380,
+    "sha256": "8564079f9c70b39c4c0797ebaa82017702ecac3f41a16dab3eab9f36bcdbbd95"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/index/searcher.rs": {
+    "bytes": 89883,
+    "sha256": "2fa404e71a84e8515f9c193b4f39f52a1d1e18b331a1bd3fb7720e3b7d790295"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/index/tests/chunked.rs": {
+    "bytes": 49925,
+    "sha256": "d94ed99c65e2c3b22da16e13ed17ee51a11f80c91124fa9172422b67d87b1b8c"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/index/tests/mod.rs": {
+    "bytes": 6744,
+    "sha256": "a40f06e51c99a1c1bfa83c3338ec95452bbd5a28f80eb9a2e96c70b7a52efde8"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/index/wasm_writer.rs": {
+    "bytes": 16165,
+    "sha256": "de342e77f19973c5d355a5d1af7f6874532fc05655f3c487b32ca2c39b6f5546"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/index/writer.rs": {
+    "bytes": 101469,
+    "sha256": "c29d837c5f65909352ea10341d793c7cfd5b3d4d3b816120fe1ad316d9f9fde4"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/merge/row_mutation.rs": {
+    "bytes": 16271,
+    "sha256": "094e4f0bcb6a74ddc2efcf235d43d8cea2ce2334867b3076c3f20758d10c5c5d"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/merge/segment_manager.rs": {
+    "bytes": 212354,
+    "sha256": "933b88674db2624081d933f2a0cf7ca91fa6cbff490d0878e385205e5996fd65"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/query/bm25.rs": {
+    "bytes": 9205,
+    "sha256": "d89ecc61917bce55bc919d25deb7ffd29087d6c53d809979798309ac5d527dc9"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/query/boolean.rs": {
+    "bytes": 90060,
+    "sha256": "2faa8140148937e4fe96c99bd92733ad572b8261a7fd201c9eedc023edf23908"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/query/collector.rs": {
+    "bytes": 53948,
+    "sha256": "0373be07eeb0030ff4fb272b9d70b881445093c1e3181a0aa00a73b9dbcad4e7"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/query/docset.rs": {
+    "bytes": 15532,
+    "sha256": "57967ce8bc20675a22450af63b09aa6640544564689419b19b6c3ab1daf08d21"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/query/phrase.rs": {
+    "bytes": 45544,
+    "sha256": "4f248bf9307e2a788b13c5eb9b96f900a18b0ed426401e387f5bdb3a0099e2a4"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/query/planner.rs": {
+    "bytes": 43344,
+    "sha256": "4246a53ce9a1ce67e8a1a31ae33f1e6f992143333c622850018bea29334f0f8b"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/query/scoring.rs": {
+    "bytes": 116069,
+    "sha256": "9c44bc71e16d2aacfc80721720d643675ad4ded8c09619bbec2820e6fcbefa71"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/query/term.rs": {
+    "bytes": 36395,
+    "sha256": "0d20f72c81a5c425e25ef49cd380a244bafdefebe2a153edfcf48204c8d3e88c"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/query/traits.rs": {
+    "bytes": 26813,
+    "sha256": "4eabcbef16697b2a3ac28fab97fb29c1558de60c587ccd4e4fe73896796e25c9"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/segment/builder/config.rs": {
+    "bytes": 3632,
+    "sha256": "27c0caafa520cc191086121dc5a590b8fc82fbedf6e0e9835d6def29637e68db"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/segment/builder/mod.rs": {
+    "bytes": 90331,
+    "sha256": "7958699ad31149d2dcc85a034dab6a04123bda027473e501b5430aa3fed274e5"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/segment/builder/postings.rs": {
+    "bytes": 16552,
+    "sha256": "a97a36905da68756371517104979ae2b9f4cdf35fee075225336c5c75e2388b5"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/segment/merger/compact.rs": {
+    "bytes": 33501,
+    "sha256": "613c8dfc26e894e4d0376e7d75d7114dadb70fd285ee0ce688b3c3f932e5913f"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/segment/merger/mod.rs": {
+    "bytes": 35020,
+    "sha256": "af3d5c444cc4b0a18841f9075859aa09f13256a82c040769ad9d1e309636a63a"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/segment/merger/postings.rs": {
+    "bytes": 14178,
+    "sha256": "7ad01c982a6fe041fc1035ff30a1181105dce1fd0047c5661c2d79fd8762a9f9"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/segment/reader/candidate_lookup.rs": {
+    "bytes": 19464,
+    "sha256": "65db832b51437251c64fb3dd6eee78dd09c4e51f9cef2f9914ab9cd6168dcf13"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/segment/reader/mod.rs": {
+    "bytes": 183717,
+    "sha256": "76a855f14075351f3f3eda1b7e4dcc699160d3d4412314002a49866259525295"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/segment/reorder.rs": {
+    "bytes": 108167,
+    "sha256": "a1e579fd3121ced270d637b62426286056c7530ab38f0bbc9c7fc72ef8598ced"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/segment/text_reorder.rs": {
+    "bytes": 21808,
+    "sha256": "7410e5f27674a63911b23dae06b69fc4624a511ea2d9045d798d79a81225a019"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/structures/mod.rs": {
+    "bytes": 3790,
+    "sha256": "9b052df340ff93567739290f6490f898af8a2a190d1d045bae57065c3be25b74"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/structures/postings/horizontal_bp128.rs": {
+    "bytes": 28372,
+    "sha256": "40db2fc9f10511d72f9900ece6e7a8671ee219ce6456cc09e00483f8e06140e3"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/structures/postings/mod.rs": {
+    "bytes": 3625,
+    "sha256": "848cb6373525e35e268c1f551e2d04aefc3eb0bef3596ea9da99ec0f72562e1b"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/structures/postings/opt_p4d.rs": {
+    "bytes": 32125,
+    "sha256": "4d771a96b2b8a59044c864a51d34720b99fbea854577b7e431d79754b29320a6"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/structures/postings/posting.rs": {
+    "bytes": 127773,
+    "sha256": "f23c5af55f44b95ad5af8632530ebb7b493799ab126aadcfe5d2d384b710cdb2"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/structures/postings/posting/compact.rs": {
+    "bytes": 20334,
+    "sha256": "ff8a12f146f173e26b6916be33af3301d97a6db573f986ff7d3e4084cc5dd1c2"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/structures/postings/posting/reader.rs": {
+    "bytes": 11269,
+    "sha256": "b2f55300d5d99c24d385b331917b4f3cd3ab23cbc5313f23787b30329f861645"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/structures/postings/posting/validation.rs": {
+    "bytes": 7619,
+    "sha256": "64dd2a27626686d664921d2f7794885930d3f472f45b31f645a0502b49e26cbf"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/structures/simd.rs": {
+    "bytes": 198063,
+    "sha256": "8e6a2f40e854a23ab3485ad145688c45d0b892ee3ca14ff81d1a610c13a6ccaf"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/structures/sstable.rs": {
+    "bytes": 92904,
+    "sha256": "172af136264dbb9dd732a0598fb0d53265d5282dcd865e9608722e99d959040c"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/structures/sstable/dictionary_config_tests.rs": {
+    "bytes": 13395,
+    "sha256": "c6de077fd078d4f8a1d853ab01606d41d7e172977fa992d1d80e56f1ac58f972"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/src/structures/sstable/testdata/default_v5.bin": {
+    "bytes": 32352,
+    "sha256": "57574904dcdec6dc56a317bc4d9623678ab40093e13958440d7f1b611d761205"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/tests/corrupt_text_postings.rs": {
+    "bytes": 3358,
+    "sha256": "3ba3817fbb71c911891f067e7b0bcc9c3b42fddc4cf7039d65367d90f2a6c94d"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/tests/dictionary_policy.rs": {
+    "bytes": 3489,
+    "sha256": "d82b83e195b6efc5a89fe8b12be5e75e567cca3c12c1bfbc3c786dedbe850522"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/tests/exhaustive_text_collection.rs": {
+    "bytes": 7349,
+    "sha256": "efcd077d6814d6bf84041752b776e3aaec9ca756eb02feaec8a15e390a83da9f"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/tests/posting_validation_resources.rs": {
+    "bytes": 3433,
+    "sha256": "76f4f6a1d89a42e4b274130b6f46461bf54f0b8c759409423b630d5306af2d0f"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/tests/query_required_clauses.rs": {
+    "bytes": 9622,
+    "sha256": "b32eff09e3619e2a2898f1389feec437db32172be6f67aa699bd30d17da1020e"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/tests/ranked_term_collection.rs": {
+    "bytes": 8512,
+    "sha256": "843c68a77506eaeb497c8c3e58a5a71654afa8c1fad9a8d09b54294641c52551"
+  },
+  "sources/hermes-dictionary-v2/hermes-core/tests/ratio_chunked_collection.rs": {
+    "bytes": 5606,
+    "sha256": "d90379f01522e01691283f23bcd95e8f77e1b2533219435cb793dc84301a8e01"
+  },
+  "sources/hermes-dictionary-v2/hermes-tool/src/index_ops.rs": {
+    "bytes": 31280,
+    "sha256": "293975c955161abaf724dfd839380b70996890c716bf0d58e03e859001a488fa"
+  },
+  "sources/hermes-dictionary-v2/hermes-tool/src/main.rs": {
+    "bytes": 24525,
+    "sha256": "749de8dd63801d19d2a162cfcdd1d73c75840330327106b0fee68b81647ac62d"
+  },
+  "sources/hermes-dictionary-v2/scripts/search_benchmark/Makefile": {
+    "bytes": 173,
+    "sha256": "209b6ddc0e89bebcaea79fafbe68336f070ac7b12417ef078a9abc9f8d6bff72"
+  },
+  "sources/hermes-dictionary-v2/scripts/search_benchmark/analyze.py": {
+    "bytes": 3984,
+    "sha256": "99216a2458b682667c4d6b86affb5da13c2fea3f298ccd9e3dd41bd075fb1c6d"
+  },
+  "sources/hermes-dictionary-v2/scripts/search_benchmark/smoke.py": {
+    "bytes": 2797,
+    "sha256": "ccfa0298db6309046714bb0254367189fbebf803742f08ca20dccdb5dc08ed09"
+  },
+  "sources/hermes-dictionary-v2/scripts/search_benchmark/supplemental_terms.py": {
+    "bytes": 747,
+    "sha256": "11c8ef1c20ae8226376e0c202eebebd31a5c5dff8ecfde395bbd14dd3b7d4a23"
+  },
+  "sources/hermes-dictionary-v2/scripts/search_benchmark/verify.py": {
+    "bytes": 3251,
+    "sha256": "40604018aa62ee394c082328e8ff68e340833032a39ca77ff6471bb916782059"
+  },
+  "sources/hermes-zstd-capacity-v1-manifest.json": {
+    "bytes": 7887,
+    "sha256": "fdb7e19319e9c3507b63c68e30125216e735bdf7e3b2bea7100ae5252ed05e1d"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/Cargo.toml": {
+    "bytes": 4788,
+    "sha256": "07db84190246dbf264c072ff9f23b12de1e1a8761bc47af77ebc6efe3a2be45f"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/benches/rust_hot_paths.rs": {
+    "bytes": 9927,
+    "sha256": "a8cb32bbde28fe993cc66f831fbeb037ae03da3118d7a6adc83d7b605ea6305f"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/examples/search_benchmark_game.rs": {
+    "bytes": 12302,
+    "sha256": "5475e86d2985dc559a8514200b2ed3770cf8f514a3e2a5304bfefb57c5a62adb"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/compression/zstd.rs": {
+    "bytes": 18977,
+    "sha256": "ac11de0d68dcce3d7b6f04c54dcdf7ed210a2acdc42527930d654a01d500134d"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/dsl/ql/mod.rs": {
+    "bytes": 44539,
+    "sha256": "d68d0c1a68e49b97f0af6829b9fd565e469ca7dd4c99f38351106c8acb665da0"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/dsl/ql/ql.pest": {
+    "bytes": 2401,
+    "sha256": "84d1845e64f5b25739339181fe2c370bfe65cde2105019ee39df04940f1e5b4d"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/index/mod.rs": {
+    "bytes": 39127,
+    "sha256": "358f5d142bfa46c3a8845daa5c14a32a90ad538642de80c4e81a0784fcd60373"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/index/reader.rs": {
+    "bytes": 14380,
+    "sha256": "8564079f9c70b39c4c0797ebaa82017702ecac3f41a16dab3eab9f36bcdbbd95"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/index/searcher.rs": {
+    "bytes": 89883,
+    "sha256": "2fa404e71a84e8515f9c193b4f39f52a1d1e18b331a1bd3fb7720e3b7d790295"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/index/tests/chunked.rs": {
+    "bytes": 49925,
+    "sha256": "d94ed99c65e2c3b22da16e13ed17ee51a11f80c91124fa9172422b67d87b1b8c"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/index/tests/mod.rs": {
+    "bytes": 6744,
+    "sha256": "a40f06e51c99a1c1bfa83c3338ec95452bbd5a28f80eb9a2e96c70b7a52efde8"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/index/wasm_writer.rs": {
+    "bytes": 16165,
+    "sha256": "de342e77f19973c5d355a5d1af7f6874532fc05655f3c487b32ca2c39b6f5546"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/index/writer.rs": {
+    "bytes": 101469,
+    "sha256": "c29d837c5f65909352ea10341d793c7cfd5b3d4d3b816120fe1ad316d9f9fde4"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/merge/row_mutation.rs": {
+    "bytes": 16271,
+    "sha256": "094e4f0bcb6a74ddc2efcf235d43d8cea2ce2334867b3076c3f20758d10c5c5d"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/merge/segment_manager.rs": {
+    "bytes": 212354,
+    "sha256": "933b88674db2624081d933f2a0cf7ca91fa6cbff490d0878e385205e5996fd65"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/query/bm25.rs": {
+    "bytes": 9205,
+    "sha256": "d89ecc61917bce55bc919d25deb7ffd29087d6c53d809979798309ac5d527dc9"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/query/boolean.rs": {
+    "bytes": 90060,
+    "sha256": "2faa8140148937e4fe96c99bd92733ad572b8261a7fd201c9eedc023edf23908"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/query/collector.rs": {
+    "bytes": 53948,
+    "sha256": "0373be07eeb0030ff4fb272b9d70b881445093c1e3181a0aa00a73b9dbcad4e7"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/query/docset.rs": {
+    "bytes": 15532,
+    "sha256": "57967ce8bc20675a22450af63b09aa6640544564689419b19b6c3ab1daf08d21"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/query/phrase.rs": {
+    "bytes": 45544,
+    "sha256": "4f248bf9307e2a788b13c5eb9b96f900a18b0ed426401e387f5bdb3a0099e2a4"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/query/planner.rs": {
+    "bytes": 43344,
+    "sha256": "4246a53ce9a1ce67e8a1a31ae33f1e6f992143333c622850018bea29334f0f8b"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/query/scoring.rs": {
+    "bytes": 116069,
+    "sha256": "9c44bc71e16d2aacfc80721720d643675ad4ded8c09619bbec2820e6fcbefa71"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/query/term.rs": {
+    "bytes": 36395,
+    "sha256": "0d20f72c81a5c425e25ef49cd380a244bafdefebe2a153edfcf48204c8d3e88c"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/query/traits.rs": {
+    "bytes": 26813,
+    "sha256": "4eabcbef16697b2a3ac28fab97fb29c1558de60c587ccd4e4fe73896796e25c9"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/segment/builder/config.rs": {
+    "bytes": 3632,
+    "sha256": "27c0caafa520cc191086121dc5a590b8fc82fbedf6e0e9835d6def29637e68db"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/segment/builder/mod.rs": {
+    "bytes": 90331,
+    "sha256": "7958699ad31149d2dcc85a034dab6a04123bda027473e501b5430aa3fed274e5"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/segment/builder/postings.rs": {
+    "bytes": 16552,
+    "sha256": "a97a36905da68756371517104979ae2b9f4cdf35fee075225336c5c75e2388b5"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/segment/merger/compact.rs": {
+    "bytes": 33501,
+    "sha256": "613c8dfc26e894e4d0376e7d75d7114dadb70fd285ee0ce688b3c3f932e5913f"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/segment/merger/mod.rs": {
+    "bytes": 35020,
+    "sha256": "af3d5c444cc4b0a18841f9075859aa09f13256a82c040769ad9d1e309636a63a"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/segment/merger/postings.rs": {
+    "bytes": 14178,
+    "sha256": "7ad01c982a6fe041fc1035ff30a1181105dce1fd0047c5661c2d79fd8762a9f9"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/segment/reader/candidate_lookup.rs": {
+    "bytes": 19464,
+    "sha256": "65db832b51437251c64fb3dd6eee78dd09c4e51f9cef2f9914ab9cd6168dcf13"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/segment/reader/mod.rs": {
+    "bytes": 183717,
+    "sha256": "76a855f14075351f3f3eda1b7e4dcc699160d3d4412314002a49866259525295"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/segment/reorder.rs": {
+    "bytes": 108167,
+    "sha256": "a1e579fd3121ced270d637b62426286056c7530ab38f0bbc9c7fc72ef8598ced"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/segment/text_reorder.rs": {
+    "bytes": 21808,
+    "sha256": "7410e5f27674a63911b23dae06b69fc4624a511ea2d9045d798d79a81225a019"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/structures/mod.rs": {
+    "bytes": 3790,
+    "sha256": "9b052df340ff93567739290f6490f898af8a2a190d1d045bae57065c3be25b74"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/structures/postings/horizontal_bp128.rs": {
+    "bytes": 28372,
+    "sha256": "40db2fc9f10511d72f9900ece6e7a8671ee219ce6456cc09e00483f8e06140e3"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/structures/postings/mod.rs": {
+    "bytes": 3625,
+    "sha256": "848cb6373525e35e268c1f551e2d04aefc3eb0bef3596ea9da99ec0f72562e1b"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/structures/postings/opt_p4d.rs": {
+    "bytes": 32125,
+    "sha256": "4d771a96b2b8a59044c864a51d34720b99fbea854577b7e431d79754b29320a6"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/structures/postings/posting.rs": {
+    "bytes": 127773,
+    "sha256": "f23c5af55f44b95ad5af8632530ebb7b493799ab126aadcfe5d2d384b710cdb2"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/structures/postings/posting/compact.rs": {
+    "bytes": 20334,
+    "sha256": "ff8a12f146f173e26b6916be33af3301d97a6db573f986ff7d3e4084cc5dd1c2"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/structures/postings/posting/reader.rs": {
+    "bytes": 11269,
+    "sha256": "b2f55300d5d99c24d385b331917b4f3cd3ab23cbc5313f23787b30329f861645"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/structures/postings/posting/validation.rs": {
+    "bytes": 7619,
+    "sha256": "64dd2a27626686d664921d2f7794885930d3f472f45b31f645a0502b49e26cbf"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/structures/simd.rs": {
+    "bytes": 198063,
+    "sha256": "8e6a2f40e854a23ab3485ad145688c45d0b892ee3ca14ff81d1a610c13a6ccaf"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/structures/sstable.rs": {
+    "bytes": 92904,
+    "sha256": "172af136264dbb9dd732a0598fb0d53265d5282dcd865e9608722e99d959040c"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/structures/sstable/dictionary_config_tests.rs": {
+    "bytes": 13395,
+    "sha256": "c6de077fd078d4f8a1d853ab01606d41d7e172977fa992d1d80e56f1ac58f972"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/src/structures/sstable/testdata/default_v5.bin": {
+    "bytes": 32352,
+    "sha256": "57574904dcdec6dc56a317bc4d9623678ab40093e13958440d7f1b611d761205"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/tests/corrupt_text_postings.rs": {
+    "bytes": 3358,
+    "sha256": "3ba3817fbb71c911891f067e7b0bcc9c3b42fddc4cf7039d65367d90f2a6c94d"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/tests/dictionary_policy.rs": {
+    "bytes": 3489,
+    "sha256": "d82b83e195b6efc5a89fe8b12be5e75e567cca3c12c1bfbc3c786dedbe850522"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/tests/exhaustive_text_collection.rs": {
+    "bytes": 7349,
+    "sha256": "efcd077d6814d6bf84041752b776e3aaec9ca756eb02feaec8a15e390a83da9f"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/tests/posting_validation_resources.rs": {
+    "bytes": 3433,
+    "sha256": "76f4f6a1d89a42e4b274130b6f46461bf54f0b8c759409423b630d5306af2d0f"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/tests/query_required_clauses.rs": {
+    "bytes": 9622,
+    "sha256": "b32eff09e3619e2a2898f1389feec437db32172be6f67aa699bd30d17da1020e"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/tests/ranked_term_collection.rs": {
+    "bytes": 8512,
+    "sha256": "843c68a77506eaeb497c8c3e58a5a71654afa8c1fad9a8d09b54294641c52551"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-core/tests/ratio_chunked_collection.rs": {
+    "bytes": 5606,
+    "sha256": "d90379f01522e01691283f23bcd95e8f77e1b2533219435cb793dc84301a8e01"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-tool/src/index_ops.rs": {
+    "bytes": 31280,
+    "sha256": "293975c955161abaf724dfd839380b70996890c716bf0d58e03e859001a488fa"
+  },
+  "sources/hermes-zstd-capacity-v1/hermes-tool/src/main.rs": {
+    "bytes": 24525,
+    "sha256": "749de8dd63801d19d2a162cfcdd1d73c75840330327106b0fee68b81647ac62d"
+  },
+  "sources/hermes-zstd-capacity-v1/scripts/search_benchmark/Makefile": {
+    "bytes": 173,
+    "sha256": "209b6ddc0e89bebcaea79fafbe68336f070ac7b12417ef078a9abc9f8d6bff72"
+  },
+  "sources/hermes-zstd-capacity-v1/scripts/search_benchmark/analyze.py": {
+    "bytes": 3984,
+    "sha256": "99216a2458b682667c4d6b86affb5da13c2fea3f298ccd9e3dd41bd075fb1c6d"
+  },
+  "sources/hermes-zstd-capacity-v1/scripts/search_benchmark/smoke.py": {
+    "bytes": 2797,
+    "sha256": "ccfa0298db6309046714bb0254367189fbebf803742f08ca20dccdb5dc08ed09"
+  },
+  "sources/hermes-zstd-capacity-v1/scripts/search_benchmark/supplemental_terms.py": {
+    "bytes": 747,
+    "sha256": "11c8ef1c20ae8226376e0c202eebebd31a5c5dff8ecfde395bbd14dd3b7d4a23"
+  },
+  "sources/hermes-zstd-capacity-v1/scripts/search_benchmark/verify.py": {
+    "bytes": 3251,
+    "sha256": "40604018aa62ee394c082328e8ff68e340833032a39ca77ff6471bb916782059"
+  }
+}

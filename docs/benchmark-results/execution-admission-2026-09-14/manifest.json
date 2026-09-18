@@ -1,0 +1,41 @@
+{
+  "archive": "results.zip",
+  "bytes": 10834833,
+  "sha256": "864f659af3fd5915ea6df0aa064adaf4261b5572f7eda9ba5a82ccfe384bc019",
+  "files": 399,
+  "full_archives": [
+    {
+      "path": ".context/length-batch-cloud-evidence.tar.gz",
+      "bytes": 50754988,
+      "sha256": "812bb33ee31ca445f847c874eec28385a35eb817201ce7f5fa1acdf21b207b6e"
+    },
+    {
+      "path": ".context/phrase-driver-cloud-evidence.tar.gz",
+      "bytes": 31932768,
+      "sha256": "d8bd698bbd3ba804b3cb088fb8a2dc52e9ad6759ed8293ca448931dbd1efe631"
+    },
+    {
+      "path": ".context/position-admission-cache-cloud-evidence.tar.gz",
+      "bytes": 43218712,
+      "sha256": "3e02323c01166062d446d91951f195ab2bd46f637353f2cb6f472a4fa72f638d"
+    },
+    {
+      "path": ".context/position-admission-paired-cloud-evidence.tar.gz",
+      "bytes": 15050514,
+      "sha256": "f43f077928788dc4316cb7a66643a65d8b0702f017ad81a248adb526ea8d076f"
+    },
+    {
+      "path": ".context/position-admission-union-profile-evidence.tar.gz",
+      "bytes": 32499470,
+      "sha256": "c037987325fa66a9e6a31fb3049f17b4bffd1653ea292588eb23aa057c89d8fa"
+    }
+  ],
+  "notes": [
+    "Every full cloud archive was verified against its external SHA256 and every manifest entry before packaging.",
+    "Binaries and perf data are omitted from this compact bundle; exact hashes, frozen source, locks, run scripts, raw latency samples and gates are included.",
+    "The position-admission-cache phase includes strict position validation and shared bounded proof caching; preceding phase timings predate the correctness fix.",
+    "CPU software sampling and smaps_rollup are diagnostic, separate from uninstrumented latency measurements.",
+    "All engine latency comparisons use identical complete query workloads, compiler/CPU flags and immutable indexes on the same host.",
+    "ARM results cover the same first 100,000 documents with canonical and normally merged position streams; they are not the full 5,032,104-document corpus."
+  ]
+}

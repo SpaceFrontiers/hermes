@@ -1,5 +1,28 @@
 # Core/server review — 2026-09-05
 
+Current release review: [module ownership and shared implementations](#release-review-module-ownership-and-shared-implementations).
+The newest sparse storage results are in [compact Seismic summaries](seismic-compact-summaries.md);
+[binary vector storage](binary-vector-storage.md) describes the single-copy layout.
+The text benchmark overview below describes its September 16 measurement snapshot.
+
+New [query-work diagnosis](search-work-diagnosis.md) separates the gap by family:
+standalone top-10 decodes 8.29× Tantivy's document blocks; ranked unions and phrases
+already avoid work, while intersection/complete phrase gap payloads remain larger.
+The opt-in counters are absent from production builds. See the new report for
+scope, per-query evidence and the norm-scoring control experiment.
+
+Text measurement snapshot (September 16): opt-in compact text directories reduce
+full-corpus official RSS from **1034.65 to 816.10 MiB**; byte norms reduce it to
+**811.29 MiB**. Compact/exact top-10 and top-1000 are nearly flat, but top-100
+plus count regresses 1.9%. Quantized norms with lookup scoring regress official
+latency 2.3–5.1% and standalone top-1000 14.8%. **Tantivy parity remains unmet.**
+Both new options remain disabled by default. The reader-only legacy-index
+control also has remaining count overhead; all controls are reported in the
+[current comparison](search-benchmark-current.md) and the
+[compact-format review](#compact-text-directories-and-byte-norms--september-16).
+Earlier sections preserve historical measurements; references there to “latest”
+apply only to their frozen source snapshots.
+
 Review base: `dc09bb3594424910f29f3854deaf1ac58c7fc0f1`.
 This is a review of core/server entry points, merge representations, metadata
 residency, and related broker behavior, followed by a focused alignment pass.
@@ -3042,3 +3065,7222 @@ all 22 JavaScript tests passed; four portable fault-injection tests also passed.
 Initial WASM and real-server failures were stale assertions requiring staged
 mutation rejection; they were updated to verify acceptance and final visibility.
 Documentation links and formatting passed.
+
+## Wikipedia search benchmark (2026-09-13)
+
+The full 5,032,104-document corpus and all 962 official queries were measured on
+a dedicated GCloud n2-highmem-8 (Intel Xeon, 64 GiB). Search was pinned to one CPU;
+both Rust engines used rustc 1.98.1, native CPU flags and release LTO. Main
+before/after samples reuse identical Hermes index bytes, with 60-second warmup
+and ten repetitions. Latencies below are geometric means of per-query medians,
+in microseconds, including parsing and pipe transport.
+
+| Command       | Hermes before µs | Hermes after µs | Tantivy µs | Lucene µs | Before/after speedup |
+| ------------- | ---------------: | --------------: | ---------: | --------: | -------------------: |
+| TOP_10        |            2,110 |           1,485 |        552 |       558 |                1.42× |
+| TOP_100       |            2,577 |           1,772 |        720 |       774 |                1.45× |
+| TOP_1000      |            3,033 |           2,092 |        933 |     1,151 |                1.45× |
+| TOP_100_COUNT |            5,196 |           3,097 |        862 |     1,382 |                1.68× |
+| COUNT         |            5,051 |             987 |        426 |       485 |                5.12× |
+
+All 962 exact counts agree with Tantivy 0.26 and Lucene 10.4.0. Pruned Hermes
+rankings agree with exhaustive scoring in score bits and ordered IDs at top-10,
+top-100 and top-1000. `COUNT` is exact; `--exhaustive` also disables ranking
+pruning. Hermes remains slower than both references overall. Canonical score
+arithmetic, saturated TF bounds, keyword boundaries and phrase termination
+fixes are correctness requirements, not optional speed tradeoffs.
+
+The implementation streams exhaustive text collection, batches score-free pure
+unions, uses guarded exact term-frequency metadata, aligns selective required
+clauses before phrase verification, and reuses existing posting decoders and
+skip structures. Rejected experiments are recorded: batching conjunctions and
+exclusions regressed them, and ordinary term streaming beat a new pruning route
+on the complete 714-term supplement. No production codec/cache default changes.
+
+See [the full results, remaining costs and evidence](search-benchmark-results.md),
+[the reproducible protocol](search-benchmark-game.md), and
+[the small results bundle](benchmark-results/search-game-2026-09-13/README.md).
+Exhaustive ranking costs 1.96×, 1.72× and 1.52× the corresponding pruned runs.
+The 1,024-block cache option improves official COUNT by 19% for roughly 5–7 MiB
+more RSS. Existing packed/PFor codecs save about 10% of index bytes but regress
+query latency, so rounded remains the default. A read-only position diagnostic
+estimates another 10.7% of original whole-index bytes could be saved with
+exact-width payloads; this remains an unimplemented format proposal.
+
+Validation: the complete engineering check passes 1,630 tests (26 ignored),
+formatting, Clippy and native-without-sync compilation; WASM passes all 20 tests;
+the final x86 core suite passes 1,442 tests (17 ignored). All official and
+supplemental exactness gates pass. Raw samples, source/binary hashes, profiles
+and logs are preserved in the checksum-verified evidence archive.
+
+The benchmark VM and boot disk were deleted after evidence verification.
+
+## Score-bound follow-up — 2026-09-13
+
+The [follow-up report](search-benchmark-ratio-results.md) records the new
+same-index cloud comparison and separate 100,000-document ARM cross-check.
+The implemented opt-in ratio extension addresses loose TF/length block bounds
+without changing the canonical BM25 scorer or posting payload codecs. Compact
+merges preserve the encoded extension and budget its metadata; defaults remain
+unchanged. A single ratio-bearing text cursor now uses the existing block cursor
+and heap without general window scratch. Standalone precomputed text results
+reuse the existing ranked handoff, avoiding a second heap while retaining lazy
+document-order traversal for Boolean composition.
+
+The final local gate passes 1,640 tests, formatting, Clippy, native without sync,
+and the WASM build plus 20 tests. ARM exact-ranking gates cover every official
+query and all 714 supplemental terms on both the legacy and ratio-bearing
+indexes. On the same legacy ARM index, the execution-only handoff improves
+TOP_1000 by 1.075× overall and 1.200× for the 301 unions; TOP_10 and COUNT are
+flat. The ratio-bearing single-term workload improves TOP_10 while TOP_1000
+remains flat in the reversed-order repeat. These small-fixture results are not
+full-corpus ARM claims.
+
+On the full 5,032,104-document corpus, all 714 supplemental terms improve by
+2.889× for TOP_10 and 1.648× for TOP_1000 on identical persisted index bytes.
+TOP_10 improves for 713/714 terms and TOP_1000 for 705/714. The official 962-query
+ranked commands improve by only 1.8–3.2%; exact-count commands remain flat, and
+Hermes still trails Tantivy by 2.12–3.37× across the five commands. Peak process
+RSS increases by 0.38–1.27 MiB per official command. All 1,676 final x86 query
+gates pass, including exact counts against Tantivy and ordered Hermes IDs/score
+bits against exhaustive scoring. These measurements use a new VM/index and
+must not be multiplied into the original report's speedups.
+
+The ratio arrays occupy 104,200,464 bytes (99.37 MiB), 1.92% of this index;
+they remain mmap-backed and evictable. A separate same-binary cache comparison
+raises capacity from 256 to 1,024 blocks: 1.36× faster supplemental TOP_10 and
+4.37× faster supplemental exact COUNT, plus 1.11–1.19× across official commands,
+for 5.18–5.73 MiB more peak RSS per official process. This is an optional budget
+tradeoff, with its own controls and all exactness gates, not a default change.
+
+Remaining measured priorities are stronger competitive impact bounds,
+dictionary-cache residency, posting alignment and position decoding. Ratio
+minima are still looser than a frontier of actual competitive frequency/norm
+pairs. Any frontier extension must preserve configurable BM25/global statistics,
+bounded resident metadata and compatible merge-copy behavior. No default or
+unimplemented-format speed claim follows from this experiment. Full-corpus
+latencies, memory, controls, rejected candidates and resource cleanup are
+reported in the linked follow-up evidence.
+
+### Bulk scoring, Lucene research and posting validation (2026-09-13)
+
+See the [full measured report](search-benchmark-bulk-results.md),
+[reproducible evidence](benchmark-results/bulk-scoring-2026-09-13/README.md) and
+[pinned Lucene research](lucene-11-performance-research.md). Final corrected-build cloud timing and capture are complete; distinguish the
+frozen prototypes from the retained source below.
+
+**Retained implementation and invariants.** Complete Boolean unions use one
+4096-document score window and membership bitset. Children contribute their
+complete score in the original order; nested additions retain their parentheses.
+Every matching document is still collected and counted exactly once in document
+order. Term scoring gathers lengths and evaluates canonical BM25 over the owning
+posting iterator's decoded runs, then scatters scores. Standalone terms with more
+than one codec block use the same replacement-window path. Signed zero, boosts,
+legacy length fallback and score bits remain unchanged. Position-aware collection,
+unsupported query shapes and predicates keep their ordinary paths.
+
+The posting iterator owns run advancement and TF-prefix/position-cursor accounting.
+A cancelled callback leaves its run unconsumed; checks surround each window, run
+and emitted hit. Scratch is a 16 KiB score array, 512-byte membership mask and two
+128-float arrays, independent of hit count. No new scorer, format, query-answer
+cache or index-specific branch is introduced. The x86 batch contains eight-lane
+BM25 arithmetic; ARM uses four lanes. Separate profiles show work moving from
+per-hit `doc`/`seek`/`score` dispatch into the batched accumulator and collector.
+
+**Measured prototype result.** On the full 5,032,104-document corpus and all 962
+official queries, frozen score-window v2 improves TOP100+COUNT
+3076.521→2103.758 µs (1.462×), including 14112.282→4380.319 µs (3.222×) over all
+301 unions. Its union COUNT control is flat. Hermes still takes 2.338× Tantivy's
+time overall for TOP100+COUNT. Small changes in unaffected ranked paths include
+control drift and are not credited to batching. Matched process RSS is roughly
+964 MiB versus Tantivy's 715 MiB; RSS includes resident mmap pages, not only heap.
+
+The result includes regressions: `shih tzu`, 1,372 exact hits, changes
+458.5→571.5 µs while COUNT remains flat. Fixed score-window initialization for
+sparse matches is a plausible cause to profile. Across all union hit-count
+quintiles, geomean gains are 1.69×, 2.32×, 3.01×, 4.36× and 6.66×. No query is
+excluded and no special case is introduced for the slow query.
+
+**Correctness follow-up.** An unknown posting codec was accepted by deserialization
+and became an empty iterator. A failing regression was recorded before adding
+structural validation. The structures owner now validates directory/header counts,
+order and extents, codec widths, PFor exception tables and position cursors before
+exposing an immutable posting view. Compaction reuses the same block validator.
+Serialization and compatible merge payload bytes remain unchanged. Public sync
+and async search regressions return an error. Validation uses constant scratch
+and O(blocks + exceptions) work; it does not authenticate arbitrary in-range bit
+changes or prove scoring bounds against original documents.
+
+The isolated full-corpus validation comparison adds 6–9% overall:
+TOP10 1407.595→1537.182; TOP1000 2043.366→2174.353;
+TOP100+COUNT 2050.039→2178.410; COUNT 1007.733→1090.950 µs. The fix remains enabled.
+Future validation reuse must be tied to immutable reader generations and byte
+ranges, bound its metadata and preserve first-read and cache-miss errors.
+
+**Rejected phrase prototype.** A competitive bound before position decoding was
+correct but did not improve the overall workload. In the final alternating paired
+repeat, phrase TOP10 improves 1103.082→977.068 µs (1.129×), but union TOP10 slows
+1059.883→1178.364 µs (0.899×); overall TOP10 is flat and TOP1000 slightly slower.
+Collector/trait/phrase changes were removed, preserving standalone term batching
+and posting validation. The subsequent removal control did not recover the union
+slowdown: the retained build is 4.8% slower on official TOP10 than the correct
+phrase prototype, but 3.2% faster on supplemental TOP100+COUNT. The cross-workload
+benefit remains inconclusive, and the union regression cannot be assigned solely
+to the phrase hook. Prototype sources and tests remain in the evidence archive.
+Any future phrase bound must use first-term frequency: under slop, multiple starts
+can share a later position, so the minimum frequency across terms is unsafe.
+Ties require strict bound comparison; exhaustive/composite collection must retain
+complete membership, and unsupported wrappers must not forward pruning hints.
+
+**Final retained source validation.** The full check passes 1,649 native tests
+(26 ignored, 25 suites), formatting, Clippy and native without sync; the WASM
+build and all 20 tests pass. All 1,676 final ARM gates agree with exact counts and
+exhaustive ordered IDs/score bits. A clean paired ARM repeat versus v2 gives
+23.051→20.547 µs (1.122×) on TOP100+COUNT for all 714 terms, with COUNT and TOP10
+flat. Official commands are within about 1.1%, including their count control.
+The first final-ARM pass overlapped a brief ZIP job and was preserved but excluded;
+both complete workloads were repeated afterward. A source-archive timestamp
+hazard was caught and repaired before cloud v1/v2 timing; distinct rebuilt
+binaries and batch symbols were verified. No stale-binary samples are included.
+
+**Remaining research.** The [BM25 impact-envelope proposal](posting-codecs.md#proposed-bm25-impact-envelope-research-not-implemented)
+retains 3.600 points/block on average across 780,298 probed blocks, versus 8.506
+for the full Pareto frontier. Its ideal final-TOP10 threshold rejects 99.138% of
+blocks versus 69.009% for the ratio proxy. These are oracle-bound headroom numbers,
+not actual skipping, latency, or index-wide storage estimates. The format remains
+unimplemented. Dictionary decode/residency, posting alignment and position decoding
+remain priorities; sparse performance has not been measured in this pass.
+
+Lucene's 256-entry norm table also motivated an offline exact-factor lookup probe.
+On ARM contiguous score arrays, its runtime-sized lookup/gather prototype was
+slower than canonical vectorized division, despite identical score bits. It is
+not in production and does not establish the result on x86 or a complete query.
+
+Final cloud results for the retained build are TOP10 1589.342 µs (2.840×T),
+TOP1000 2187.585 (2.298×T), TOP100+COUNT 2211.890 (2.505×T), COUNT1082.535
+(2.538×T). All 1,676 final x86 exact-count/ordered-score gates pass. The final
+archive has 228 hash-verified members; H/T index manifests match the initial
+capture exactly. Ranked RSS is within 0.4 MiB of v2 in this same phase. Full
+supplementary, family and variant tables remain in the linked report. The
+ranking gap remains open; this pass does not establish leadership.
+
+## Bounded posting validation reuse (2026-09-13)
+
+The [validation reuse report](search-benchmark-validation-results.md) records a
+new opt-in, byte-bounded table owned by each immutable posting-file reader. It
+caches only successful range/footer validation, never payloads or query answers.
+New file owners and lazy callbacks still validate; errors and cancellation remain
+observable. The default is zero, maximum 64 MiB per segment, and heap accounting
+includes the allocation. All public deserializers retain unconditional checks.
+
+Full harness and WASM pass, with 1,656 native tests including two supplemental
+mmap/admission tests, plus all 1,676 ARM exact-count/score-bit gates under both
+budgets. Official ARM commands improve 1–3%; the supplemental terms instead slow
+roughly 1–3%. Single-term COUNT varies even though it bypasses external postings.
+Full-corpus x86 timing, RSS and profiles are complete below; the VM remains
+active for the next dictionary experiment.
+
+The validation-cache full-corpus follow-up is complete: unchanged index bytes,
+all 1,676 gates at both budgets, and 5–10% official latency gains with 256 KiB per
+segment. TOP100+exact count improves 1,943.889 → 1,844.662 µs, compared with
+Tantivy's 810.085 µs. Supplemental term COUNT is flat; ARM terms regress 1–3%,
+so the default stays disabled. Peak RSS increases at most 0.50 MiB versus the
+new disabled build. [Full tables and evidence](search-benchmark-validation-results.md)
+separate the measured frozen build from subsequent dictionary work.
+
+## Dictionary block and allocation experiments (2026-09-13)
+
+The [dictionary report](search-benchmark-dictionary-results.md) records opt-in
+block targets and an actual decompressed-byte cache cap, preserving STB5/Zstd and
+all posting bytes. The initial full-corpus 4 KiB layout improves matched-cap
+TOP100+exact count 1,894.929 → 1,680.981 µs, versus Tantivy's 808.604 µs. Small ARM
+changes and slower bounded prefix scans prevent a default change. Bounded
+prefetch and failed-writer publication bugs are fixed with regressions. A
+subsequent capacity regression proves that a tiny bounded Zstd decode reserves
+64 MiB; a library-frame-size allocation fix is being measured independently.
+The final writer-fix run confirms the layout gain: matched 16/4 KiB
+TOP100+exact count is 1,961.198 / 1,749.443 µs, versus Tantivy 852.032 µs.
+All 136 executable-archive members and unchanged index manifests are verified;
+the report links a compact reproducible bundle. Allocation and conjunction
+cloud runs remain separate and in progress, with the VM still active.
+
+## Adaptive conjunction counting (2026-09-13, in progress)
+
+Pure conjunctions can now intersect bounded 4,096-document membership windows.
+Dense survivor masks use word intersections; sparse masks seek only surviving
+candidates. The path preserves next-document score/position state, uses 1 KiB
+mask scratch and reuses existing posting decoders. Optional/excluded clauses keep
+their existing execution. The [design](search-benchmark-game.md#proposed-adaptive-conjunction-membership-windows)
+records eligibility and the cost model. The verifier now checks score-free COUNT
+independently against exhaustive VERIFY and Tantivy, so ranked correctness cannot
+mask a count-path failure.
+
+The focused harness passes 1,678 native tests, native-without-sync and portable
+compilation, plus all 20 WASM tests. ARM gates pass all 1,676 queries for both
+before and after builds. On the 100k fixture, conjunction COUNT improves
+22.326 → 21.262 µs (5%); all official COUNT improves 23.663 → 23.331 µs and ranked
+commands are flat. Full-corpus x86 measurements and retention decision are pending.
+An additional deletion/multi-value conjunction assertion passes separately after
+the measured source freeze; it is not part of that frozen overlay.
+
+The [whole-vocabulary impact audit](posting-codecs.md#whole-vocabulary-storage-audit-and-narrower-first-experiment)
+now separates storage costs from the earlier query-term bound-tightness sample.
+On the 100k fixture, L0-only eight-point records for multi-block lists estimate
+0.72% index overhead using existing vints or 1.70% with fixed f32 coordinates,
+excluding any new footer/alignment. Applying coordinates to every list instead
+estimates 7.10%. The warm ARM metadata kernel favors coordinates (4.539 versus
+16.517 ns/block), but this is not a query-speed measurement. No impact format
+has been implemented. All-vocabulary full-corpus costs and the paired public
+workload remain necessary before selecting the representation.
+
+## Systemic execution gap and rejected first conjunction policy (2026-09-14)
+
+The captured first window candidate does **not** pass its performance gate.
+Full-corpus conjunction COUNT changes 750.300 → 766.975 µs (2.2% slower), versus
+Tantivy 285.112 µs. All official COUNT is flat (800.014 → 800.584 µs); TOP10 is
+also flat (1,195.120 → 1,195.209 µs). TOP100+exact count is 1,682.446 → 1,661.517 µs
+versus Tantivy 820.219 µs. Hermes still has a systemic roughly twofold gap.
+The 714-term control remains about 4.6× slower for TOP10. Full raw data and
+unchanged manifests are in the [conjunction bundle](benchmark-results/conjunction-2026-09-13/README.md).
+All 55 executable-archive members are verified (17,239,936 bytes, SHA-256
+`4304750b4f13aeecd1972b6bd73bd7ad6e7501ca1264d813f5b323411043ff35`).
+
+Complete per-query analysis separates the failure by lead density: the 43
+conjunctions with a lead document frequency below 1,000 regress 20% geometrically;
+the 113 between 1,000 and 10,000 regress 15%. Fifteen dense cases above 80,000
+but below 500,000 improve about 2.1×; the two above 500,000 improve about 4.9×.
+These bins describe the evidence, not execution thresholds. The next candidate
+uses the existing candidate-versus-bitmap-word cost model for admission before
+window setup; its performance remains unmeasured. The stronger verifier checks
+Hermes COUNT separately against exhaustive VERIFY and Tantivy for every query.
+
+The next performance priority is paired full-workload profiling of both engines,
+including pruned top-k, exhaustive scoring/counting, and score-free counting.
+Parser/dictionary, posting traversal, position checks, BM25, collection, and
+hardware-counter costs must explain the total gap. Small percentage gains do
+not establish progress to engine leadership; no leadership claim is supported.
+
+## Posting merge admission correctness (2026-09-14)
+
+A format-path audit reproduced a corrupt single-source term being copied into
+a successfully published merged segment. It also reproduced document rebasing
+arithmetic overflow. Both concatenation APIs now check remapped ranges and sums;
+streaming input uses the existing structural validator before any output,
+including the zero-offset copy shortcut. No posting decode/re-encode is added.
+All-codecs byte comparisons, malformed later-source/no-write checks, and the
+public merge metadata-publication regression pass. Full eight-phase validation
+passes 1,683 native tests (26 ignored), portable/native-without-sync compilation,
+API docs and real-server broker tests; WASM build and all 20 tests pass.
+
+Five alternating ARM process pairs over all 338,367 external lists show the cost:
+a 55.05 MB single-source copy changes 8.519 → 11.779 ms, and a two-source merge
+producing 91.18 MB changes 64.648 → 68.711 ms (6.3% slower). Output checksums agree
+throughout; unit regressions compare actual bytes across all three codecs.
+Median process peak RSS is 88.05 → 90.64 MiB. This measures the canonical posting
+merge with a reused output buffer, excluding lifecycle/store work; it is a
+correctness cost, not a query optimization. Frozen merge-admission-v2 excludes
+a temporary helper that contaminated the initial full-check attempt; the final
+clean harness passed. Subsequent conjunction-density work is a separate change.
+
+### Systemic gap: paired complete-workload profiles (September 14)
+
+The latest completed full-corpus comparison still leaves Hermes slower than
+Tantivy by 2.36× for TOP_10, 1.96× for TOP_1000, 2.03× for TOP_100_COUNT, and
+1.94× for COUNT. The prior small improvements do not establish competitiveness.
+The next acceptance criterion is closing these workload gaps with shared search
+algorithms, while retaining independent exact-count and exhaustive-ranking gates.
+
+Both engines were profiled sequentially on the same CPU and immutable indexes,
+using all 962 official queries and all 714 supplemental terms. Each scope ran
+complete warm-up passes for at least five seconds and sampled complete workload
+passes for at least twenty seconds. The VM exposes no hardware performance
+counters; results use `cpu-clock:u` at 997 Hz and software task-clock. Instrumented
+throughput is diagnostic, not a replacement latency benchmark. Stack unwinding
+is incomplete, so the following attribution uses self samples only.
+
+| Hermes self CPU          | Official TOP_10 | Official COUNT | Official TOP_100_COUNT |
+| ------------------------ | --------------: | -------------: | ---------------------: |
+| Posting iterator seek    |          24.84% |         21.02% |                 15.52% |
+| Position stream read     |          15.90% |         17.92% |                  9.58% |
+| Phrase position matching |           7.20% |          8.40% |                  4.24% |
+| Term membership window   |               — |         21.17% |                      — |
+| Term score accumulation  |               — |              — |                 26.38% |
+| Top-k collect            |           0.43% |              — |                 11.50% |
+
+For the 714 standalone terms, 44.93% of Hermes CPU is deferred score computation
+and 29.63% is the single-term executor. This has a different cause from exact
+counting. Making the arithmetic cheaper cannot by itself close that much larger
+ranking gap: tighter competitive block bounds must reduce how many documents
+reach scoring. The researched impact envelope remains a proposal, not an
+implemented performance claim. Likewise, eliminating even all seek overhead
+would cap the official TOP_10 gain at about 1.33×. Traversal, position processing,
+and competitive pruning need separate measured changes.
+
+Seek disassembly confirms a document scan followed by frequency-prefix summation
+on every movement, even without position reads. The candidate documented in
+[posting codecs](posting-codecs.md#proposed-traversal-and-position-accounting-separation)
+defers the frequency work until positions are requested and measures a
+next-document probe plus binary lower bound. The public immutable position API
+and all persisted bytes remain unchanged. This direction also matches the
+separation of document movement and requested position offsets in
+[Tantivy's posting reader](https://github.com/quickwit-oss/tantivy/blob/main/src/postings/segment_postings.rs).
+The candidate has not yet passed the full-corpus performance gate.
+
+Profile reports and reproducible source (local archive `benchmark-results/systemic-profile-2026-09-14/reports.zip`)
+include query sets, software counters, disassembly, source overlays, locks,
+hardware metadata and index manifests. The full 74,496,359-byte sample archive
+was retrieved and all 83 manifest entries verified; its SHA-256 is recorded in
+the [profile manifest](benchmark-results/systemic-profile-2026-09-14/manifest.json).
+
+### Shared traversal and merged-position costs (September 14)
+
+Two completed full-corpus passes improve the baseline but leave a systemic gap.
+They use all 962 official queries, 714 supplemental terms, the same immutable
+5,032,104-document indexes, Rust 1.98.1/native CPU/LTO, and one Cascade Lake core.
+Each build passes independent COUNT versus exhaustive VERIFY versus Tantivy
+counts, plus pruned versus exhaustive Hermes top-k, on all 1,676 queries.
+Numbers below are geometric means of per-query medians, in microseconds. The
+rows are separate same-run comparisons; do not combine their absolute timings.
+
+| Change / command                             |    Before |     After | Tantivy | After / Tantivy |
+| -------------------------------------------- | --------: | --------: | ------: | --------------: |
+| Deferred position accounting / TOP_10        | 1,179.717 | 1,010.058 | 502.314 |           2.01× |
+| Deferred position accounting / TOP_100_COUNT | 1,652.055 | 1,484.176 | 810.999 |           1.83× |
+| Deferred position accounting / COUNT         |   776.082 |   654.423 | 407.907 |           1.60× |
+| Merged-position cursor / TOP_10              | 1,034.547 |   963.427 | 507.870 |           1.90× |
+| Merged-position cursor / TOP_1000            | 1,493.736 | 1,448.519 | 869.066 |           1.67× |
+| Merged-position cursor / TOP_100_COUNT       | 1,509.138 | 1,463.481 | 824.548 |           1.77× |
+| Merged-position cursor / COUNT               |   669.388 |   632.656 | 410.692 |           1.54× |
+
+The traversal pass removes frequency-prefix reduction from document movement
+and uses a next-document probe plus binary lower bound for in-block seeks.
+Its regression is real: an alternating 11-sample audit over all 962 queries
+confirms union TOP_100_COUNT worsening 3,265.137 → 3,533.360 µs (8.2%). This
+remains an unresolved finding; aggregate improvements do not waive it.
+
+The position pass fixes a mismatch between the small fixture and real merged
+indexes. All 714 sampled full-corpus position streams contain short interior
+blocks preserved by ordinary copy merges; none of the original small fixture's
+711 present streams did. A second ARM fixture built by the canonical writer
+with a 16 MiB indexing budget has 706 such streams. The reader now checks its
+cached logical range before searching the directory and uses a bounded forward
+search for later misses. It still retains only one decoded block. All persisted
+bytes are unchanged. The full-corpus phrase TOP_10 improves 1,061.700 → 926.963
+µs, but remains 1.84× Tantivy. ARM results on both layouts are mostly flat.
+A 1.9-second formatting command overlapped the merged ARM supplemental
+TOP_1000 timing; that run's tiny differences are inconclusive.
+
+Latest official TOP_10 peak RSS is 972.0 MiB for Hermes versus 710.7 MiB for
+Tantivy; the position change adds roughly 1 MiB to the measured process peak.
+The 714-term TOP_10 still measures 203.243 versus 43.694 µs: **4.65× slower**.
+These changes do not establish competitiveness. Software CPU samples now show
+phrase candidate alignment at 12.05% of official TOP_10 and 13.77% of COUNT.
+COUNT still spends 24.37% in term membership windows. The real-length BM25
+scoring branch remains scalar in this frozen build, unlike its no-length
+fallback. Batched length reads and a rarest-term phrase driver are separate
+candidates undergoing measurement; neither is counted as a completed gain here.
+
+The native/portable/WASM checks pass for both frozen passes. The position pass
+also passes the full eight-phase lifecycle/RPC harness and 20 WASM tests.
+Its new regressions cover sequential, forward, backward, spanning and failed
+position reads, including byte comparisons. Raw samples, exact-count gates,
+source snapshots, memory records, layout diagnostics and software profiles are
+in the reproducible evidence bundle (local archive `benchmark-results/traversal-position-2026-09-14/results.zip`).
+Both full cloud archives were retrieved and all 72/85 manifest entries verified;
+the [manifest](benchmark-results/traversal-position-2026-09-14/manifest.json)
+records their hashes and the omitted raw profiler/binary payloads.
+
+### Batched lengths, phrase driver and corrected position admission (September 14)
+
+Three further same-host full-corpus comparisons retain exact counts and exhaustive
+Hermes ranking gates for all 962 official queries plus 714 standalone terms.
+Cross-engine counts agree; score bits and ordered IDs are checked between Hermes
+pruned and exhaustive execution, not between differing engine scoring models.
+Each phase uses the same unchanged indexes, Rust 1.98.1/native CPU/LTO and one
+Cascade Lake core. These are separate runs; do not combine their absolute times.
+
+Batch length reads make the canonical real-length BM25 loop vectorize on x86
+(`vdivps`) and ARM (`fdiv.4s`), without changing floating-point operation order.
+Standalone-term TOP_10 improves 206.418 → 165.166 µs, but Tantivy is 43.031 µs.
+Official TOP_10 improves 961.750 → 930.444 µs and TOP_100_COUNT 1,431.476 →
+1,382.307 µs. The three-way alternating audit resolves the **earlier traversal**
+union regression in this snapshot: 3,542.623 µs before traversal versus 3,204.137 µs
+after batched lengths. This is distinct from the newer regression below.
+
+A rarest-posting-list phrase driver keeps phrase arrays and position offsets in
+query order while stopping alignment at the first rejected candidate. Full-corpus
+phrase TOP_10 improves 928.596 → 796.953 µs, roughly 16%. All official TOP_10
+improves 930.617 → 884.576 µs. These timings predate the position validation fix
+and cannot be used as the corrected reader's performance.
+
+The public phrase regression reproduced corrupt positions returning an empty
+successful result. Position stream open now validates headers, physical extents
+and logical directories before exposing infallible reads. Native and async search
+reject the corrupt replacement, while an existing reader retains its immutable
+valid generation. Successful proofs for document and position ranges share one
+bounded per-segment cache under the existing setting, default zero. Lazy callbacks
+always validate actual returned bytes; short reads and cancellation never publish
+proofs. Encoded payloads and the BM25 formula are unchanged.
+
+| Corrected build / official command | Preceding build, µs | Corrected build, µs | Tantivy, µs | Hermes / Tantivy |
+| ---------------------------------- | ------------------: | ------------------: | ----------: | ---------------: |
+| TOP_10                             |             900.090 |             888.590 |     500.381 |           1.776× |
+| TOP_1000                           |           1,339.916 |           1,354.475 |     871.499 |           1.554× |
+| TOP_100_COUNT                      |           1,293.741 |           1,333.589 |     801.917 |           1.663× |
+| COUNT                              |             609.140 |             612.055 |     407.964 |           1.500× |
+
+For the 714 standalone terms the corrected times are 164.559 / 603.562 /
+705.030 / 10.404 µs for the same commands, versus Tantivy 44.364 / 408.937 /
+243.036 / 6.594 µs. Competitive block pruning remains a large unresolved gap.
+
+The newer union TOP_100_COUNT regression is confirmed by five fresh process
+pairs, all 962 queries, and three alternating samples per query per pair. Pooled
+union medians give 2,930.566 → 3,254.668 µs; the five per-run ratios range from
+1.101 to 1.114 (median 1.112). All-workload time regresses about 2%. Repeating
+processes therefore does not dismiss this as noise. Separate full-union CPU
+profiles attribute about 29% to collection and 17% to its caller in both builds;
+length gathering is about 7.5%, posting decoding about 7%. No causal explanation
+for the regression has yet been established. The proposed bounded score collector
+is a separately frozen candidate, not included in this table.
+
+Corrected official TOP_10 peak RSS is 1,010.7 MiB versus 972.0 MiB for the preceding
+build and 710.7 MiB for Tantivy. Separate Linux smaps measurements identify the
+gap as mapped file residency: Hermes 1,027,030 KiB file PSS and 5,808 KiB anonymous
+PSS, versus Tantivy 724,758 and 776 KiB. These file pages remain evictable. The
+strict admission pass touches more position block headers; validation correctness
+is retained despite this cost. Neither RSS nor mmap residency is Rust `Pin`.
+
+Both ARM fixtures (canonical and normally merged short position blocks) pass
+all exact-count and exhaustive-ranking gates for both builds in every phase.
+Batched lengths and the phrase driver improve official ARM commands by roughly
+1–3%; the corrected admission build is essentially flat. These are 100k-document
+fixtures, not substitutes for the full-corpus x86 measurements. Defaults remain
+unchanged. Latest full eight-phase validation passes 1,697 non-doctest native
+tests plus one doctest, including real-server broker tests and portable builds;
+the WASM build and all 20 tests pass. The separate subsequent collection candidate
+has its own validation and is not included in that count.
+
+The 399-file reproducibility bundle (local archive `benchmark-results/execution-admission-2026-09-14/results.zip`)
+contains source snapshots, raw samples, all gates, ARM evidence, compiler output,
+software profiles, memory records and the five-process audit. All five executable
+archives were retrieved and each external SHA-256 and every internal manifest
+entry verified. The [manifest](benchmark-results/execution-admission-2026-09-14/manifest.json)
+records exact archive hashes; the compact bundle excludes executable binaries
+and raw perf samples. Hermes has not met the performance objective.
+
+The latency tables in this follow-up measure warm, single-client query execution.
+Cold-cache tails, concurrent ingest/merge, and production concurrency were not
+measured for these frozen changes. Software CPU sampling is diagnostic and does
+not provide hardware cache-miss, branch-miss or memory-bandwidth counters. These
+limits prevent extrapolating a benchmark improvement to general engine leadership.
+
+### Bounded collection and audit controls (September 14)
+
+The score-collection-v1 build uses the existing complete scored windows to send
+64-document words to collectors that explicitly support batches. Top-k retains
+its canonical float/doc-ID ordering and counts every matching bit, including
+noncompetitive hits. It hoists heap representation/capacity checks and refreshes
+the worst result only after replacement. CountCollector uses population counts.
+Custom collector callback ordering, positions and deadline-bearing paths retain
+their per-document behavior. No format, score formula, cache or default changes.
+
+The full-corpus same-run official geometric means are:
+
+| Command       | Before, µs | After, µs | Tantivy, µs | After / Tantivy |
+| ------------- | ---------: | --------: | ----------: | --------------: |
+| TOP_10        |    904.217 |   902.982 |     498.934 |          1.810× |
+| TOP_1000      |  1,377.652 | 1,360.784 |     890.722 |          1.528× |
+| TOP_100_COUNT |  1,329.599 | 1,250.694 |     810.271 |          1.544× |
+| COUNT         |    618.511 |   609.336 |     409.398 |          1.488× |
+
+Union TOP_100_COUNT improves 3,139.872 → 2,694.520 µs (14%), versus Tantivy
+2,333.083 µs. AND TOP_10 remains 681.833 versus 330.145 µs, a systemic 2.07× gap.
+The following required-clause driver candidate is not part of this frozen build.
+
+The 714-term commands are 165.885 / 599.852 / 669.744 / 10.570 µs, versus Tantivy
+43.334 / 409.454 / 238.467 / 6.746 µs. Standalone TOP_10 is 4.1% slower than the
+159.280 µs control in this run, despite not using the new collector path. This
+is recorded as an unresolved measurement, not claimed as a gain or explained
+away. Complete-workload comparisons of the subsequent build remain necessary.
+
+A three-build audit uses three fresh process sets and five alternating samples
+per query per set, on all 962 official TOP_100_COUNT queries. The new collector
+beats both the pre-admission and corrected-admission controls: union geometric
+means are 2,947.837 / 2,955.379 / 2,551.189 µs. Its three ratios to pre-admission
+range 0.865–0.872. However, the two unchanged control binaries are now essentially
+flat rather than reproducing the prior two-build audit's 11% separation. That
+sensitivity to execution context means the earlier separation is not an isolated
+measurement of validation-cache cost. Both audits are retained; no specific
+compiler, predictor or cache mechanism has been established. The collection
+improvement itself is consistent across the sequential and alternating runs.
+
+Both 100k ARM fixtures pass all 1,676 independent COUNT/VERIFY gates per build.
+Union TOP_100_COUNT improves 56.796 → 52.349 µs on canonical positions and
+57.301 → 53.372 µs on merged positions; all official commands improve about 3%
+for TOP_100_COUNT and are otherwise flat. Official TOP_10 peak RSS is essentially
+unchanged at 1,010.6 MiB, versus Tantivy 710.8 MiB. No new scratch allocation is
+introduced. Separate full-workload software samples put the batch collector at
+11.76% and its driver at 2.21% of TOP_100_COUNT CPU; the shared scoring loop now
+accounts for 19.42%. These are self samples, not hardware performance counters.
+
+The search harness passes 1,699 non-doctest native tests and one doctest, with
+native-without-sync and portable builds. The WASM build and all 20 tests pass.
+New tests compare batch and scalar results for signed zero, NaNs, infinities,
+ties, partial/zero heaps, saturation, sparse masks and tuple callback ordering;
+existing cancellation and exact public-query tests continue to pass. Full
+lifecycle/RPC validation from the preceding admission build remains applicable;
+this collection change does not alter those protocols.
+
+The 144-file evidence bundle (local archive `benchmark-results/score-collection-2026-09-14/results.zip`)
+and [manifest](benchmark-results/score-collection-2026-09-14/manifest.json) include
+raw timings, all correctness gates, source, locks, ARM code generation, memory,
+profiles and the three-build audit. Both full archives were retrieved and their
+75/37 manifest entries verified. The goal of outperforming Tantivy remains unmet.
+
+## Required-clause driver (September 14)
+
+The public Boolean scorer still owns conjunction semantics. Its rarest required
+clause now advances the candidate; each other required clause either agrees or
+moves that driver forward immediately. The former loop inspected every clause's
+current document to compute an initial maximum and sought the lead back to its
+own candidate. The rewrite keeps clause/score order, optional clauses, exclusions,
+two-phase confirmation and deadline checks. No format or new allocation is involved.
+
+All 1,676 full-corpus queries passed exact COUNT and exhaustive-ranked VERIFY for
+both builds. The official geometric means in microseconds (before / after /
+Tantivy) are 899.137 / 839.351 / 499.157 for TOP_10, 1339.083 / 1286.436 /
+869.968 for TOP_1000, 1240.157 / 1172.285 / 811.946 for TOP_100_COUNT, and
+607.214 / 582.644 / 411.618 for COUNT. AND TOP_10 improves from 678.238 to
+572.685, but Tantivy takes 330.276. Phrase and union gaps remain broad. Official
+TOP_10 peak RSS stays approximately 1,011 MiB versus Tantivy's 711 MiB.
+
+The 714 derived standalone terms take 156.640 / 599.095 / 667.479 / 10.676 µs
+for the four commands; Tantivy takes 43.731 / 413.153 / 235.993 / 6.577.
+Their before/after changes are not evidence of this conjunction optimization:
+that query path is unaffected. Both ARM 100k fixtures pass all gates; AND
+latency improves approximately 6–7%, while derived terms remain essentially flat.
+The full corpus x86 run uses the same native LTO compiler, immutable indexes,
+CPU 2, complete workloads, seven samples and ten-second warmups as its controls.
+No builds, tests or profiles overlap timing.
+
+The final check harness (`20260914T062232.379338Z-check`) passes all four phases,
+1,700 non-doctest tests plus one doctest. Portable compilation and 20 WASM tests
+pass. The initial Clippy failure in a test was fixed and retained in the evidence.
+The frozen source preceded a formatting-only test line wrap; its exact addendum
+is included, and release code is identical. The independent software profiles
+still show distributed traversal, phrase-position and scoring costs, not an
+isolated single slow function. Hardware counters were unavailable.
+
+The corrected position-admission two-build audit and the later three-build
+collector audit differ: the first showed an 11% union penalty; the latter's two
+unchanged controls tie, with the collector consistently faster. This is evidence
+of execution-context sensitivity, not proof that the cache caused the original
+penalty or that its mechanism is solved. Both raw audits remain available.
+
+Compact evidence (local archive `benchmark-results/required-driver-2026-09-14/results.zip`)
+contains 122 files plus manifests, exact sources, raw samples, gates, ARM runs
+and current profiles. ZIP SHA256:
+`77e49a1926688988dc5701966ff0a06d33a613cac9b5b80b7b30762a4977dc5e`.
+Full archive: 43,857,020 bytes, SHA256
+`6983eca9abd3dd1206596834ed59a40ea8d9b92ebd0ea4f72f07230bf6748653`;
+all 91 manifest entries and the compact archive were verified locally.
+
+## Library SIMD codec (September 14)
+
+**The codec swap does not solve the systemic gap.** Reusing `bitpacking` 0.9.3
+(SSE3/NEON/scalar) reduces bytes, but the complete full-corpus x86 workload is
+slower than the rebuilt rounded control. Default encoding remains rounded.
+The [current comparison](search-benchmark-current.md) reports the latest paired
+values; source snapshots, raw samples, correctness gates, builds, layout audits,
+profiles and memory reports are in the
+verified evidence bundle (local archive `benchmark-results/simd4x-2026-09-14/results.zip`).
+
+V1 uses library SIMD for full 128-value document/TF/position blocks and exact
+horizontal tails. Official rounded/SIMD geometric mean median microseconds are
+841.106/912.257 (TOP_10), 1257.073/1328.757 (TOP_1000),
+1226.787/1278.961 (TOP_100_COUNT), 578.001/627.534 (COUNT).
+V2 keeps rounded encoding for every short block, while still accepting V1 bytes.
+Its same-run rounded/SIMD values are 848.687/861.409, 1266.183/1319.779,
+1214.732/1220.664, 585.263/611.340; Tantivy is 493.388, 875.670,
+807.861, 410.399. All 962 official plus 714 supplementary queries pass exact
+COUNT and exhaustive-ranked VERIFY across each reader/layout combination.
+Separate old-binary/old-index and new-binary/old-index controls are retained.
+
+All cloud rebuilds use four indexing threads, a configured 2 GB total indexing budget,
+4 KiB dictionary blocks, ratio bounds, the same corpus/compiler/host and flags.
+Their document-order hashes differ because scheduling affects flush/merge order;
+these are **resulting-index** comparisons, not an isolated codec experiment.
+Logical document/posting/position totals agree. Rounded/V1/V2 index bytes are
+5,425,051,380 / 4,334,396,990 / 4,479,838,528. Corresponding indexing wall times
+are 242.28 / 232.75 / 228.79 seconds, and peak RSS is 13,800,064 /
+13,273,684 / 12,672,632 KiB. Scheduling/order differences also limit attribution
+of build cost and peak memory changes. V2 official top-10 query RSS is
+857,748 KiB versus rounded 1,063,264 KiB and Tantivy 727,728 KiB.
+
+Both ARM 100k fixtures use one indexing thread and matching document-order
+hashes. V1 is approximately flat for the canonical fixture but regresses
+6–12% on normally merged short interior blocks. V2 recovers that regression:
+canonical rounded/V2 TOP_10 33.655/33.291 µs and merged 34.500/34.217 µs;
+merged standalone-term TOP_10 is 21.293/21.464 µs. V2 canonical/merged index
+bytes are 92,847,338 / 138,831,203 versus rounded 106,324,232 / 145,695,257.
+These small ARM differences do not establish a systemic query improvement.
+
+The version-8 gate preserves native read-only compatibility with 6/7 while
+refusing older readers on new indexes. Existing atomic writer-open migration
+is reused. Payload-copy, malformed width/tag/extent, mixed codec, deletion,
+reorder and sync/async checks pass. V1 full harness `20260914T070856.175675Z-full`
+passes all eight phases, 1,706 non-doctest tests plus one doctest, portable core,
+and 21 WASM tests. V2 check `20260914T072458.554794Z-check` passes all four phases,
+portable core and 21 WASM tests; it changes only the tail encoding policy.
+Big-endian word normalization has no runtime test on actual big-endian hardware.
+A WASM invocation from the wrong working directory failed; the corrected command
+passed. Both source versions and failure/correction logs are retained.
+
+The full-vocabulary impact audit scans 3,964,752 external term lists and
+586,083,745 postings. Final lists with multiple blocks contain 18,488,171 blocks;
+only 322 need more than eight convex-envelope points. A hypothetical complete
+vint representation on those final blocks costs 81,175,896 directory bytes,
+82,320,119 pair bytes and 18,487,849 count bytes (about 173.55 MiB total).
+This is a storage estimate, not a measured query gain or the actual new writer
+layout: initial construction excludes single-block source lists, and copying
+merges retain unknown records from those sources. The new format must be audited
+after construction, including budgeted scratch and resident metadata costs.
+
+Both full archives were downloaded and every manifest entry verified: V1
+19,137,895 bytes, SHA-256
+`95834e702eeb397178688510fd6a3fc7da259f5a0c04daf83c26fdefff0bcfd5`,
+89 files; V2 73,118,337 bytes, SHA-256
+`a19f929e8289f04e6a9f93bcf74fbf4055761df14cd7c9ffc062c68d13cbad43`,
+144 files. The compact bundle verifies 362 entries and retains frozen source,
+locks, exact commands, raw results and index/document-order manifests; raw
+binaries/perf data remain in full archives, and document-order arrays on the VM.
+Its SHA-256 is `7fa3a3b8e3d49475a9b235b8e7ea216a8750660fd4b9ef5d3a9ec15fbdcf126d`.
+
+### Competitive-impact implementation, before timing
+
+The first integer/vint envelope implementation now uses BPL2 flag 16, bounded
+1–8 point records and borrowed directories. The canonical builder requires actual
+effective scoring lengths; cold compaction keeps per-document lengths for changed
+blocks, while concatenation and unchanged compaction blocks copy record bytes.
+Native and WASM writer configuration share `posting_impact_bounds`; CLI
+`--posting-impact-bounds` implies ratio bounds. Defaults remain off. The query
+owner evaluates conservative f64 bounds with the canonical-f32 rounding guard;
+score computation is unchanged. Diagnostics distinguish absent directories,
+unknown entries and populated point counts. No query text or score threshold
+enters the stored representation.
+
+Regression tests reproduced three correctness failures before fixes: unsigned
+vints could wrap on an overflowing tenth byte; posting footers admitted unexplained
+trailing data; and short lazy metadata reads could panic in cold compaction.
+The shared integer decoder, footer extent check and compaction source now reject
+those cases. Two legacy fixtures were corrected to represent real old layouts
+(no unflagged L1/ratio bytes, and f32 legacy TF words); permissive trailer handling
+was not restored. Tests cover record/directory corruption, payload-copy identity,
+copy/rebuild mixed sources, budgets before metadata I/O or output, cancellation,
+write failure, parameter extremes, score ties, wide Boolean sums, global scoring,
+length saturation, missing/multi/chunked fields, deletion and reorder.
+
+Full harness `20260914T082009.535427Z-full` passes all eight phases: the main test
+phase has 1,717 non-doctest tests and one doctest, and the separate real-server
+phase has four broker tests. Portable core and native without sync pass. WASM
+build and 22 browser/scalar tests pass, including native-written impact and
+SIMD-v1 fixtures. Earlier attempts exposed a test-only API/import error and two
+CLI test call sites missing the new argument; corrected runs pass. The short-I/O
+regression and fix were followed by the final full run. These checks establish
+correctness coverage, **not** a performance improvement. Full-corpus measurements
+and actual index/storage/residency audits remain required.
+
+## Competitive-impact results (September 14)
+
+**The complete-workload performance gap remains systemic.** The initial L0-only
+format changes official top-10 from 833.194 to 839.458 µs in the same binary,
+while improving the separate 714-term workload from 156.392 to 86.053 µs.
+Tantivy takes 503.951 and 44.395 µs respectively. The second format adds bounded
+L1 group envelopes and coarse skips; the [current comparison](search-benchmark-current.md)
+reports all four operations and query classes from its same-run controls.
+Group top-10 regresses from rounded 846.194 to 917.003 µs, versus Tantivy's
+505.370 µs. Union top-10 regresses from 1063.238 to 1302.814 µs. The unchanged
+L0 index also regresses between old/new binaries (1028.730 to 1128.631 µs for
+unions); preserve that control when attributing the regression. Group standalone
+term top-10 improves to 70.668 µs, still behind Tantivy's 43.130 µs.
+No new format becomes the default from these results.
+
+Both cloud phases use matching document order and logical totals with one
+indexing worker, a 2 GB writer buffer budget, no background merges, and a final
+explicit merge. The group build also matches the L0 record coverage of its
+control. All contain 5,032,104 documents, 586,083,745 postings and
+1,330,791,236 positions. Rounded/L0/group index bytes are
+5,067,578,899 / 5,126,280,959 / 5,135,200,732. Rounded/L0 build wall time is
+683.50/688.63 seconds; the later group build takes 684.13 seconds. Peak build
+RSS is 16,216,980 / 15,689,860 / 15,894,036 KiB. The configured writer buffer
+budget is not a process RSS limit. Independent warm official top-10 profiles
+report 1,056,896 / 1,067,744 / 1,071,308 KiB RSS, predominantly mapped file
+pages, versus Tantivy's 727,788 KiB.
+
+Each of four Hermes reader/index controls per phase passes all 962 official
+plus 714 supplementary COUNT comparisons with Tantivy and ordered ID/score-bit
+VERIFY against its own exhaustive top-10/100/1000 oracle. Cross-engine ranking
+identity is not claimed. Both ARM 100k fixtures pass the equivalent gates;
+L0 and group latency changes are flat or mixed. In the ARM standalone traces,
+groups skip more L1 ranges but score exactly the same number of posting blocks
+as L0-only. This is reduced metadata traversal, not additional payload rejection.
+
+The group format adds BPL2 flag 32, requires L0 impacts and L1 length metadata,
+and retains the same bounded vint representation. Compatible L0 and aligned
+L1 records copy byte-for-byte. Regrouped L1 metadata derives from at most eight
+existing eight-point frontiers; unknown inputs yield unknown output. Cold
+writers budget directories, records and 4 KiB scratch before output. Old
+L0-only readers reject the new flag. Full harness
+`20260914T085204.534082Z-full` passes all eight phases (1,720 non-doctest tests
+plus one doctest, and four separate real-server broker tests). After gating a
+native-only helper, final check `20260914T090655.316277Z-check`, portable
+compilation and 23 WASM tests pass. The new 2,049-document native fixture tests
+group metadata in the browser; the older L0 fixture remains unchanged.
+
+Software profiles remain distributed across traversal, scoring and positions.
+In the group official top-10 profile, scalar term score/seek are 9.03%/8.75%
+self samples, window MaxScore 9.35%, phrase matching/alignment 7.99%/7.73%,
+and cached position reads 6.19%. Impact bound evaluation becomes prominent in
+the standalone workload but is not the dominant complete-workload cost. These
+sample fractions cannot be multiplied by geometric mean latency to derive
+causal time savings. No hardware-counter claim is made.
+
+The compact evidence (local archive `benchmark-results/competitive-impacts-2026-09-14/results.zip`)
+contains 521 verified entries, 8,208,173 bytes, SHA256
+`25d7e957f69708203e5089cb5b14389bc5bc5b30f3a86e3410ab859e7da012c6`.
+Full L0 archive: 18,527,275 bytes, SHA256
+`f09782aef15e1c87c2d967a056852519e3f539ca0cfa5f62823952f22fb195fd`,
+91 manifest entries. Full group archive: 116,253,814 bytes, SHA256
+`5c3e196c300bc50845d3848412a2595fb5202222a835a072a0a9f8ab904374b0`,
+211 entries. Full archives, every manifest entry, and the compact ZIP were
+verified locally. Frozen sources, raw latency samples, gates, index manifests,
+profiles, memory, build logs and commands are retained. Profiling, hashing,
+transfers and builds did not overlap measured query loops.
+
+## Rejected score-required union classification (September 14)
+
+The full-corpus comparison rejects automatic score-required intersection for
+unions in this implementation. Rounded before/after/Tantivy official geometric
+mean median microseconds are 843.856/924.393/510.184 (TOP_10),
+1297.641/1308.980/876.868 (TOP_1000), 1204.101/1183.079/818.484
+(TOP_100_COUNT), and 576.544/569.029/413.421 (COUNT). Union TOP_10 regresses
+1062.386 to 1385.058 µs; Tantivy takes 644.234 µs. Group-impact top-10 also
+regresses: 930.306 to 977.419 µs overall and 1318.505 to 1615.754 µs for
+unions. The small improvement in exhaustive collection does not justify this
+ranked-query regression. The next candidate removes automatic classification.
+
+All four Hermes configurations pass 1,676 COUNT and exhaustive-ranked VERIFY
+gates on immutable indexes; no rebuild or similarity change is involved. Both
+ARM 100k fixtures pass their gates, with flat complete-workload latency.
+Diagnostics confirm activation on ARM (145 queries and 1,455 windows in the
+canonical group fixture), which does not establish a performance gain. Full
+query profile RSS stays essentially unchanged: rounded before/after
+1,057,204/1,056,212 KiB, groups 1,071,656/1,071,232 KiB, versus Tantivy
+727,728 KiB. The dominant resident pages are file-backed, not heap.
+
+In isolated union software profiles, seek preparation grows from 7.40% to
+17.21% self samples on rounded bytes. The new candidate helper takes 7.97%;
+length gathering and deferred scoring take 9.56% and 4.96%. Inlining changes
+attribution between functions, so these percentages alone do not prove an
+operation-count cause. Candidate probing still computes a complete block's
+scores on the first surviving match. That specific cost warrants a separate
+experiment; it is not an explanation established by these samples alone.
+
+Final harness `20260914T092322.308216Z-check` passes all four phases, 1,723
+non-doctest tests plus one doctest. Portable compilation and 23 WASM tests pass.
+The first check failed two style lints, which were corrected before freezing.
+The verified evidence bundle (local archive `benchmark-results/score-required-2026-09-14/results.zip`)
+contains 326 entries, 4,204,146 bytes, SHA256
+`1f49e4b93e7a7c00c87cbca412e7eec4c13087d49501ef7c353f116c1a69e8ce`.
+The full archive contains 234 verified manifest entries, 146,090,211 bytes,
+SHA256 `95dd996cfd4e9abeb167883726975970997ca72fa35157dfd25481d76069cfb8`.
+Binaries, raw profiles and index-immutability checks are captured separately
+from latency; the compact bundle retains source, locks, raw samples, gates,
+text profiles, memory and exact commands.
+
+## Rejected windowed semantic conjunction (September 14)
+
+Plain unweighted same-field AND queries reused the shared text-window
+executor in a separately frozen candidate. Every term is required from the
+first window, and an exhausted term ends the intersection. Complete membership,
+position collection, nested/boosted/mixed clauses, chunked fields and unsupported
+settings retain the general scorer. There is no format change, and the rejected
+automatic union classification is removed. Measurement uses the earlier
+group-capable binary as the control, not the regressing score-required build.
+
+The planner audit reproduced incorrect ranking and score bits when Boolean
+grouping discarded explicit per-term statistics. `TermQueryInfo` now carries
+those statistics and grouping retains original scorers where it cannot preserve
+them. Terms remain scoring terms even when required; they are not converted
+into filters. The first attempted opaque-decomposition fix failed the mixed
+required/optional regression and was replaced. L1 candidate backfill rejects
+unsupported term-local statistics instead of silently substituting parent data.
+This adds a field to a public Rust planning struct; external literals need
+`global_stats: None` for ordinary terms. No persisted or wire format changes.
+
+Regression coverage includes term-local statistics, pure/mixed Boolean scores,
+all-required windows with 64 terms, empty intersections, late winners, predicate
+eligibility, exact count and score bits, positioned membership, and expired
+budgets. Final check `20260914T101226.957816Z-check` passes all four phases:
+1,725 non-doctest tests plus one doctest. Portable compilation and 23 WASM tests
+pass, including AND queries on all three unchanged native golden fixtures.
+The first focused invocation exposed two test-only type/private-field errors;
+corrected focused tests and the complete harness pass.
+
+The frozen candidate has 95 files, 877,935 bytes, SHA256
+`4a2464cb34a0f5e3d5357ecba1e69480a829442285f75778640a05e742c1f852`.
+An artifact-name collision was rejected before overwriting the historical
+binary/archive. The new run uses `ranked-and` names. Six historical script/log
+files overwritten during setup were restored byte-for-byte from their existing
+verified evidence ZIP; the superseded setup files were retained separately.
+The completed comparison rejects this dense-window AND implementation. On the
+full corpus, rounded before/after/Tantivy geometric mean median microseconds
+are 853.417/1087.211/495.598 for TOP_10, 1282.299/1674.846/881.234 for
+TOP_1000, 1173.186/1189.554/811.799 for TOP_100_COUNT, and
+572.976/581.418/411.382 for COUNT. AND TOP_10 regresses from 572.636 to
+1369.351 µs, versus Tantivy's 327.833 µs. Group-impact AND similarly regresses
+581.893 to 1441.958 µs. Union TOP_10 changes 1073.061 to 995.411 µs on
+rounded bytes, but this does not justify the conjunction or overall regression.
+
+Both 100k ARM layouts also reject the change: canonical rounded AND TOP_10
+rises from 27.470 to 38.340 µs; merged rises from 27.315 to 38.681 µs.
+All four cloud and ARM configurations pass the exact COUNT and exhaustive
+ordered-ID/score-bit gates for all 1,676 queries on unchanged index bytes.
+In isolated rounded AND profiles, the new dense executor accounts for 23.41%
+self samples, seek preparation 16.62%, length gathering 11.85%, deferred block
+scoring 8.42%, and candidate probing 7.59%. The original general path spends
+33.11% in term seek and 20.81% in term scoring. Tantivy's corresponding profile
+spends 29.42% in posting seek, 19.38% in intersection advance and 15.59% in
+SIMD sorted decoding. These are sampling fractions, not causal time estimates.
+
+The verified evidence (local archive `benchmark-results/ranked-conjunction-2026-09-14/results.zip`)
+contains 322 entries, 4,250,359 bytes, SHA256
+`5f615c0bfca083b6e16e13cd95b6c6a285a5ae94dc64abd3d4db7d40102d5c56`.
+The full archive is 138,845,710 bytes, SHA256
+`189f4d8672bc8c892567ff4f94b65dd9bdadc341107d20ec8e213586dc760776`,
+with 234 verified manifest entries. Frozen source, raw samples, correctness,
+profiles, memory and immutability evidence are retained. No format rebuild,
+profiling, build or transfer overlapped latency measurement.
+
+### Candidate-run and compact-conjunction follow-ups
+
+A second frozen candidate scores only selected postings within each physical
+block, sharing deferred TF readiness with full-block scoring. Its ARM canonical
+rounded overall TOP_10 is 36.577 µs, versus the original 33.510 and first
+windowed candidate's 37.435 µs; AND is 36.703 versus 26.954/38.230 µs.
+Rounded union TOP_10 is 42.890 versus 44.126/44.127 µs. This recovers part of
+the windowed regression, without establishing a competitive executor.
+
+The completed cloud comparison confirms that limitation. Rounded
+original/windowed/candidate-run/Tantivy microseconds are
+850.355/1106.681/1040.562/503.842 (TOP_10),
+1283.920/1682.766/1533.472/869.008 (TOP_1000),
+1181.460/1208.586/1206.035/825.762 (TOP_100_COUNT), and
+579.007/578.234/579.902/413.846 (COUNT). Union TOP_10 improves
+1069.920/1013.102/950.393 µs across the three Hermes binaries, versus
+628.282 µs for Tantivy. AND remains regressed: 569.604/1404.613/1209.879
+versus 334.471 µs. These selective-scoring gains do not rescue the dense AND
+executor. All six Hermes reader/index configurations pass the 1,676 COUNT and
+exhaustive ordered-ID/score-bit gates; all index manifests remain unchanged.
+
+Check `20260914T103231.933639Z-check`, portable core and 23 WASM tests pass.
+The candidate-run evidence (local archive `benchmark-results/candidate-runs-2026-09-14/results.zip`)
+contains 339 verified entries, 6,455,406 bytes, SHA256
+`6ce8eebbe7a2cf5b29b8489d96924524c9ebdb4aef0fd11e6cbcd911fe9df64d`.
+The full archive is 106,692,221 bytes, SHA256
+`ae1c8872d374813473df1cddaf1429e43232a547d1a71c8d53243ba02f974c45`,
+with 218 verified entries. Source, samples, tests, profiles, memory and manifests
+are retained. The separate 714-term workload remains slower than Tantivy.
+
+The current third prototype bypasses dense windows for semantic conjunctions.
+It aligns cursors by increasing document frequency, then scores only eligible
+intersections in bounded batches of 128 documents. It evaluates every eligible
+matching document and retains canonical per-term accumulation order. Union
+windows keep candidate-run scoring. A boundary regression caught the lead
+cursor exposing next-block metadata before its deferred payload was loaded;
+loading that payload before reading its TF fixes the failure. Focused and public
+integration tests plus check `20260914T105614.770702Z-check`, portable compilation
+and 23 WASM tests pass. The native ARM scoring kernel emits four-lane SIMD
+divisions, verified in disassembly. Both matched 100k ARM fixtures recover the
+windowed regression but remain essentially flat against the original executor:
+canonical rounded TOP_10 is 33.551/36.964/33.376 µs for original/second/third
+candidates, and AND is 27.240/37.437/26.915 µs. Merged overall is
+34.672/38.355/34.671 µs, with AND 27.688/38.737/27.578 µs. All six controls
+pass 1,676 COUNT and exhaustive VERIFY gates per fixture; index hashes are
+unchanged. The completed cloud comparison leaves the systemic gap unresolved.
+Rounded original/second/compact/Tantivy microseconds are
+844.249/1023.705/839.632/499.850 (TOP_10),
+1280.297/1530.622/1189.687/883.813 (TOP_1000),
+1173.060/1218.596/1198.508/810.677 (TOP_100_COUNT), and
+573.660/579.899/574.128/415.142 (COUNT). Compact AND improves the original
+565.233 to 518.982 µs, versus Tantivy's 331.226 µs. Rounded union regresses
+1061.052 to 1124.287 µs, versus 622.695 µs. Group-index overall TOP_10 is
+829.194 µs, also well behind Tantivy. All six configurations pass every gate
+and preserve all index files.
+
+The compact conjunction's isolated AND profile places 34.55% of self samples
+in cursor seek preparation, 13.21% in conjunction execution, 7.09% in 8-bit
+SIMD delta decoding, and 7.02% in document block decoding. The shared BM25
+kernel accounts for 0.66%. Its rounded union profile spends 54.69% in the
+window executor and 6.63% in length gathering. These are sampling fractions,
+not causal estimates. The union source retains candidate scoring, so changed
+workload execution and code generation need separate investigation before
+attributing that regression. The current evidence does not justify a claim
+that scalar BM25 arithmetic explains the remaining overall gap.
+
+The compact-conjunction evidence (local archive `benchmark-results/compact-conjunction-2026-09-14/results.zip`)
+contains 340 entries, 6,418,344 bytes, SHA256
+`cfc4db0f1b711566693c751a531d72e41cbc65ff45930be73d154d5fdce7fcab`.
+The full archive is 109,821,586 bytes, SHA256
+`6f234def0e1cdf4a227cdecea49a6fd4793c267f6601106c5948cbdc99b0cb45`,
+with 218 verified entries. Source, profiles, memory, correctness, raw samples
+and immutable-index manifests are retained.
+
+### Deferred frequency experiment (mixed full-corpus result)
+
+The shared ordinary posting iterator still decoded all term frequencies on
+block load, including count-window traversal. A behavior-named regression first
+fails at ID-only open, confirming that eager work. The new prototype defers
+frequency decoding until a score, position-prefix read or scored visitor needs
+it; membership windows use the same traversal with frequency access disabled.
+The Vec and fixed-buffer callers share one extracted slice decoder. No encoded
+bytes or score formulas change.
+
+A boxed fixed-size `OnceLock` retains native Send+Sync for immutable frequency
+access and avoids per-block allocation. Its scratch allocation is reused by
+point probes. Forty-one focused posting tests pass, including all four codecs,
+wide frequencies, borrowed/owned cursors, stopped visitors, resumption and
+byte identity. Additional coverage exercises concurrent immutable first reads
+and scratch-address reuse. Check `20260914T111601.289509Z-check` passes all
+four phases, 1,727 non-doctest tests plus one doctest; portable compilation and
+23 WASM tests pass. Both matched ARM fixtures pass their 1,676-query gates
+for all six controls. Against the immediate compact-conjunction control,
+rounded COUNT improves 26.467 to 26.073 µs on the canonical layout and 28.775
+to 28.347 µs on the merged layout. TOP_100_COUNT regresses 32.187 to 32.563
+and 36.143 to 36.936 µs respectively. The older control also runs slower in
+this ARM session than earlier sessions; use paired controls, not cross-session
+absolute differences. The full cloud result is also mixed. Rounded
+original/compact-conjunction/deferred/Tantivy microseconds are
+887.255/859.053/831.343/525.711 (TOP_10),
+1334.375/1228.500/1249.446/887.944 (TOP_1000),
+1219.921/1234.178/1296.959/825.161 (TOP_100_COUNT), and
+579.230/577.423/554.271/412.600 (COUNT). COUNT improves about 4% against the
+immediate predecessor, but scored exact-count collection regresses about 5%.
+Phrase TOP_10 regresses 807.531 to 832.436 µs, versus Tantivy's 508.747 µs.
+Group-index TOP_10 regresses 845.760 to 862.302 µs. This is not an established
+systemic gain, and a count improvement does not justify scored regressions.
+
+All six configurations pass the 1,676 exact COUNT/exhaustive top-k gates on
+unchanged index files. The deferred-frequency evidence (local archive `benchmark-results/deferred-frequencies-2026-09-14/results.zip`)
+contains 365 entries, 6,473,407 bytes, SHA256
+`1bc09e5ae60c50f268ade0205aff7df08a29dd84a26509f8786a6aaac9166b4c`.
+The full archive is 121,483,977 bytes, SHA256
+`53f71a8bee3dc9dfffc77e7f4aca4b26f30ce1c237ac138e1cc08a9505c95c05`,
+with 250 verified entries. Raw paired samples, immutable layouts, profiles,
+memory snapshots, exact commands, frozen source and validation are retained.
+
+The original rounded control in the windowed-conjunction comparison is slower
+than Tantivy on 924 of 962 official TOP_10 queries. It wins on only 35 of 301
+unions, one of 300 intersections and none of 300 phrases. Arithmetic mean
+latency is also worse (2291.230 versus 1373.212 µs); the geometric-mean gap is
+not solely an aggregation artifact. This distribution motivates revisiting
+execution choice for sparse unions as well as reducing unnecessary frequency
+work. A density-based compact-union path is proposed; no gain is yet measured.
+
+### Compact sparse-union experiment (rejected at full scale)
+
+The new metadata gate selects compact posting batches below one posting per
+64 IDs across the combined term-list range. Dense unions keep their existing
+window executor. All eligible matches are scored using the shared canonical
+BM25 kernel and query reduction order, with absent terms omitted from scoring.
+The same predicate, collector and budget protocol remain in use. This changes
+execution choice, not the scoring formula or encoded representation.
+
+The focused regression preserves exact ordered ID/score bits across all four
+codecs, absent and duplicate terms, 64-clause reductions, missing norms, zero-k1,
+late winners, predicates, k=0 and expired budgets. Native and async routing are
+both exercised. Check `20260914T113344.861694Z-check` passes all four phases,
+1,728 non-doctest tests plus one doctest. Portable compilation and all 24 browser
+tests pass. An additional browser test compares sparse union scores with
+independently executed single-term scores on a 4,097-document fixture. The
+frozen candidate contains 96 files, 889,240 bytes, SHA256
+`147c4f35e587bb92c863e780c0f266e93a20f5c84ced26c8484e0edcf067e7b6`.
+
+Both ARM fixtures pass all 1,676 gates for six controls on unchanged bytes.
+Canonical rounded original/deferred/compact overall TOP_10 is
+32.995/33.085/32.926 µs, with union 44.983/44.732/43.632 µs. Merged overall
+is 35.172/35.250/35.197 µs, with union 47.615/46.896/46.362 µs. Original
+versus compact TOP_1000 is 48.534/47.801 µs canonical and 50.397/49.987 µs
+merged, while TOP_100_COUNT regresses 32.891/33.254 and 33.502/34.148 µs.
+The complete cloud comparison rejects the density gate. On the rounded index,
+original/deferred/compact/Tantivy TOP_10 is
+888.502/834.264/906.163/501.341 µs. Union TOP_10 is
+1109.934/1007.578/1288.983/624.893 µs: the new path regresses its immediate
+predecessor by 27.9% and the original by 16.1%. AND is
+603.511/526.327/532.297/331.395 µs, and phrase is
+811.012/835.297/840.648/498.741 µs. The same regression appears with group
+impacts: overall 929.938/855.764/900.404/501.341 µs and union
+1320.269/1097.928/1332.647/624.893 µs. Small ARM gains did not transfer.
+
+Rounded TOP_1000 is 1295.926/1232.594/1220.445/881.007 µs;
+TOP_100_COUNT is 1188.866/1232.823/1239.410/807.490 µs;
+COUNT is 568.742/550.699/554.076/411.208 µs. The separate 714-term
+TOP_10 is 155.970/160.405/159.231/43.776 µs. These isolated results do not
+justify the TOP_10 regression. Remove the compact-union routing and kernel from
+the next candidate, retaining its exhaustive sparse/duplicate correctness cases.
+The already frozen short-WAND phase still contains this route and must be
+interpreted accordingly. A following candidate must let short WAND cover these
+two-term unions and retain score windows for wider unions.
+
+Fresh candidate gates cover every 962+714 query on both unchanged indexes;
+unchanged control gates are reused only after binary and manifest verification.
+All controls are timed afresh. The verified full archive contains 251 files,
+143,926,067 bytes, SHA256
+`b9f993478949a3ab9cd40bd8333cce92a98a5eb92c979f54175277272b239c57`.
+The compact evidence archive (local archive `benchmark-results/compact-unions-2026-09-14/results.zip`)
+contains 368 files, 6,447,309 bytes, SHA256
+`f8fa0a2810b2bbb5d8e36cb2abc7a55fe7b9a08e6a888842c82b3a62365f335c`.
+
+Independent official TOP_10 profiles have original/deferred/compact/Tantivy RSS
+of 1,056,596/1,055,900/1,057,140/727,864 KiB; anonymous residency is
+5,772/5,792/5,792/768 KiB. The rest is predominantly file-backed. Software
+union self samples put 44.43% in windows, 6.60% in block-bound lookup, 6.16%
+in compact-union traversal, 5.85% in length gathering and 3.90% in compact
+batch collection. These samples are separate from latency and are not causal
+attributions; the branch does not solve the common window cost.
+
+### Demand-driven phrase frequency (mixed full-corpus result)
+
+Phrase confirmation previously counted every matching start even for exact
+COUNT, which needs document membership. The prototype stops after the first
+match and retains monotone position cursors. Scoring resumes that same scanner
+for the remaining exact frequency, cached for repeated immutable score reads.
+One scanner preserves first-term start counting, independent slop intervals,
+repeated terms and overflow-safe offsets; the scoring formula and bytes remain
+unchanged. The ordinary, async and point-backfill callers share this owner.
+
+The nine focused phrase tests include an independent brute-force oracle across
+position layouts and slop, concurrent immutable score reads, unchanged exact
+score bits, membership without frequency completion, budgets and terminal seeks.
+The first full check (`20260914T115515.987092Z-check`) failed the existing chunked
+reorder/backfill test: a new document reused cached frequency from the previous
+position buffers. The named regression
+`point_phrase_backfill_invalidates_frequency_when_position_buffers_change`
+reproduced the stale score before the fix. Invalidation now occurs at the
+position-buffer write boundary, including direct candidate backfill. All nine
+phrase tests and the original chunked regression pass after the fix. Check `20260914T121124.083859Z-check` passes all four phases, 1,730 non-doctest
+tests plus one doctest; portable compilation passes. All 24 browser tests pass. The frozen source has 96 files, 893,571 bytes,
+SHA256 `c0a8ebfd38d6342de98f0b53fc9e3d2662cdc6bd5a9e283a957406dff5be0b3b`;
+every tar member matches its source manifest. Both ARM layouts pass all 1,676
+gates for six controls on unchanged indexes. Canonical rounded original/prior/
+phrase TOP_10 is 34.406/34.000/34.201 µs, and phrase-only is
+30.072/30.247/30.418 µs. Merged overall is 36.119/36.048/36.245 µs; phrase-only
+is 31.068/31.291/31.300 µs. Phrase COUNT is 23.772/23.927/24.028 µs canonical
+and 24.866/24.870/24.808 µs merged. This does not establish a useful gain.
+Full-corpus measurement is pending. The failed
+check and before/after logs are retained; this prototype is not yet validated
+for retention.
+
+The complete cloud comparison does not establish a useful net gain. Rounded
+original/compact-union/lazy-phrase/Tantivy TOP_10 is
+850.866/878.431/894.401/497.417 µs. Phrase TOP_10 is
+789.876/818.945/831.828/500.252 µs. TOP_1000 is
+1273.885/1225.097/1226.926/896.090 µs; TOP_100_COUNT regresses
+1197.197/1268.510/1308.048/831.392 µs. COUNT improves slightly to
+575.713/559.902/551.125/414.456 µs. Group-index TOP_10 is
+917.911/911.166/903.104/497.417 µs, but TOP_100_COUNT regresses
+1251.855/1270.507/1294.315/831.392 µs. This mechanism alone is not a
+retention result. The incremental exact-position candidate replaces its main
+exact-phrase scan and must justify the resulting complete implementation.
+
+Fresh candidates pass all 1,676 gates on both unchanged layouts; unchanged
+controls reuse verified gates and all controls are timed afresh. The full archive
+contains 253 files, 121,175,727 bytes, SHA256
+`422d3cb3ec3b9cfae1fb189a389494056cfcd903f318376016d4ee15cd4a7c50`.
+The compact evidence (local archive `benchmark-results/phrase-frequency-2026-09-14/results.zip`)
+contains 377 files, 6,470,040 bytes, SHA256
+`c2a8b711230f7699eb9db09b54bfa164665ae93c050da2a44803bf8414c4b834`.
+Its first packaging attempt correctly failed verification because a downloader
+log appended during copying. The rejected package is retained separately; the
+packager now streams and hashes the same bounded input bytes, then verifies every
+ZIP entry. The immutable full benchmark archive had already passed every hash.
+
+Independent phrase TOP_10 RSS is 1,008,052/1,007,776/1,007,876/698,512 KiB;
+anonymous residency is 4,832/4,832/4,832/640 KiB. After-change self samples are
+19.35% phrase confirmation, 18.99% candidate alignment, 13.66% cached position
+reads, 8.48% position-block lookup and 7.25% position-prefix accounting.
+Phrase scoring is 1.84%. Tantivy spends 28.74% in position reads, 15.70% in
+posting seek, 13.39% in phrase advancement and 12.07% in phrase matching.
+Inlining moves attribution between names; these are sampled shares, not a
+causal decomposition of the latency gap.
+
+### Ranked-cursor lower-bound candidate (no overall gain)
+
+The owning ranked cursor now probes the next document before standard-library
+suffix binary search, and uses binary search after loading a new block. The
+ordinary posting iterator already follows this policy; native and async ranked
+cursors previously used a linear SIMD scan for long within-block jumps. The
+compact-conjunction profile motivated the change by placing 34.55% of self
+samples in seek preparation, not by an isolated synthetic speedup claim.
+
+A behavior oracle passes before and after the rewrite. It covers all four
+codecs, lengths around 128-posting boundaries, high document IDs, wide frequencies,
+interleaved forward/equal/backward seeks and advances, exact score bits and
+terminal states through sync and async methods. No I/O, representation, scorer,
+ordinal policy or unsafe primitive changes. Check
+`20260914T122350.655379Z-check` passes all four phases, portable core compiles,
+and 24 WASM tests pass. The frozen source has 96 files, 897,590 bytes, SHA256
+`8be21c1a0ad28b06839d3b106a778c527f5801fd16211e4bfac6bec87ff71556`.
+Both ARM fixtures are essentially flat. The full-corpus result also fails to
+establish an overall gain. Rounded original/predecessor/candidate/Tantivy TOP_10
+is 850.390/896.385/898.717/504.500 µs. AND regresses 529.567 to 538.196 µs,
+versus the original 570.548 and Tantivy 334.396. Union is 1279.837 to
+1268.195 µs, versus 1068.074/626.239. Phrase is 834.337 to 835.779 µs,
+versus 789.039/503.136. Overall TOP_1000 is 1282.343/1239.709/1238.880/
+872.234 µs; TOP_100_COUNT is 1177.261/1251.392/1236.760/804.397 µs;
+COUNT is 570.818/550.648/547.036/412.251 µs. Group-index TOP_10 regresses
+905.133 to 917.899 µs. These are measured together; the predecessor already
+contains rejected experiments, so recovery against it would not justify adoption.
+
+The full capture is verified: 251 files, 153,910,595 bytes, SHA256
+`c73be65a09e397a01ed65491c54197d43b2349ee9142267f271cbeff988025a6`.
+The compact evidence (local archive `benchmark-results/ranked-seek-2026-09-14/results.zip`)
+contains 375 files, 6,517,736 bytes, SHA256
+`a0ce7adc18a65d31cc204a28aff034ee5d7e0569d4b09a1842fdc09cca0c5ee3`.
+All new-candidate exact-count and exhaustive ordered-ranking gates pass; unchanged
+controls reuse hash-verified gates and are timed afresh. Independent official
+TOP_10 RSS is 1,057,252/1,056,564/1,057,096/727,820 KiB, with anonymous
+residency 5,776/5,784/5,784/776 KiB. AND self samples still place 36.05% in
+seek preparation and 8.41% in the sync seek boundary. Changing the within-block
+search alone did not resolve the executor cost.
+
+### Block occupancy does not explain the measured query gap
+
+The full vocabulary has many short blocks after compatible copying merges, and
+rounded index payloads are larger than Tantivy's. The current rounded file
+manifest has 2,203,973,483 posting bytes and 2,752,821,603 position bytes; Tantivy
+has 1,054,571,755 `.idx` bytes and 1,850,554,774 position bytes. These are different
+representations, not directly comparable per-value codecs.
+
+However, summing the 714 exact term-count gates gives 98,360,178 postings. The
+retained historical frontier probe on the same corpus/query terms visited
+780,298 physical blocks: 126.05 postings per block, versus a theoretical
+768,791 blocks at complete per-term packing. That older layout differs from the
+current matched-order rebuilds, so this is historical diagnostic evidence. It
+shows why vocabulary-wide block counts cannot establish fragmentation as the
+cause of the benchmark's systemic query gap. No default repacking policy or
+query-time block coalescing is justified by that aggregate. Compatible merges
+continue copying encoded blocks as required by the system contract.
+
+### Query shape and the short-union hypothesis
+
+The compact-conjunction full-corpus TOP_10 breakdown is:
+
+| Regular query shape | Queries | Hermes compact (µs) | Tantivy (µs) |
+| ------------------- | ------: | ------------------: | -----------: |
+| Two-term union      |     198 |             880.244 |      392.545 |
+| Three-term union    |      83 |            1550.570 |     1223.131 |
+| Longer union        |      18 |            2646.073 |     2744.842 |
+| Two-term phrase     |     198 |             534.399 |      379.884 |
+| Three-term phrase   |      83 |            1464.954 |      751.893 |
+| Longer phrase       |      19 |            3158.904 |     1355.093 |
+
+The complete mix also includes mixed Boolean and negated queries, plus special
+stress queries; they remain in every official aggregate. Short unions suggest a
+block-WAND experiment, while wider phrases suggest investigating position
+alignment and unnecessary verification work. These are distinct hypotheses.
+The existing window executor is not uniformly worse on all shapes, so wholesale
+replacement is not justified. The current candidate now implements two-term
+block-WAND after the low-density compact path, reusing the owning cursor,
+block bounds and canonical BM25 scorer. A one-document case in the shared
+scoring kernel avoids an unused gather buffer. Two focused exhaustive tests
+pass, including all four codecs, norms/missing norms, gaps, absent/duplicate
+clauses, reversed order, ties, seeded floors, high IDs, filters, late winners,
+zero-k1, k=0/1/10/1000/all, and sync/async routing. A new browser regression
+compares dense two-term and duplicate-term unions with independently executed
+term scores. Check `20260914T124145.575176Z-check` passes all four phases,
+1,733 non-doctest tests plus one doctest; portable compilation and all 25 browser
+tests pass. Frozen source contains 97 files, 903,734 bytes, SHA256
+`972f017a8fcfd4aeb88e9b2c6866b91b2ffd1d4cf49ae8c648db314fa344c78f`.
+Every archived source entry matches its manifest. Matched timings are pending;
+correctness alone does not establish a performance improvement.
+
+The ranked-cursor lower-bound ARM comparison passes all 1,676 gates for all six
+controls on each unchanged layout, but is essentially flat. Canonical rounded
+original/phrase-control/lower-bound TOP_10 is 33.151/33.042/33.063 µs; AND is
+26.834/26.709/26.888 µs. Merged overall is 35.183/35.542/35.378 µs, with AND
+28.062/28.528/28.360 µs. The canonical/merged TOP_1000 predecessor/candidate
+values are 47.430/47.596 and 50.155/49.960 µs. This does not establish a gain;
+full x86 measurement is still pending.
+
+From the compact-union cloud phase onward, unchanged controls reuse their
+previous verified correctness evidence after checking source manifest entries,
+identical binary hashes and immutable index manifests. Reused exact counts must
+also equal the freshly verified candidate counts. Every changed candidate still
+runs all 962 official plus 714 supplemental COUNT and exhaustive top-k gates.
+All controls are timed afresh. `verify-reuse.json` records the source mapping;
+this avoids rerunning expensive identical validation without changing acceptance
+criteria or claiming those reused checks were newly executed.
+
+The frozen short-WAND candidate's ARM runs have completed all gates on both
+unchanged fixtures and regress union latency. Canonical rounded
+original/ranked-seek/WAND TOP_10 is 34.040/33.914/35.045 µs, with union
+44.878/42.995/48.866 µs. Merged TOP_10 is 35.275/35.315/36.527 µs, with
+union 46.619/45.587/51.668 µs. TOP_1000 is
+47.800/47.475/49.465 µs canonical and 53.510/53.003/55.432 µs merged.
+COUNT is 24.356/24.158/23.968 and 24.758/24.476/24.261 µs, respectively.
+This is not an adoption result. The frozen binary still includes the rejected
+compact-union density route. Its ARM diagnostic routes 97 of 301 unions through
+short WAND, 105 through compact union, 96 through windows and three through the
+single-term path. Full-corpus measurement remains pending.
+
+### Incremental exact-phrase position intersection (validation in progress)
+
+The previous scorer reads every term's positions before checking whether a
+prefix can match. A named regression reproduces that unnecessary later read.
+The prototype retains the original first-term starts, visits other terms in
+ascending document frequency, and compacts starts after each intermediate exact
+offset intersection. Empty prefixes stop before later position reads. The last
+pair confirms one occurrence and resumes only for exact scoring. A shared pair
+cursor preserves first-start multiplicity and uses u64 offset comparisons;
+nonzero slop retains the existing independent-interval scanner. Position reads,
+frequency invalidation, native/async execution and point backfill remain in the
+same scorer. No encoded representation or BM25 formula changes.
+
+The baseline prefix-read regression fails as expected. All 12 phrase tests pass
+after implementation, including independent occurrence/duplicate/overflow and
+resumption oracles, multi-block positions on all four codecs, false candidates,
+backfill and deadline boundaries. The first multi-block test run exposed a test
+fixture error: it paired position streams with postings built without cumulative
+position cursors, so document 128 read the wrong position range. The corrected
+fixture uses the canonical writer with `with_positions=true`; production code
+was not changed for that failure. Initial harness
+`20260914T131923.543464Z-check` stops at a test-only Clippy range-loop warning;
+the loop is corrected and the full check is running again.
+
+This candidate also removes the rejected compact-union density gate and unused
+kernel. Its sparse/duplicate/64-clause score-bit oracle is retained against the
+routed executor and passes. Supported two-term unions now select short WAND;
+wider unions retain score windows. These source changes must be reported
+together, including effects outside their intended query families. A new browser
+phrase test checks exact occurrence sets and top-k versus complete collection on
+260 documents with repeated terms and failed prefixes. Full validation and
+matched performance remain pending; neither change is an established gain.
+
+Browser validation exposed an existing correctness problem beyond the position
+intersection prototype: a quoted multi-token phrase on a field with no token
+positions became a Boolean AND, accepting nonadjacent and reversed terms. The
+new browser occurrence oracle failed, and
+`phrases_require_token_positions_instead_of_accepting_unordered_terms` reproduced
+the native failure before the fix. Ordinal-only fields also cannot establish
+token adjacency. The shared phrase capability check now rejects both modes with
+a field-specific error, and is used by parsing, native/async scoring and point
+backfill. One analyzed token remains a term query. Fields with token/full
+positions retain their existing matching and score semantics; no bytes change.
+
+The parser also now keeps every default-field branch when their tokenizers yield
+different token counts; previously a one-token first field returned early and
+lost other fields. Additional routing propagates the original query's error.
+Three native integration regressions cover unsupported modes, token/full modes,
+all default-field branches, pre-I/O parsing and additional routing; all pass.
+All 23 parser unit tests pass. The prior stemmed-phrase test is updated to require
+an error for its unsupported field rather than pinning the incorrect fallback.
+This is an intentional compatibility correction, documented in the
+[phrase contract](dynamic-tokenizer-and-phrase.md#phrasequery-on-the-wire).
+A fresh `full` harness, `20260914T133533.057936Z-full`, is running before the
+candidate is frozen. Earlier pre-correction native binaries and logs are kept
+separately and are not used for timing.
+
+The corrected incremental-position candidate now passes full harness
+`20260914T133533.057936Z-full`: all eight phases, 1,739 non-doctest tests plus
+one doctest and four real-server broker tests, including native without sync,
+portable compilation and API docs. All 28 browser tests pass across six files.
+The frozen candidate contains 101 files, 928,552 bytes, SHA256
+`7a4e33a0e41349ad5dd371173081850af9fe9dd7e25217fe38177732f521dd87`.
+Both ARM fixtures now pass all gates and retain byte-identical indexes. Rounded
+original/predecessor/candidate TOP_10 is 34.859/35.922/35.970 µs on canonical
+and 34.861/36.459/36.164 µs on merged. Phrase improves only 30.237 to
+29.748 µs and 31.230 to 30.745 µs versus the predecessor. Full-corpus
+measurement is queued. This does not establish a net performance gain.
+
+### Systemic cost isolation: latency strata and decoded work
+
+The verified deferred-frequency run is still slower across phrase-query sizes:
+Tantivy-latency quartiles give Hermes/Tantivy TOP_10 ratios of
+1.651/1.574/1.612/1.711. The AND quartiles are 1.608/1.520/1.443/1.443.
+Unions differ: 2.419/1.733/1.331/0.936. Each family retains all its official
+queries; quartiles only explain the aggregate, and do not define a query route.
+These are geometric ratios of per-query medians from the same seven-sample run.
+The growing absolute phrase cost rules out fixed query setup as the sole cause.
+It does not establish which representation or traversal accounts for the gap.
+
+A diagnostic-only experiment will count actual posting-ID, term-frequency and
+position block decodes, decoded values, and encoded payload bytes for both
+engines on the immutable full corpus. Instrumentation lives in isolated copies
+of frozen Hermes and the checksum-verified Tantivy 0.26.0 crate; it adds bounded
+atomic counters at owning decoders and emits one record per adapter request.
+No instrumentation enters production source or latency binaries. Recorded byte
+counts are decoder payload input, not physical I/O or RSS. Position requests
+and posting seek calls can additionally distinguish repeated work from decoding.
+The original and instrumented adapters must preserve protocol/count results,
+and Hermes must still pass the exhaustive ranking oracle. Full traces run only
+after the queued latency comparisons finish. This is a proposed diagnostic,
+not a measured optimization or an explanation established by sample percentages.
+
+## Selected phrase planner and native performance work (September 14)
+
+The verified short-WAND experiment is rejected. Rounded union TOP_10 regresses
+1268.903 to 1451.435 microseconds from the immediate predecessor, while the
+original control is 1068.457 and Tantivy 638.869. Overall TOP_10 is
+850.274 / 899.328 / 937.045 / 509.501 microseconds for original / predecessor /
+WAND / Tantivy. All exact-count and exhaustive-ranking gates pass, so the
+rejection is about performance. The complete verified evidence (local archive `benchmark-results/short-wand-2026-09-14/results.zip`)
+retains the seven-sample full-corpus run, profiles, memory and immutable-index
+manifests. Earlier statements that this experiment was pending describe its
+then-current state.
+
+The selected source restores the V4 ranked executor, including its original
+within-block search. It removes the later compact-union and short-WAND routes
+and their one-hit scorer specialization, but retains their independent behavior
+oracles. It adds selectivity-ordered phrase document and position intersections
+and retains the phrase correctness fixes. Its frozen source has 102 entries,
+933838 compressed bytes and SHA256
+`9e409e1cb42cfec4de6dd4e2cfac1004316904dee5bfbe0e0fe1153a94917f96`.
+Native `check` run `20260914T145044.033860Z-check` passes all four stages;
+portable compilation passes. The already queued browser build also completed
+with all 29 tests passing. Following the user's instruction, native performance
+iterations do not repeat the WASM build each time.
+
+Both 100k ARM fixtures pass all 1676 count/ranking gates for all four controls,
+with unchanged index bytes. Canonical original / best V4 / V9 / selected overall
+TOP_10 is 34.554 / 34.531 / 36.014 / 33.902 microseconds; phrase is
+29.436 / 29.704 / 29.044 / 28.303. The merged fixture gives
+40.079 / 40.355 / 41.712 / 39.668 overall and
+33.798 / 33.956 / 33.405 / 32.659 for phrases. These paired improvements
+are small and do not establish competitive full-corpus performance. The
+selected full-corpus timing and full decoded-work diagnostics remain pending.
+
+A further execution investigation will compare semantic conjunctions using
+the shared `BlockPostingIterator` against the ranked `TermCursor` traversal.
+Both implement the same selectivity-ordered leapfrog intersection today, but
+the ranked cursor additionally carries deferred score, sparse-I/O, ordinal and
+block-bound state. The proposal is to move conjunction membership through the
+existing posting reader while retaining the owning canonical batch scorer,
+predicate, cancellation and exact-count semantics. Scratch remains bounded by
+the number of query terms times the existing 128-posting block. No new scorer,
+writer, format, query-text dispatch or approximation is proposed. Decode work
+and whole-query timings must distinguish reduced cursor overhead from extra
+TF decoding or allocation; an isolated prototype is not a selected default.
+
+### Proposed direct accumulation of canonical window scores
+
+The ranked union executor currently retains a full per-term score plane and
+presence mask, then reconstructs each surviving document's canonical sum.
+For a window with no nonessential terms, it can instead visit all cursors in
+canonical query order and accumulate the final score directly. Two terms with
+nonnegative, non-NaN scores also need only a single sum: exchanging two addends
+does not reassociate a floating-point reduction. Unsupported BM25 parameters
+retain the existing score planes. Wider windows with nonessential terms retain
+the current canonical reconstruction.
+
+This proposal keeps block bounds, candidate membership, ranking precision,
+predicate evaluation, cancellation and collection unchanged. It makes score
+accumulation explicit in the shared window writer and allocates per-term
+scratch only when reconstruction is necessary. Worst-case scratch stays at the
+existing term-count times 4096 slots; eligible windows avoid per-term score
+writes, presence-mask writes and the final per-term reduction. This is an
+isolated experiment, not a measured gain or a default format change.
+
+## Full-corpus decoded work and matched execution experiments (September 14)
+
+The verified decoded-work evidence (local archive `benchmark-results/decoded-work-2026-09-14/results.zip`)
+covers all 962 official queries and 714 supplemental terms, every command,
+two independent equal passes, and immutable full-corpus indexes. Instrumented
+copies are excluded from latency measurements. The three Hermes sources pass
+cross-source ordered top-1000 ID and raw-score-bit equality on rounded and group
+indexes, their pruned top-10/100/1000 agrees with exhaustive scoring, and exact
+counts agree with Tantivy. Payload bytes below are encoded decoder inputs;
+they exclude headers, skip metadata and inline postings and are not physical I/O.
+
+| Official TOP_10 work          |   Hermes V4 | New phrase planner | Tantivy 0.26 |
+| ----------------------------- | ----------: | -----------------: | -----------: |
+| AND decoded document IDs      |  96,438,925 |         96,438,925 |   93,314,862 |
+| AND document payload bytes    | 110,617,532 |        110,617,532 |   65,064,884 |
+| AND frequency payload bytes   |  94,734,254 |         94,734,254 |   66,494,517 |
+| Union decoded document IDs    |  42,999,618 |         55,557,181 |  100,506,664 |
+| Union decoded frequencies     |  23,423,882 |         40,256,936 |  100,506,664 |
+| Phrase decoded document IDs   | 121,824,506 |         96,438,925 |   97,512,075 |
+| Phrase positions requested    |  85,496,780 |         27,363,707 |   27,364,093 |
+| Phrase decoded positions      | 238,953,816 |        106,114,929 |  106,867,899 |
+| Phrase position payload bytes | 345,468,936 |        174,250,686 |  135,277,467 |
+
+The diagnostic new-planner source retains V9's ranked executor; its union
+column is not the selected production executor. The selected source combines
+the new phrase planner with V4 ranking. The phrase planner removes most excess
+position requests: full-corpus requests differ from Tantivy by 386, rather than
+being exactly equal. V4 union pruning already decodes fewer than half as many
+IDs and about a quarter as many frequencies as Tantivy, despite slower measured
+latency. AND traversal work is close while its document payload is 1.70 times
+larger. These findings make execution cost and representation the next measured
+questions; decoder counts alone do not establish which causes the latency gap.
+
+The first diagnostic build attempt was rejected before accepting any counters:
+Cargo reused stale adapter artifacts across extracted source trees with shared
+target directories. The retry touches crate and adapter entry points, builds
+verbosely, embeds a distinct diagnostic source identity for every source, and
+requires that identity plus nonzero counter records before full collection.
+Only the rebuilt run is included in the verified results. Original logs and
+binaries from the rejected attempt remain in the workspace evidence. The
+36,835,614-byte compact ZIP has SHA256
+`5f1c660160d4746a51f3f8fd3473b243b25cd290dde814369d94bf740fad2d86`.
+Byte-identical source and oracle files are stored once, with a complete logical
+manifest and a verified restoration script; no query or score record is omitted.
+
+The incremental phrase-intersection experiment also has
+complete verified latency evidence (local archive `benchmark-results/phrase-intersection-2026-09-14/results.zip`).
+Original / preceding WAND / phrase-intersection / Tantivy official TOP_10 is
+851.004 / 923.941 / 869.619 / 501.402 microseconds. Phrase TOP_10 is
+789.233 / 828.064 / 783.673 / 497.892. Its improvement over a regressing
+predecessor does not establish a better complete executor. The selected source
+therefore retains the subsequent V4 rollback and selectivity planner described
+above.
+
+Two isolated native execution variants pass all scoring and integration tests
+and all 1676 cross-source ranking/count oracles on both 100k ARM fixtures.
+The shared conjunction reader retains the canonical batch scorer. The direct
+window variant accumulates in canonical order when all terms are essential,
+or exchanges only two supported nonnegative addends. Its numeric guard also
+requires a positive BM25 denominator for a zero frequency, because the public
+posting API permits zero. Other windows retain canonical score reconstruction.
+Neither variant has been copied into the selected main source pending full
+measurements.
+
+A clean paired ARM repeat gives selected / reader / direct-window TOP_10 of
+54.167 / 53.994 / 53.514 microseconds on the canonical fixture and
+35.945 / 35.510 / 35.449 on the merged fixture. Absolute host timings varied
+between runs; only paired comparisons are meaningful. A final native run of
+the conservative numeric guard gives selected / guarded-window TOP_10 of
+33.048 / 32.449 and 34.246 / 34.115 on the two fixtures, with union results
+43.518 / 42.057 and 45.662 / 44.751. These modest gains do not close the
+systemic gap. Both runs retain exact score bits and unchanged index bytes.
+
+The queued full comparison includes original, V4, V9, selected, shared-reader,
+guarded-window, selected with the existing Simd4x codec, and Tantivy. The new
+Simd4x index uses the exact original rounded-index writer binary, one indexing
+thread, no background merges, the same corpus and memory setting, and requires
+identical document order and logical counts. Index preparation overlapped
+untimed diagnostics; its elapsed time is provenance, not comparative indexing
+performance. Query timings begin only after all preparation and correctness
+gates finish. This run will distinguish source execution changes from changing
+encoded representation without changing scoring or corpus order.
+
+### Proposed intersection of overlapping decoded blocks
+
+The next isolated semantic-AND experiment retains DF-ordered leapfrog seeks to
+find the first common document, then intersects the remaining decoded slices
+up to the minimum current block end. It records each surviving posting's
+ordinal inside its owning reader buffer, fetches frequencies only after all
+terms and the predicate match, and sends bounded batches to the existing
+canonical scorer. It advances the lead past the processed interval and resumes
+skip-based alignment. This avoids repeatedly entering the cursor API for every
+candidate inside already decoded blocks. It neither expands to a dense document
+universe nor scans through blocks that existing seeks can skip.
+
+Invariant: the next result is the least unprocessed common document; every
+candidate in the current interval is considered exactly once, and no reader
+moves while its decoded ordinal is retained. Frequency rows remain in original
+query order. Scratch is bounded by query terms times 128 byte-sized ordinals,
+plus existing frequency rows and fixed 128-document buffers. Deadline checks
+occur at alignment boundaries and per block/term, before frequency work and
+canonical scoring. Query control stays in the executor; the posting owner
+exposes only crate-private borrowed slices of its current decoded block. Native
+and async text execution share this path, with no persisted-byte changes.
+
+The first experiment uses bounded sorted-slice searches to isolate batching
+from ISA-specific kernels. The [SIMD intersection research by Lemire, Boytsov
+and Kurz](https://arxiv.org/abs/1401.6399) and its
+[reference implementation](https://github.com/fast-pack/SIMDCompressionAndIntersection)
+show why intersection, rather than decoding alone, deserves vectorization.
+Their reported gains do not predict Hermes performance. A later SIMD kernel
+must beat this control, retain scalar behavior and validate x86 and ARM; none
+is implied by the scalar prototype. Independent all-codec result/score oracles,
+selective and dense lists, tails, high IDs, predicates and deadlines must pass
+before whole-query measurement. This is proposed work, not a retained gain.
+
+## Verified selected phrase source and codec comparison (September 14)
+
+The eight-configuration evidence (local archive `benchmark-results/phrase-plan-selected-2026-09-14/results.zip`)
+is complete and verified. Full archive: 206,602,204 bytes, 340 manifest entries,
+SHA256 `46ca5ec700f59792ace554a03fb2b66fdbc57c2f3a897e2d28c5b89f4372f16c`.
+Compact archive: 45,194,951 bytes, 593 entries, SHA256
+`b7a90620ad24101474e22f6f97c165a811906ede08484dd7f862a881f75056e9`.
+All official and supplemental exact-count, exhaustive-ranking and immutable
+index gates pass, including ordered cross-index score bits for matched Simd4x.
+
+| Official operation, geometric mean microseconds | Original |       V4 | Selected | Shared reader | Direct window | Selected Simd4x | Tantivy |
+| ----------------------------------------------- | -------: | -------: | -------: | ------------: | ------------: | --------------: | ------: |
+| TOP_10                                          |  868.436 |  819.568 |  803.338 |       810.856 |       823.140 |         824.067 | 516.614 |
+| TOP_1000                                        | 1289.470 | 1222.007 | 1177.598 |      1144.803 |      1152.750 |        1219.905 | 890.228 |
+| TOP_100_COUNT                                   | 1185.589 | 1219.299 | 1233.130 |      1232.886 |      1240.993 |        1283.243 | 841.675 |
+| COUNT                                           |  572.636 |  559.319 |  540.990 |       540.643 |       541.937 |         557.645 | 415.010 |
+
+Selected / reader / window / Simd4x / Tantivy TOP_10 is
+1002.554 / 1129.146 / 1076.454 / 994.686 / 647.225 for unions,
+524.453 / 484.000 / 523.692 / 542.731 / 343.946 for AND, and
+755.534 / 750.865 / 757.511 / 793.697 / 507.057 for phrases.
+Selected wins only 54 of 962 official queries: 46 unions, five AND and one
+phrase. Neither new execution variant nor the codec improves complete TOP_10.
+The selected main source remains 1.555 times slower than Tantivy; the goal is
+not achieved. The V9 control, also retained in the archive, takes 867.999
+microseconds overall and is not selected.
+
+Matched Simd4x reduces index bytes from 5,067,578,899 to 4,044,864,324; Tantivy
+uses 3,031,085,762. Their document-order arrays match exactly (40,256,832 bytes,
+SHA256 `1b1419398758b57e960db9d0a2cca68ae29e4448e1b1888c3912d382d8113a2b`).
+Separate warm official profiles give selected rounded / Simd4x / Tantivy
+VmHWM of 1,056,876 / 851,072 / 676,520 KiB, with anonymous residency
+5796 / 5784 / 764 KiB. Most residency is mapped file pages. The codec is a
+useful space tradeoff but is slower in this matched run; its default stays
+unchanged. Preparation timing was overlapped with untimed diagnostics and is
+not an indexing performance comparison.
+
+The shared-reader variant changes conjunction traversal, yet union TOP_10
+regresses 12.6%. Its normalized x86 union-kernel disassembly is identical to the
+selected build: 14,869 bytes and 2937 static instructions, including 105 YMM
+instructions and no ZMM instructions. `score_text_run` and `seek_prepare` also
+have identical normalized disassembly. Normalization removes relocation
+addresses; this does not prove identical cache placement or runtime conditions.
+It does rule out lost vectorization in these inspected kernels as an explanation.
+The direct-window kernel grows to 15,509 bytes and 3089 static instructions.
+Static instruction counts are not executed instruction counts or cycle estimates.
+A rotated full-workload-pass repeat is queued to separate persistent differences
+from sequential engine-order effects, using the same CPU, compiler, indexes and
+all official/supplemental queries. Frozen original, V4, selected, reader,
+window, selected Simd4x and Tantivy controls are retained, plus the refined
+block-intersection source. This runner is additional evidence, not a silent
+replacement of the upstream benchmark protocol.
+
+The block-intersection prototype passes 29 native scoring tests, four focused
+integration suites, Clippy, and all 1676 ordered cross-source ID/score/count
+oracles on both ARM fixtures. Its first implementation regresses AND locally.
+The refinement probes the current and next posting before binary-searching a
+suffix, preserving the same block algorithm. A source search overlapped one
+ARM timing run; that run is excluded and a clean same-binary repeat retained.
+In the clean repeat, selected / shared-reader / first-block / refined-block
+TOP_10 is 33.001 / 32.658 / 33.044 / 32.642 microseconds on the canonical
+fixture and 34.569 / 34.162 / 34.502 / 34.151 on the merged fixture. AND is
+27.116 / 26.708 / 27.693 / 26.841 and
+27.996 / 27.451 / 28.406 / 27.517. The refined block variant does not beat
+the shared reader locally; full measurements remain necessary. No block
+prototype has been copied into the main source.
+
+A separate trace of the public synchronous API confirms that single-segment
+search still enters the shared Rayon pool. Nested query preparation also uses
+parallel iteration, so bypassing that pool requires an explicit execution
+policy to preserve ownership and avoid falling onto an unrelated global pool.
+No inline-execution change or scheduling speedup is implemented or claimed.
+
+### Verified rotated execution comparison
+
+The rotated repeat (local archive `benchmark-results/block-executor-2026-09-14/results.zip`)
+is complete: 135,476,723-byte full archive, 186 verified entries, SHA256
+`b70c200e720fe25d7fc572eac062beb7a35c929d3c0b99445adcd8e6fa1e50ee`.
+The compact ZIP is 26,884,167 bytes, 434 logical entries, SHA256
+`923b1afb2ad3134b42d4194043229e07390afe2fb75b10ef8f58fcb1e82eab86`.
+All fresh block-prototype ranking/count gates and all index byte checks pass.
+Seven complete workload passes rotate engine order, with the driver and each
+engine on CPU 2. This supplements the upstream sequential runner above.
+
+| Official operation, geometric mean microseconds | Selected | Shared reader | Direct window | Refined block intersection | Tantivy |
+| ----------------------------------------------- | -------: | ------------: | ------------: | -------------------------: | ------: |
+| TOP_10                                          |  781.674 |       797.928 |       776.620 |                    768.576 | 503.673 |
+| TOP_1000                                        | 1186.198 |      1149.523 |      1167.233 |                   1160.892 | 885.159 |
+| TOP_100_COUNT                                   | 1187.665 |      1186.427 |      1175.677 |                   1154.313 | 814.953 |
+| COUNT                                           |  518.756 |       520.476 |       516.417 |                    519.281 | 395.314 |
+
+Selected / reader / window / block / Tantivy TOP_10 is
+962.099 / 1120.601 / 941.001 / 972.873 / 618.928 for unions,
+541.939 / 501.061 / 543.038 / 510.088 / 359.403 for AND, and
+702.000 / 695.602 / 699.666 / 697.618 / 474.353 for phrases.
+The reader's union regression persists after order rotation. Its shared-reader
+AND traversal beats the more elaborate block algorithm by 1.8%; the block
+algorithm also loses to that reader on both clean ARM fixtures. Its 1.7%
+complete TOP_10 improvement against selected does not demonstrate an algorithmic
+advance over the reader or close the gap. Neither is selected into main.
+Selected wins 54/962 queries and four phrases in this repeat; even the fastest
+prototype remains 1.526 times slower overall. Simd4x takes 830.893 microseconds,
+remaining a space tradeoff rather than a warm-latency gain.
+
+Separate official profiles give selected / block / Tantivy VmHWM of
+1,056,444 / 1,057,092 / 676,628 KiB and anonymous residency of
+5796 / 5784 / 764 KiB. Supplemental term TOP_10 is
+164.422 / 162.879 / 50.619 microseconds: the separate single-term gap also
+remains. All four operations and every control remain in the archive.
+
+Validated `perf annotate` output shows approximately 13.9% of the selected
+union kernel's local software samples in dense score clearing and 37.0% in
+candidate extraction/filtering. That kernel accounts for about 55% of union
+self samples. Two inlined posting-suffix binary-search loops together account
+for about 39.9% of the phrase candidate function's local samples. These are
+rounded software-sampling attributions, not hardware cycles or predictions of
+achievable speedup. Reader and selected have similar local instruction profiles.
+The remote symbol-filtered objdump files must not be treated as valid empty
+kernels; the accepted static comparison uses nonempty local address ranges.
+
+### Retained sparse candidates for a single essential cursor
+
+Instruction-level software profiles of the selected union executor place
+substantial samples in clearing its dense score array and extracting candidate
+IDs/scores from membership words. The current block-max partition sometimes
+leaves exactly one essential cursor. That cursor already produces unique,
+ordered IDs with their scores, so converting its runs to a dense window and
+back to ordered candidates is unnecessary.
+
+The retained implementation appends those decoded runs directly to the existing
+candidate vectors when exactly one cursor is essential. It retains the same
+window boundaries, bound partition, pruning threshold, nonessential probes,
+predicate, score arithmetic and canonical per-term reconstruction. Multiple
+essential cursors retain the existing union algorithm. This differs from the
+rejected density-based compact union, which changed which postings were visited
+and scored; the proposed representation shortcut preserves those decisions.
+
+The invariant is identical ordered candidate IDs and score bits at the boundary
+before predicate filtering. Only slots with a current contribution-presence bit
+may be read during canonical reconstruction. Both representations consume the
+same owning cursor's decoded runs through one shared visitor; no second scorer
+or decoder is introduced. Scratch remains bounded by query terms times the
+existing 4096-ID window. For one essential cursor, candidate materialization
+cost becomes proportional to matching postings rather than the document-ID span
+and bitset words. Deadline and error boundaries remain unchanged.
+
+The original upstream runner confirmation (local archive `benchmark-results/essential-upstream-2026-09-14/results.zip`)
+uses the unmodified `make bench` client from benchmark-game revision
+`a7c75473e91746280c5f01e69bf594ece5fca560`, all 962 official queries and 714
+supplemental terms, seven samples after ten seconds of warmup, the same native
+LTO binaries, CPU 2 and unchanged indexes. Previous selected / retained / Tantivy
+geometric mean median microseconds are:
+
+| Official operation | Previous selected | Retained | Tantivy |
+| ------------------ | ----------------: | -------: | ------: |
+| TOP_10             |           795.725 |  695.820 | 504.580 |
+| TOP_1000           |          1177.202 | 1138.288 | 889.312 |
+| TOP_100_COUNT      |          1171.875 | 1179.823 | 812.102 |
+| COUNT              |           528.180 |  535.326 | 413.002 |
+
+OR TOP_10 is 993.110 / 665.800 / 631.487: a 33.0% improvement against
+the previous source and still 1.054× Tantivy. AND is
+520.488 / 513.014 / 334.383; phrase is 751.583 / 744.745 / 500.328.
+Complete TOP_10 improves 12.6%, remains 1.379× Tantivy, and wins 149/962
+queries (141 OR, five AND, one phrase). This does not close the remaining
+AND, phrase or single-term gaps. Supplemental TOP_10 is
+156.641 / 159.788 / 46.680 microseconds. Measured regressions include
+official COUNT +1.4%, TOP_100_COUNT +0.7%, supplemental TOP_10 +2.0%
+and supplemental COUNT +3.3%; the report retains these alongside the OR gain.
+
+The rotated complete-workload comparison (local archive `benchmark-results/essential-runs-2026-09-14/results.zip`)
+independently measures previous / retained / Tantivy TOP_10 at
+785.051 / 690.329 / 508.613 overall and 968.813 / 656.765 / 622.593
+for OR. Its official TOP_1000 is 1179.516 / 1130.310 / 884.159,
+TOP_100_COUNT 1207.123 / 1197.464 / 826.872, and COUNT
+523.719 / 530.124 / 399.446. This additional runner rotates engine order
+between full workload passes; it is explicitly separate from the upstream
+confirmation. Separate official profiles show peak RSS of
+1,057,232 / 1,057,068 / 676,580 KiB, with anonymous residency
+5796 / 5792 / 764 KiB. The mapped-index size and memory disadvantage remain.
+The union window kernel's self sample share falls from 54.6% to 38.2%; these
+are software samples, not hardware cycle counts.
+
+Both clean ARM fixtures show complete TOP_10 improvements of 2.2–2.8% and OR
+improvements of 8.1–8.6%. All 1676 cross-source ordered top-1000 IDs, raw score
+bits and counts agree on both ARM fixtures and the cloud rounded/grouped-impact
+indexes. Fresh exhaustive ranking and Tantivy count gates pass. The upstream
+confirmation reuses gates only after verifying exact binary/index/proof hashes,
+and checks every timed COUNT/TOP_100_COUNT response again. All index bytes stay
+unchanged. The selected main source passes `check_search.py check`, all four
+stages and 1744 tests, run `20260914T174645.582411Z-check`; portable core
+compilation also passes. No new WASM build was run, following the user's
+native-performance instruction.
+
+Both full captures and compact archives were checked entry by entry, including
+the exact manifest file set. The rotated full capture is 92,563,160 bytes,
+SHA256 `a748df4a8ebd3cfaccd4d4e7255019522cc3ad5effb675e9614c4bbe88b53277`;
+its 21,503,226-byte compact ZIP is
+`8bc734cb1cfdcea363852bd24ae02ce91f540be0c7743d04d04ddc360da5a9a2`.
+The original-runner full capture is 17,100,564 bytes,
+`c72a159c21729a33e14f3057b2509e0d43aab61267f0525a15da5951d046953c`;
+its 1,600,415-byte compact ZIP is
+`f3cdd57a40fc2f4d14f6b3ae07866f0b97cb66e338e975f724b0203f981b7e87`.
+
+### Retained phrase rejection before position confirmation
+
+This revisits the earlier rejected phrase-bound experiment against the newer
+executor and selectivity planner. The earlier hook modified phrase confirmation
+after receiving a collector threshold; the new capability leaves confirmation
+exact and lets only the top-level ranked driver omit noncompetitive candidates.
+The previous flat complete-workload result remains relevant: a new full-corpus
+comparison is required, not a claim of a newly discovered technique.
+
+The isolated phrase experiment applies the principle described in
+[Lucene PR 15861](https://github.com/apache/lucene/pull/15861): prove that a
+candidate cannot compete before initializing its positions. Hermes's existing
+candidate/confirmation protocol already separates document alignment from
+phrase verification. The top-level ranked collector can use an optional final
+score bound from that same scorer; complete and custom collectors must continue
+ordinary exact traversal. Nested, filtered and chunk-folded scorers retain their
+existing behavior unless their own final-score contract explicitly supports
+this capability. Both public synchronous and asynchronous top-k search use the
+shared top-k driver.
+
+For a plain phrase with document lengths, its original-first term frequency
+bounds the number of matching starts. The minimum frequency across terms is
+not valid under Hermes's duplicate-start multiplicity semantics. Use the first
+frequency and the current document's actual scoring length with the existing
+conservative BM25 envelope and floating-point guard. Unsupported numeric
+parameters or length representations decline the optimization. No score model,
+token-position format, or relevance semantics change.
+
+The ranked driver checks the bound only after its retained heap is full, retains
+ties using the existing document/score ordering, and confirms/scores candidates
+that can compete. It checks cancellation before bounds, confirmation and
+collection, retaining the existing observable deadline state. No second phrase
+matcher or heap is introduced, and scratch is independent of hit count. Exact
+COUNT and TOP_100_COUNT must still confirm every match; ranked `total_seen`
+remains the number actually examined, not an exact-count promise. Tests must
+cover false candidates, late winners, ties, duplicate starts, offsets/slop,
+global statistics, cancellation, deletions, chunk/ordinal fallbacks and native
+versus async equivalence before whole-query timing. The new source passes
+231 query unit tests, seven integration
+suites, Clippy and portable compilation. Both ARM fixtures preserve all 1676
+ordered cross-source score/count oracles and immutable index bytes. Paired
+TOP_10 is 31.086/30.951 microseconds overall and 26.527/26.478 for phrases on
+the canonical fixture; merged is 31.135/31.137 and 26.083/26.100. These flat
+local results alone do not justify selection.
+
+The verified full-corpus comparison (local archive `benchmark-results/phrase-confirm-bound-2026-09-14/results.zip`)
+measures previous OR / phrase-bound / Tantivy TOP_10 at
+682.521 / 656.018 / 500.204 microseconds overall and
+694.004 / 600.638 / 473.602 for phrases. Phrase improves 13.5%, overall 3.9%,
+and phrase wins increase from 5/300 to 51/300; complete wins rise from 151/962
+to 195/962. The source is retained on September 15. It still takes 1.311×
+Tantivy overall. OR changes 646.229 → 654.302 (+1.2%) and AND
+533.886 → 535.857 (+0.4%); these regressions remain in the record.
+TOP_1000 is 1129.602 / 1123.565 / 876.069, TOP_100_COUNT
+1184.191 / 1164.267 / 817.612, and COUNT
+523.146 / 525.251 / 398.753. Supplemental TOP_10 is
+168.042 / 167.819 / 50.903; supplemental COUNT is
+12.575 / 12.967 / 9.095 (+3.1% against the control).
+
+This is the additional rotated-pass protocol: all 962 official and 714
+supplemental queries, four commands, seven samples after ten-second warmups,
+the same compiler/native-LTO flags and CPU 2. The control is the hash-verified
+retained OR binary. Fresh rounded/group-impact exact-count, exhaustive top-k
+and cross-source ordered raw-score-bit gates pass; every index byte remains
+unchanged. No builds or profiles overlap latency. Separate official profiles
+give previous/current/Tantivy peak RSS of 1,057,120/1,057,040/676,628 KiB and
+anonymous residency of 5796/5796/776 KiB. In phrase-only software samples,
+position-cache reads fall from 9.7% to 6.0%, while candidate bounds and their
+BM25 envelope now account for 8.4% and 5.1%. These fractions describe sampled
+work, not hardware cycles or predicted speedups.
+
+The full archive is 112,863,062 bytes with 172 verified entries, SHA256
+`44782d7bb285970ac91a09f9dcadc990680526b4786250ee1316859efba5ca1f`.
+The compact ZIP is 21,563,066 bytes with 231 logical entries, SHA256
+`7af86f0dfc098745cfdd4c3f2d573bcc3bf05a56996a15c24f9a9276e374072f`.
+Exact entry sets, bytes, aliases and external hashes were verified. The native
+main-source harness is running; no new WASM build is scheduled. Original
+upstream-runner confirmation is pending cloud reauthentication.
+
+### Proposed block skipping for ranked phrases
+
+The retained phrase bound rejects individual aligned candidates, so it still
+pays document intersection costs before each rejection. Its phrase profile
+attributes 28.4% of software samples to candidate alignment. The next isolated
+experiment exposes the current original-first posting block's last document,
+maximum frequency, minimum length and length/TF ratio from the structures owner.
+The ranked driver caches a conservative phrase bound through that last document
+and seeks past the block when the whole range cannot compete. Otherwise it
+retains the existing per-document bound and exact position confirmation.
+
+The first term bounds matching-start multiplicity; no minimum across phrase
+terms is used. The query's BM25 owner evaluates the existing conservative
+envelope from the block maximum TF and its length lower bounds. Stored min-length
+and ratio metadata use `max(raw_length, 1)`, matching phrase length semantics.
+Impact records use a different zero-length fallback (`TF`), so this prototype
+does not use those records for phrase bounds. Unknown length metadata falls back
+to the universally safe phrase length floor of one. A raw f32 term block bound
+is not sufficient for this driver: its floating-point guard must be explicit.
+
+Only the shared top-level ranked driver consumes a range hint. The hint covers
+the current candidate and all later candidates through its inclusive end;
+monotone document IDs and existing heap tie ordering make range skipping safe.
+Complete/custom collectors, nested/filter/chunk wrappers and unsupported numeric
+parameters retain exact traversal. Check cancellation before range lookup and
+before the ensuing seek. Cache at most one range; no format, payload rewrite,
+second scorer or corpus-sized state is introduced. Validate zero lengths,
+duplicate starts, range-boundary ties, late winners, terminal seeks, all codecs,
+global statistics and complete-count/native-async equivalence before timing.
+This is an unmeasured proposal, separate from tiled seeking and direct impacts.
+
+### Proposed bounded vector search within decoded posting blocks
+
+Phrase instruction profiles put substantial samples in serial binary searches
+of decoded posting suffixes. Hermes already has SSE2/NEON lower-bound kernels;
+reintroducing a full linear vector scan would repeat an earlier discarded path.
+The next isolated experiment keeps current/next-document probes, binary-searches
+16-value tile maxima, and applies the existing SIMD kernel only to the selected
+tile. At most three tile comparisons precede one bounded vector scan in a
+128-posting block. Short tails use the same kernel's bounded scalar remainder.
+
+The structures owner retains cursor movement, deferred frequencies and position
+prefixes. The result must equal scalar lower-bound on the remaining sorted IDs,
+including tail blocks, high unsigned IDs, terminal seeks and backward probes.
+No payload, skip metadata, buffer capacity, scoring or query planning changes.
+Use the existing posting/phrase regressions, compare ordered score bits and index
+bytes, and measure complete queries on both architectures before selecting it.
+This remains a proposal and is independent of phrase score-bound pruning.
+The prototype passes 227 query tests, 207 posting tests, six integration
+suites, Clippy, portable compilation and both 1676-query cross-source oracles.
+It changes the ordinary posting iterator, used by phrases and complete
+intersections; ranked plain AND retains its separate typed cursor. The first
+ARM run completed during an interruption and shows large control variation
+between commands (including 23–67 microseconds on supplemental TOP_10 across
+fixtures). Raw samples are retained, but they do not support a selection claim.
+
+### Proposed direct use of complete impact bounds
+
+The full-corpus decoder diagnostic records 40.2 million decoded postings for
+the 714 ranked terms with ratio bounds, 3.1 million with group impacts, and
+4.8 million for Tantivy. The impact representation already removes substantial
+payload work, yet its measured standalone latency remains higher. The query
+owner currently computes a raw min-length bound, a ratio bound and an impact
+bound, then takes their minimum for every new block/group.
+
+For a validated complete impact record and supported similarity parameters,
+its conservative envelope alone bounds the actual score. An isolated rewrite
+will return that bound directly and compute the existing simpler bounds only
+when the impact record is absent, unknown or numerically unsupported. This
+avoids redundant divisions and norm calculations without changing stored
+records, query-global statistics, canonical scoring or default index policy.
+Because conservative floating-point guards differ, it may admit a few blocks
+that the previous minimum rejected; exact ranking remains the invariant,
+not identical pruning decisions. Test both ratio-only and impact-bearing
+indexes, unsupported parameters, raw score bits, unchanged bytes and complete
+workload latency before selection. This is not yet a measured improvement.
+The isolated source passes 227 query tests, six integration suites, Clippy and
+portable compilation. All 1676 cross-source ordered ID/raw-score/count oracles
+pass on both ARM fixtures with both rounded and group-impact metadata, and
+index bytes remain unchanged. The interrupted ARM run has control TOP_10
+varying from 37 to 234 microseconds between fixtures; it is not accepted as
+evidence of a speedup. Native repeats and a full-corpus comparison remain needed.
+
+The retained phrase source passed the complete native harness on September 15: all four stages, 1749 tests. The verified check archive (local archive `benchmark-results/phrase-confirm-bound-2026-09-14/native-check.zip`) is 122192 bytes, SHA-256 `ed335c9d3c9c60c495587260b9f1f304f187e8bfd9eae8536006dd4b6a95f47a`. The portable core check also passed; WASM was not rebuilt, following the user's instruction.
+
+## Proposed competitive required/optional text windows (September 15)
+
+The latest full rotated run leaves the 40 mixed required/optional official
+queries at 5025.754 microseconds versus Tantivy 2313.232 (geometric mean of
+per-query median TOP10). They are included in the 962-query total. Trace:
+public parsed BooleanQuery -> shared async/sync Boolean planner -> general
+BooleanScorer and complete child streams. Required clauses drive one-document
+alignment; optional scorers are sought for every match. The specialized ranked
+text window executor currently admits only pure OR, with a separate all-required
+conjunction path. This is a query-shape execution gap, not evidence of a new
+codec bottleneck.
+
+Proposal: extend the existing text window owner with a compile-time required
+mode. Keep its ordinary OR instantiation separate so the inner OR loop need not
+branch on semantic requirements. A bounded u64 mask records required cursor
+identities after sorting. The rarest required term supplies initial window
+boundaries and candidates. Within that window, any optional term whose absence
+provably makes the score noncompetitive can replace the candidate driver when
+it is rarer. Existing run scoring and candidate-intersection helpers process
+remaining terms; required membership is checked even for a zero score bound.
+Existing per-term presence storage and query-order reduction preserve exact
+scores, including duplicate clauses. All-required queries retain their current
+conjunction path. TopKCollector and BM25 remain the single scoring owners.
+
+Invariants: matches require every MUST term; SHOULD affects score only. A missing
+MUST empties the query, a missing SHOULD does not. Candidate driving is independent
+of canonical score addition (MUST then SHOULD, preserving order inside each).
+Only a strict conservative bound can make an optional clause locally required;
+equal-score document ties remain eligible. Exact COUNT, TOP100+COUNT, positioned,
+chunked, nested, boosted, per-term statistics and unsupported compositions retain
+their existing complete/semantic paths. Query-global statistics, eligibility and
+deadlines must propagate identically. No persisted bytes, defaults, public scorer
+API or cache policy change. Scratch remains bounded by MAX_QUERY_TERMS \* 4096;
+no corpus-sized bitset or second posting representation is introduced.
+
+Cost hypothesis: traverse the sparsest semantically or competitively required
+posting run and seek other lists only to survivors, amortizing score dispatch and
+reducing optional probes. Validate random and adversarial score-bit oracles,
+zero-TF membership, duplicate/missing clauses, late winners, equal ties, seeded
+thresholds, all codecs, chunks, global statistics, exclusions, offsets and
+cancellation. Compare all 962+714 queries, counts and memory on fixed index bytes;
+measure x86 and ARM before retaining. This remains an isolated proposal.
+
+The phrase block-bound prototype passes 234 query unit tests, seven integration suites, Clippy and portable compilation. All four
+ARM R/G layouts preserve all 1676 ordered top-1000 raw score/count oracles.
+Fresh paired ARM timing (11 rotated samples, both fixtures, all queries and four
+commands, no builds during timing) remains essentially flat: canonical official
+TOP10 31.150/31.191 microseconds, phrase 26.563/26.461; merged official
+31.835/31.671, phrase 27.155/26.890. No default or retained-source change follows
+these local measurements. Full-corpus x86 validation awaits cloud authentication.
+
+### Zero-frequency BM25 correctness finding
+
+Required-window adversarial validation exposed an existing canonical arithmetic
+edge case: frequency zero with k1=0 (or b=1 and length zero) evaluates 0/0 and
+produces NaN. These settings and stored zero-frequency entries are supported.
+A pruned score stream cannot conservatively bound this NaN as an ordinary positive
+score, and the new exact oracle disagrees with exhaustive ranking. The initial
+seeded test also incorrectly seeded a NaN threshold; that test issue was removed,
+and the unseeded mismatch remains reproduced in the saved failure log.
+
+Fix proposal: define a zero-frequency contribution as positive zero in the shared
+Bm25Params owner; a zero field boost also contributes zero. Bounds for an all-zero
+frequency block return zero (infinite conservative ratio/envelope fallback is
+still safe). Preserve the exact expression and operation order for positive
+frequencies/boosts. Default free scoring/bound helpers delegate to this existing
+owner so behavior cannot drift. No format, membership, count or nonzero score
+change is intended. A behavior-named test must fail before this correction; the
+full fixed-corpus score-bit oracle and existing bounds tests must pass afterwards.
+
+### Explicit Boolean statistics correctness finding
+
+The new mixed-query global-statistics oracle also exposes an existing planner
+inconsistency. BooleanQuery resolves its own statistics for grouped execution but
+does not put that resolved value into child ScorerOptions. Complete/fallback child
+streams therefore use local or inherited statistics instead. On the fixture,
+ranked score 9.727402 disagrees with exhaustive 0.005412242 for the same document.
+Flattening a nested pure SHOULD Boolean also drops that child's explicit
+statistics. Both are violations of the documented precedence rule.
+
+Correct the shared async/sync Boolean planner by passing its resolved statistics
+through existing child options, and retain a Boolean boundary when that node has
+explicit statistics. Explicit leaf or nested-query statistics still take
+precedence over the inherited parent. A direct explicit-leaf reference pins
+complete, ranked, positioned and nested scores before adopting either correction.
+There is no new statistics representation or scorer; missing-statistics fallback
+policy remains unchanged. Benchmark-generated global statistics are already
+carried through options, so full-corpus ordinary scores are expected unchanged,
+which must be verified rather than assumed.
+
+Preserving the explicit nested-statistics boundary then exposes a second part of
+that fallback bug: a summed parent receives only each child's top-k, omitting
+joint winners outside individual child heaps. The same independent nested
+reference fails ranked collection after complete collection passes. Generic
+multi-SHOULD composition must request complete text child streams before summing,
+as the existing multi-MUST path already does. The regression retains this nested
+joint-winner case, and the saved intermediate failure distinguishes it from
+statistics propagation. The fix remains in the shared Boolean planning owner.
+
+### Required-window continuation: full-corpus result and selection
+
+The zero-frequency and Boolean statistics/nested-ranking fixes are now retained
+in the workspace. The behavior-named regressions fail against their saved
+pre-fix sources and pass after correction. The native harness
+`20260915T044129.810906Z-check` passes all four stages: 1751 tests, 26 ignored.
+The preceding run stopped on a broker index-discovery timeout; the unchanged
+serial repeat passed. Both logs are retained. No lifecycle or RPC code changed,
+and WASM was not rebuilt, following the user's instruction.
+
+The performance candidate and its control both carry those correctness fixes.
+Both preserve all 1676 ordered top-1000 document IDs, raw score bits and exact
+counts on canonical and merged 100k ARM fixtures, with rounded and group-impact
+metadata. The candidate also passes 233 query unit tests, nine integration
+targets, Clippy and portable compilation. It remains isolated pending the
+complete x86 comparison; the correctness corrections do not depend on selecting
+the optimization.
+
+The fresh ARM run uses 11 rotated samples, 15-second warmup, all 962 official
+queries and 714 supplemental terms, and four commands on unchanged index bytes.
+Mixed required/optional top-10 improves from 57.686 to 45.810 microseconds on the
+canonical fixture and 59.644 to 47.963 on the merged fixture. Overall official
+top-10 changes from 31.338 to 30.940 and 32.045 to 31.982 respectively. These
+small-fixture results do not establish a full-corpus or overall superiority claim.
+Official maximum RSS is 54,214,656/54,444,032 bytes for control/candidate on the
+canonical fixture and 55,279,616/54,640,640 on the merged fixture. RSS includes
+mapped pages and is not a heap or scratch-capacity measurement.
+
+Cloud authentication is restored. The full-corpus continuation builds both
+frozen sources on the original Cascade Lake VM, with the same compiler, native
+CPU flags, LTO and unchanged indexes. It independently gates both binaries
+against exhaustive ranking, the prior cross-source score-bit oracle and Tantivy
+counts before timing all queries. Compilation, validation, hashing and profiling
+remain outside measured latency.
+
+The full-corpus run is complete and its
+verified evidence (local archive `benchmark-results/required-windows-2026-09-15/results.zip`)
+is packaged. Both binaries carry identical correctness fixes; only the candidate
+adds the required mode. All 962 official queries and 714 supplemental terms ran
+under four commands, seven complete workload passes with rotated engine order,
+on unchanged rounded index bytes. Both binaries pass exact counts against
+Tantivy, pruned top-10/100/1000 against their own exhaustive scoring, and the
+cross-source ordered top-1000 ID/raw score-bit oracle on the rounded and
+grouped-impact indexes. Control/candidate/Tantivy geometric means, in
+microseconds:
+
+| Command       |  Control | Required windows | Tantivy | Candidate / control |
+| ------------- | -------: | ---------------: | ------: | ------------------: |
+| TOP_10        |  664.428 |          627.006 | 503.728 |               0.944 |
+| TOP_1000      | 1131.650 |         1079.835 | 876.436 |               0.954 |
+| TOP_100_COUNT | 1182.419 |         1142.753 | 812.016 |               0.966 |
+| COUNT         |  525.464 |          526.410 | 402.372 |               1.002 |
+
+The 40 mixed required/optional queries improve from 5348.734 to 1281.944
+microseconds at TOP_10 (Tantivy 2333.201); every one of the 40 improves, by
+1.13× to 21.7× with a median of 3.87×, and 39 now beat Tantivy. At TOP_1000
+they improve 5565.3 to 2696.8 (Tantivy 2788.5). The 19 negated queries improve
+727.130 to 645.203 because their optional part now uses the same executor.
+Disclosed regressions: union TOP_10 659.286 to 670.099 (1.6%), union COUNT
+691.0 to 698.9 (1.1%), phrase COUNT 689.0 to 695.4 (0.9%). The pure-OR
+instantiation is unchanged in source, so these are run-to-run drift or code
+layout effects, not a scored-path change; they remain within the rotated
+runner's earlier control variation. Supplemental single-term TOP_10 is
+167.173 versus 163.693 (2.1% better); its other commands are flat. Peak RSS
+is 1,057,460 versus 1,057,712 KiB on the official workload and 369,568 versus
+369,556 KiB on the supplemental workload; Tantivy uses 661,496 and 249,048 KiB.
+
+Separate profiles show the mixed-query work moving from per-hit `TermScorer::score`
+(39.7% of control self samples) and `seek` (14.3%) into batched
+`score_candidates_sync` (28.0%), window appends (8.8%) and length gathering
+(8.1%). Overall official TOP_10 samples remain dominated by phrase candidate
+alignment (12.8%) and `seek_prepare` (10.1%).
+
+The candidate is selected: `scoring.rs`, `boolean.rs` and the
+`ranked_required_optional` integration test are copied into the main source
+exactly as frozen for the cloud build (the test file is a later local revision
+that also passes; timed binaries contain no tests). The main native harness
+`20260915T075139.617117Z-check` then passes all four stages with 1754 tests
+(26 ignored); the
+captured check (local archive `benchmark-results/required-windows-2026-09-15/native-check.zip`)
+pins the selected source hashes. WASM was not rebuilt, per the user's instruction. The remaining ranked gap is
+now concentrated in intersections (537.637 versus 360.507), phrases (607.099
+versus 474.557) and standalone terms, not in query-shape execution gaps.
+Original upstream-runner confirmation for the phrase and required-window
+changes has not been run. The benchmark VM is stopped, not deleted; its indexes
+and evidence remain on its boot disk.
+
+### Proposed score rejection before heap-key comparison
+
+The retained phrase source's separate full-corpus supplemental top-10 profile
+attributes 42.94% of self samples to `execute_single_text`, 18.19% to length
+gathering and 6.57% to batched BM25 arithmetic. Inspection of its actual x86
+binary finds that a full heap still converts both score bit patterns into total
+order keys and evaluates document/ordinal tie breaks on every candidate. This
+is instruction evidence, not a measurement of a replacement.
+
+An isolated experiment adds a numerical less-than rejection in the existing
+`ScoreCollector` only after its real heap is full. A score strictly below the
+cached worst score cannot enter that heap. Equal scores, signed zeros and NaNs
+still reach the existing total-order comparator; underfilled heaps and virtual
+threshold sentinels retain their existing behavior. No second collector,
+scoring formula, score quantization, new allocation or persisted format is
+introduced. The hypothesis is fewer instructions on the common rejected-hit
+path across existing text and sparse callers. Test against an independent sorted
+reference with score bits, ordinals, non-finite values, late winners and repeated
+seeds, then compare whole workloads before considering selection. This remains
+a separate proposal from required/optional windows.
+
+Measured outcome: the isolated source passes the new total-order reference test
+(all k, seeded and exceptional values), the query unit tests, integration
+suites, Clippy and portable compilation, and preserves all 1676 cross-source
+ordered oracles and index bytes on both ARM fixtures. Paired ARM timing against
+the zero-frequency control (11 rotated samples, all queries, four commands) is
+flat: canonical official TOP_10 31.172 versus 31.025 microseconds, supplemental
+TOP_10 19.583 versus 19.426; merged official TOP_10 31.467 versus 31.639,
+supplemental 20.756 versus 20.594. Differences are within run-to-run
+variation, so the change is not selected and no cloud run was scheduled. Its
+evidence is retained under `.context/score-rejection*`.
+
+### Cleanup continuation: reject detected content corruption at collection boundaries
+
+The September 15 review fixes payload-induced cursor panics, but its infallible
+posting iterator still logs an invalid block and terminates. A complete term or
+phrase collector can consequently report successful partial results. Logging
+alone does not satisfy the search error contract.
+
+Implemented: the existing immutable `PostingListReader` owns one shared,
+write-once record of the first rejected posting block. Lists borrowed from that
+reader report content-decoding failures into that record. Segment collection
+checks it before and after traversal, including nested scorers and candidate
+backfill; a detected failure returns `Error::Corruption`. The record never resets
+on that reader, so an old or concurrent query cannot clear another query's
+failure. Reopening creates a separate owner. This is detection of visited corrupt
+payloads, not authentication of arbitrary bit flips or an eager corpus scan.
+Cost: one bounded record per segment, one Arc clone per acquired posting list,
+and boundary checks; no new per-hit atomic operations or payload residency.
+Persisted bytes, merge copying and successful-query scores remain unchanged.
+Validate a payload-only mutation through public native/async ranked and complete
+collectors, wrappers, and immutable reader replacement, then rerun score-bit
+oracles and compare full workloads against the frozen cleanup binary.
+
+A second remaining review finding concerns chunk compaction. Re-encoded partial
+blocks used the source chunk map's BM25 length floor. Deleting long chunks can
+lower the replacement map's floor, making that persisted bound nonconservative.
+The rebuild must use raw surviving chunk lengths, as ingestion and merge do;
+unchanged copied blocks already use those raw bounds. A regression removes the
+long chunks and checks replacement bounds against the new one-token floor.
+
+### Proposed byte-gap validation without a decoded-ID scan
+
+The cleanup's two-fixture ARM comparison preserves all 1676 ordered ID/score-bit
+oracles but slows official TOP_10 by 1.3–1.9% and COUNT by 3.0–3.2%. Reusing
+scratch alone does not offset the new per-block content checks. The next isolated
+experiment keeps those checks and reduces their read volume for Rounded 8-bit
+gaps: nonzero raw gaps plus matching first/last decoded IDs imply strict order.
+There are at most 127 gaps, so their sum is below 2^32; any wrap would end below
+the first ID and fail the endpoint check. Other codecs keep the decoded-ID
+ordering check. This checks at most 127 payload bytes instead of adjacent pairs
+in 512 decoded bytes, with bounded scratch and unchanged persisted formats.
+Compare against the corrected cleanup source, not an unchecked predecessor;
+retain only after all-codec corruption tests, raw score oracles and paired ARM
+and x86 full-workload measurements. This remains a proposal until measured.
+
+### Cleanup validation recovered and resumed on September 15
+
+Recovered all six review reports and four implementation reports from the
+interrupted session. The cleanup's native check
+`20260915T084353.359471Z-check` passed formatting, focused Clippy, tests and the
+native-without-sync boundary. Its release build was interrupted and has now
+been rebuilt from a source manifest. Four ARM fixtures (canonical/merged,
+rounded/group impacts) each preserve all 1676 ordered top-1000 document IDs,
+raw score bits and counts against the saved independent oracle.
+
+The retained cleanup covers nested required-child completeness under summed
+parents; nonpositive boost handoff; adjacent query modifiers; phrase statistics;
+corrupt posting content; safe SIMD decode bounds and shared scalar tails;
+codec/position admission; dictionary and validation budgets; merge bound
+promotion/accounting; and bounded reuse of query scratch. Dead constructors,
+duplicate codec helpers, unused decoder branches and outdated experiment names
+were removed. No posting codec, cache or scoring approximation default changes.
+
+The first paired ARM comparison (Apple M4, Rust 1.98.1, native CPU flags, LTO,
+unchanged index files, all 962 official and 714 supplemental queries, 11 rotated
+samples, 15-second warmup per command) measures pre-cleanup/cleanup, microseconds:
+
+| Fixture                |          TOP_10 |        TOP_1000 |   TOP_100_COUNT |           COUNT |
+| ---------------------- | --------------: | --------------: | --------------: | --------------: |
+| Canonical official     | 30.860 / 31.439 | 44.823 / 45.309 | 30.970 / 31.807 | 22.583 / 23.268 |
+| Merged official        | 31.785 / 32.194 | 46.294 / 46.687 | 31.940 / 32.657 | 22.676 / 23.402 |
+| Canonical supplemental | 20.505 / 20.515 | 35.590 / 35.656 | 20.004 / 20.078 |   9.536 / 9.514 |
+| Merged supplemental    | 20.963 / 21.036 | 36.541 / 36.400 | 20.833 / 21.161 |   9.458 / 9.450 |
+
+These are correctness/maintenance changes with a measured small cost, not a
+speedup. The corruption-propagation and compaction-floor regressions above both
+fail before the continuation fixes and pass afterwards. The next paired
+comparison isolates the byte-gap validation proposal against those corrected
+sources; the old pre-cleanup binary is retained as a separate reference.
+
+The continuation's full native harness `20260915T091108.787920Z-full` passes
+all eight stages: 1786 tests (25 ignored in the standard run), four additional
+real-server broker tests, focused Clippy, formatting, native-without-sync,
+portable core and warnings-as-errors API documentation. WASM is intentionally
+not rebuilt under the standing user instruction.
+
+The byte-gap prototype preserves the eight corrected/candidate ARM raw score
+oracles. It improves official TOP_10 by 1.4% on the canonical fixture and 0.4%
+on the merged fixture, and TOP_1000 by 0.9% / 1.1%; supplemental results are
+mostly flat. Separate four-command peak-RSS runs show corrected/candidate
+48,119,808 / 47,874,048 bytes (canonical official) and
+49,414,144 / 49,119,232 bytes (merged official). These are process RSS including
+mapped pages, not isolated heap measurements. New integrity bookkeeping is
+constant-sized per segment and accounted separately from validation-cache bytes.
+
+ARM disassembly confirms the new raw-gap branch uses byte-wide NEON equality
+checks; the fallback keeps the existing 32-bit ordering checks. The checked
+decoder grows from 2996 to 3752 bytes of machine code, so this is a read-volume
+tradeoff rather than a code-size reduction. Full-corpus x86 results determine
+selection; these local gains alone do not establish an overall lead over Tantivy.
+
+### Cleanup full-corpus result and selection
+
+The full run and archive are complete and verified. The byte-gap source passes all x86 core unit/integration tests. Both corrected
+and byte-gap builds pass the 1676-query ordered ID/raw-score/count oracle on
+rounded and grouped-impact layouts. All three
+index manifests, including Tantivy, are unchanged. The final source's ARM
+release is byte-identical to the frozen timed byte-gap binary after a private
+helper rename and strengthened test-only assertion.
+
+Same-run pre-cleanup / corrected / byte-gap / Tantivy geometric means (µs):
+
+| Workload / command         | Pre-cleanup | Corrected | Byte-gap | Tantivy |
+| -------------------------- | ----------: | --------: | -------: | ------: |
+| Official TOP_10            |     639.042 |   657.869 |  656.242 | 524.750 |
+| Official TOP_1000          |    1172.666 |  1205.357 | 1198.499 | 976.103 |
+| Official TOP_100_COUNT     |    1323.847 |  1386.651 | 1382.786 | 913.604 |
+| Official COUNT             |     541.666 |   575.994 |  568.712 | 411.441 |
+| Supplemental TOP_10        |     203.755 |   216.043 |  214.988 |  61.578 |
+| Supplemental TOP_1000      |     703.733 |   725.518 |  722.426 | 458.030 |
+| Supplemental TOP_100_COUNT |     865.366 |   896.808 |  887.841 | 273.643 |
+| Supplemental COUNT         |      13.533 |    13.558 |   13.273 |   9.299 |
+
+**Decision:** retain byte-gap validation for the modest official COUNT gain
+(1.3%, faster in six of seven complete passes) and the small ARM improvements.
+Treat x86 top-k differences as inconclusive: TOP_10 improves 0.25% by the
+per-query-median aggregate, but individual pass ratios span 0.990–1.004;
+TOP_1000 improves 0.57% but only three passes are faster. Negated TOP_10
+regresses 2.5% versus the corrected control. Supplemental COUNT uses the
+unchanged metadata shortcut; its 2.1% difference is not evidence of faster
+posting decoding. No cache, codec or approximation default is changed.
+
+The net safety/cleanup cost remains: byte-gap is 2.7% slower than pre-cleanup
+at official TOP_10 and 5.0% slower at COUNT. The engine remains 1.25× slower
+than Tantivy on official TOP_10 and 3.49× on supplemental terms. This iteration
+does not establish ranked-search superiority or recover the entire safety cost.
+
+Peak RSS over all four commands (KiB), pre-cleanup/corrected/byte-gap/Tantivy:
+official 1,271,384/1,270,888/1,270,960/855,596; supplemental
+491,400/491,356/490,952/348,528. Mapped pages dominate; no memory reduction is
+claimed from these essentially flat Hermes values. Byte-gap adds no scratch,
+and the new shared integrity record is constant-sized per segment.
+
+The verified archive (local archive `benchmark-results/cleanup-2026-09-15/results.zip`) and
+full native check (local archive `benchmark-results/cleanup-2026-09-15/native-check.zip`)
+retain source hashes, per-pass samples, errors reproduced before fixes,
+correctness/format tests, memory and index manifests. See its
+[reproduction notes](benchmark-results/cleanup-2026-09-15/README.md).
+
+Remaining work recorded at cleanup: retain efficient batched collection under
+deletion predicates (addressed for composites in the continuation below); reuse the remaining
+16 KiB generic collector score scratch; study bounded reuse of content-validation
+proofs without warming or retaining corpus payloads; and address the larger
+intersection/phrase/single-term execution gap. These are proposals, not selected
+changes. Original upstream-runner confirmation of post-OR changes, cold-cache,
+concurrent-ingest and tail-latency measurements remain unrun. The preserved VM
+is stopped after successful archive download and verification.
+
+### Filtered collection windows — proposal, September 15
+
+Trace: public segment collection (sync/async) wraps scorers through
+`filtered::filtered`; Boolean filter push-down also constructs `PredicatedScorer`.
+At the start of this continuation, the wrapper hid the driver's document/score-window capabilities,
+so deletion masks and exclusions restore per-document dynamic dispatch.
+
+Proposed change belongs in the existing wrapper: delegate bounded window
+production, filter set bits in ascending document order, and add MUST verifier
+scores in the same order as scalar `score`. Leave the cursor on the next eligible
+match. Reuse the caller's fixed 4096-document score/membership buffers; introduce
+no wrapper allocation, cache, format or alternate executor. Score-window
+collection uses the existing collector's 16 KiB score buffer, including its
+current per-query allocation; count-only filtering needs no additional scratch.
+Positions retain the existing scalar path. Raw score bits, membership, forward-only consumption,
+empty/tail windows and verifier position must match scalar traversal. Retention
+requires measured paired results and regression checks; gains are not established.
+
+The first cross-source ARM masked experiment shows why unconditional forwarding
+is insufficient: official compound-heavy collection improves 15–20%, but the
+714 standalone terms regress 6–12% on the canonical fixture (merged terms also
+regress). Leaf window production and a second predicate pass can cost more than
+scalar traversal. Revised proposal: a conservative scorer capability defaults
+to false; eligible Boolean composites opt in because batching amortizes child
+traversal. Predicate wrappers preserve that declaration. Leaves keep their
+existing filtered scalar path, without frequency thresholds or new executors.
+The ungated prototype and its measurements remain archived for comparison.
+
+### Filtered collection windows — final ARM evidence
+
+The refined candidate opts in only eligible Boolean composites; predicate
+wrappers forward that capability, and leaves keep scalar filtering. The final
+native `check` run `20260915T101236.184084Z-check` passes all four stages,
+including 1789 tests (25 ignored), Clippy and native-without-sync compilation.
+Separate portable-core compilation passes. No runtime source changed after the
+release build. Its 331-file source manifest and all four ARM index manifests
+are verified. All 1676 standard ordered-ID/raw-score/count oracles pass on
+canonical/merged rounded and grouped-impact layouts; masked oracles also match
+on both rounded fixtures. WASM was not rebuilt under the standing instruction.
+
+Apple M4, Rust 1.98.1, native CPU, LTO, 100,000 documents, unchanged index bytes,
+fixed `doc_id % 8 != 0` mask; seven rotated complete passes after ten-second
+warmup. Before/after geometric means of per-query medians, microseconds:
+
+| Fixture / workload           | Top 100 + exact count |     Exact count |
+| ---------------------------- | --------------------: | --------------: |
+| Canonical official           |       49.029 / 41.366 | 40.747 / 32.716 |
+| Merged official              |       51.536 / 44.012 | 42.886 / 35.098 |
+| Canonical supplemental terms |       31.447 / 31.224 | 19.823 / 19.271 |
+| Merged supplemental terms    |       33.109 / 32.501 | 20.261 / 19.921 |
+
+Official improvements are 15.6% / 14.6% for top-100 plus count and 19.7% / 18.2%
+for count. All seven top-100-plus-count passes improve; count improves in seven
+canonical and six merged passes (one merged pass is 21.5% slower). The prior
+leaf regression is gone. Minor standalone-term differences do not establish a
+new leaf optimization: that algorithm remains scalar.
+
+The standard deletion-free ARM workload remains essentially flat. Canonical
+before/after official TOP_10 is 31.766/31.653 µs and COUNT 23.227/23.169;
+merged is 31.798/31.745 and 23.474/23.382. These differences are not claimed as
+algorithmic gains. Standard four-command peak RSS is canonical official
+48,070,656/48,365,568 bytes and merged 49,512,448/49,332,224 bytes; no resident
+memory reduction is claimed.
+
+The two old scalar window methods total 1524 bytes of ARM machine code. The
+new delegated fill methods plus shared filtering routine total 1064 bytes,
+with 144 additional bytes of wrapper capability checks. Driver dispatch happens
+once per window; per-document predicate and verifier checks remain. This
+measurement covers those methods, not the complete executable's code size.
+
+The final full-corpus x86 comparison below completes selection. The rejected
+unconditional-forwarding version improved masked official top-100 plus count
+by 28.8% and count by 25.4%, but made masked standalone-term COUNT 77.0% slower
+(408.242/722.527 µs). That regression reinforces keeping leaf filtering scalar.
+
+### Filtered collection windows full-corpus result and selection
+
+**Decision:** retain the conservative composite capability. The final source
+passes x86 query/integration checks, both full-corpus standard 1676-query raw
+score/count and pruned-ranking oracles, and the separate masked oracle. All
+rounded, grouped-impact and Tantivy index hashes are unchanged. Three downloaded
+archives have verified external hashes and exact entry manifests; each entry's
+size and SHA-256 is checked before packaging.
+
+Same preserved Cascade Lake VM, Rust 1.98.1, native CPU flags, LTO, CPU 2,
+5,032,104 documents; seven rotated complete passes and ten-second warmup.
+Fixed-mask before/after geometric means of per-query medians (µs):
+
+| Workload                      | Top 100 + exact count |         Exact count |
+| ----------------------------- | --------------------: | ------------------: |
+| Official                      |   2242.510 / 1600.919 | 1446.428 / 1080.239 |
+| Supplemental standalone terms |   1592.253 / 1587.173 |   415.478 / 413.316 |
+
+Official gains are 28.6% and 25.3%; every complete pass improves. Per-pass
+current/previous ratios span 0.707–0.726 and 0.738–0.755 respectively. Unions
+supply most of the gain: 14344.029/5184.997 µs for top-100 plus count and
+7072.212/2628.385 for count. Masked phrase COUNT regresses 6.7%
+(714.946/762.673 µs); gains do not apply uniformly. Supplemental terms are
+essentially flat, removing the rejected prototype's 77.0% COUNT regression.
+
+Ordinary deletion-free official before/after/Tantivy (µs):
+
+| Command       |   Before |    After | Tantivy |
+| ------------- | -------: | -------: | ------: |
+| TOP_10        |  681.258 |  688.527 | 541.047 |
+| TOP_1000      | 1201.955 | 1214.734 | 978.355 |
+| TOP_100_COUNT | 1347.536 | 1351.739 | 907.653 |
+| COUNT         |  570.469 |  570.244 | 411.030 |
+
+The 1.1% ordinary ranked regression is a measured tradeoff: six top-10 passes
+and all seven top-1000 passes are slower. Intersection top-10 regresses 2.1%.
+Top-100 plus count is 0.3% slower and ordinary COUNT is effectively unchanged.
+Supplemental top-10 improves 4.0% (194.748/186.974 µs), but metadata COUNT is
+2.4% slower (12.957/13.271); neither establishes a new leaf algorithm. This
+change preserves composite batching under filters and does not close the
+ordinary ranked performance gap. Previous independent gains are not compounded.
+
+Ordinary official process high-water RSS is before/after/Tantivy
+1,270,888/1,270,868/855,832 KiB; supplemental is
+491,320/491,308/348,528 KiB. Masked official before/after is
+1,270,324/1,270,476 KiB and supplemental 491,436/491,492 KiB. These include mapped
+pages and heap. The wrapper adds no scratch; existing scored collection still
+allocates its 16 KiB buffer. No memory reduction is claimed.
+
+The verified archive (local archive `benchmark-results/filter-windows-2026-09-15/results.zip`),
+native check (local archive `benchmark-results/filter-windows-2026-09-15/native-check.zip`) and
+[reproduction notes](benchmark-results/filter-windows-2026-09-15/README.md)
+preserve final and rejected source overlays, raw samples, exact oracles,
+compiler/source identities and failure/recovery logs. Native validation passes
+1789 tests with 25 ignored, all `check` stages and separate portable compilation.
+Full RPC/browser tests were not rerun; WASM was not rebuilt under the standing
+instruction. One stale cloud upload failed compilation before timing; the
+reconstructed bundle matches all final input hashes. API connection failures
+required retries during evidence retrieval; they did not restart timed runs.
+
+Remaining work: examine wordwise deletion-mask intersection at its existing
+owner to avoid per-hit predicate calls; investigate the masked phrase COUNT
+and ordinary ranked regressions; reuse the remaining 16 KiB collector score
+scratch; and address larger intersection/phrase/single-term execution costs.
+These are proposals. Only a periodic 12.5% mask was timed; clustered/highly
+selective filters, masked ranked pruning, cold-cache, concurrent-ingest and
+tail-latency measurements remain unrun. Original upstream-runner confirmation
+of post-OR changes is also outstanding.
+
+The preserved benchmark VM was stopped after all jobs and verified downloads;
+its final cloud status is `TERMINATED`.
+
+### Parity and BMP-equivalent MaxScore reordering — September 15 proposal
+
+The user requested continued work toward Tantivy parity, examination of IResearch
+and PISA, and RGB support for MaxScore text following BMP's behavior. The
+[reordering design](maxscore-text-reordering.md) records ownership, plain-versus-
+chunked scoring invariants, format rejection and merge/publication constraints.
+No new gain is established yet; the previous filtered-window build is the control.
+
+Research snapshots: PISA `4af477f227fcbf8a9fbd35b3cee0ecb0e258b285` and IResearch
+in SereneDB `6672dde0201981d4aa70447102d9029ccecce04f`. PISA's
+[ranked conjunction](https://github.com/pisa-engine/pisa/blob/4af477f227fcbf8a9fbd35b3cee0ecb0e258b285/include/pisa/query/algorithm/block_max_ranked_and_query.hpp)
+combines frequency-ordered probes and block bounds. IResearch's
+[pruned conjunction](https://github.com/serenedb/serenedb/blob/6672dde0201981d4aa70447102d9029ccecce04f/iresearch/search/top/pruned_conjunction.hpp)
+bounds a lead block and filters bounded candidate batches; its
+[pruned phrase](https://github.com/serenedb/serenedb/blob/6672dde0201981d4aa70447102d9029ccecce04f/iresearch/search/top/pruned_phrase.hpp)
+checks a frequency-derived score bound before positional matching. Hermes already
+has related paths; these sources guide targeted experiments, not a second executor
+or permission to change canonical score arithmetic or equality pruning.
+
+The x86 repeat of score rejection before heap-key comparison improves standalone
+term TOP_10 by 8.5% (171.683/157.067 µs) and TOP_1000 by 5.2%
+(641.520/608.018), faster in every one of seven passes. Official TOP_10 is
+668.409/661.091 µs, but only four passes improve, so its 1.1% aggregate difference
+is inconclusive. Supplemental TOP_100_COUNT regresses 1.9% (720.630/734.168),
+while its metadata COUNT path varies by -2.8% despite unchanged implementation.
+This remains a candidate pending final correctness/source gates and integration
+with the RGB work. It does not establish Tantivy parity. Raw data and separate
+profiles are retained under `.context/parity/` until final packaging.
+
+### RGB-disabled execution experiments — September 15 continuation
+
+The parity target explicitly uses **RGB disabled**. Physical text reordering is
+an independent feature and cannot count toward that target. Current profiles on
+unchanged full-corpus indexes attribute 29.1% of COUNT samples to posting bitmap
+construction, and 35.0% of standalone top-10 samples to executor dispatch (which
+includes heap admission). These are sample shares, not predicted speedups.
+
+The next isolated experiments keep codecs, norms, scoring arithmetic and index
+bytes fixed. Inspired by IResearch's bounded posting-batch admission and PISA's
+threshold-first heap, screen eight scores before canonical heap admission;
+equal/unordered scores still reach Hermes's document/ordinal tie comparator.
+Separately accumulate sorted document IDs into bitmap words in registers before
+writing each word. Scratch remains bounded, no cache or second executor is added,
+and a stale score threshold can only admit extra candidates. Both are proposals
+until paired x86/ARM timings and exact ranking/position oracles pass.
+
+IResearch's phrase path also prepares its scorer before candidate traversal.
+Hermes already rejects phrase candidates by frequency bounds before reading
+positions, but recalculates numeric admissibility and invariant f64 factors for
+every candidate. A separate prototype prepares those factors at the existing
+BM25 owner and retains the identical per-frequency envelope and inflation. It
+adds one fixed-size value to a phrase scorer, with no cache or allocation;
+canonical BM25 scores and pruning-bound bits must remain identical.
+
+A third independent experiment reuses the posting iterator's existing one-step
+probe in `TermCursor::seek_prepare` before the SIMD search. The archived x86
+call site (`.context/selected-codegen/hermes-after-seek_prepare.asm`) sets up
+vector comparisons even when the next decoded ID meets the target. The current
+block bounds prove a successor exists before the new probe; distant seeks keep
+the existing SIMD helper and no buffer or decoder is added. This targets the
+9.6% executor-seek sample share, with union regressions explicitly part of the
+acceptance decision. The earlier tiled/binary-search experiments remain rejected.
+
+First combined x86 experiment: **reject bitmap word accumulation**. On the
+same frozen full corpus and seven rotated passes, COUNT regresses
+550.598→620.570 µs (12.7%), with all seven passes slower; unions regress 40.9%.
+The added per-hit word-transition branch outweighs fewer bitmap writes.
+Standalone TOP10 improves 166.705→150.059 µs (10.0%, all seven passes), and
+TOP1000 improves 626.161→606.722 µs (3.1%, all seven). Official TOP10 is only
+0.6% faster and remains 1.27× Tantivy. Score admission will be rerun alone;
+this combined prototype is not selected. Both 1676-query raw/pruned oracles
+match on two layouts, and all index hashes are unchanged. Verified raw samples,
+RSS and sources are in `.context/parity/parity-batch-evidence/` pending packaging.
+
+One larger reuse experiment routes all-required text through the newer required
+window executor, eliminating the separate unpruned conjunction loop. This is
+not the rejected dense-AND prototype: the current required mode always takes
+candidates from one selective required posting run and applies existing block
+bounds before scoring the rest. PISA's ranked conjunction provides the pruning
+motivation. The experiment removes roughly 150 lines and preserves query-order
+addition and required membership even at zero frequency. Its tradeoff is larger
+bounded scratch: per-term contributions span 4096 IDs instead of a 128-document
+conjunction batch. Both exact results and peak residency must be measured; no
+selection or default change follows from code size alone.
+
+Primary references for the new experiments: IResearch's
+[posting batches](https://github.com/serenedb/serenedb/blob/6672dde0201981d4aa70447102d9029ccecce04f/iresearch/search/detail/posting_batch.hpp),
+[admission](https://github.com/serenedb/serenedb/blob/6672dde0201981d4aa70447102d9029ccecce04f/iresearch/search/top/admit.hpp)
+and [prepared phrase scoring](https://github.com/serenedb/serenedb/blob/6672dde0201981d4aa70447102d9029ccecce04f/iresearch/search/top/pruned_phrase.hpp);
+PISA's [threshold-first heap](https://github.com/pisa-engine/pisa/blob/4af477f227fcbf8a9fbd35b3cee0ecb0e258b285/include/pisa/topk_queue.hpp)
+and [ranked conjunction](https://github.com/pisa-engine/pisa/blob/4af477f227fcbf8a9fbd35b3cee0ecb0e258b285/include/pisa/query/algorithm/block_max_ranked_and_query.hpp).
+The benchmark's [engine list](https://github.com/quickwit-oss/search-benchmark-game/blob/master/Makefile)
+also includes Lucene; its already-adopted and rejected mechanisms are recorded in
+[the pinned Lucene review](lucene-11-performance-research.md). Engine rankings alone
+are not an explanation of Hermes's costs.
+
+The first score-batch x86 binary contains an eight-float vector comparison
+(`vcmpngtps`) followed by scalar canonical admission for survivors. Compiler
+output also includes a mask for the possibly short last chunk. The isolated
+score-only repeat uses fixed eight-element chunks and a scalar tail to avoid
+that mask. This uses portable Rust; no ISA-specific unsafe kernel was added.
+
+Prepared phrase bounds are rejected: x86 official TOP10 changes
+666.861→664.223 µs (0.4%, five of seven passes faster), with phrase TOP10
+only 0.8% faster and phrase TOP1000 flat. ARM is essentially flat. The extra
+prepared value is not justified by a repeatable material target-path gain.
+The ARM one-step seek run is inconclusive; its small differences are about the
+same size as variation in unchanged COUNT. No seek change is selected pending
+a corrected x86 run.
+
+**Provenance correction:** the first queued x86 `seek` and `required` attempts
+preserved old source mtimes with `shutil.copy2`, so Cargo reused the previous
+release binaries. Their build logs finish in 0.36/0.35 seconds. The seek binary
+hash equals the bounds candidate; the required binary hash equals the mask
+candidate. Those timings are invalid evidence for the named source changes,
+even though their score/index oracles match. Provisional seek/AND conclusions
+from them are withdrawn. They remain archived as failed experiment attempts.
+The ARM candidates, x86 batch/bounds/mask, and final integrated sources did
+compile afresh. Corrected x86 recipes rewrite the complete control overlay with
+fresh timestamps, verify its source manifest, and require an actual core rebuild
+before any oracle or timing run.
+
+### Integrated score admission with RGB disabled — verified final source
+
+The selected source uses the scalar threshold guard plus a fixed-eight score
+mask for single-text runs. Canonical heap admission handles survivors, including
+equal scores, signed zero and unordered scores. Predicate and document-mapped
+runs keep their scalar boundary. It adds no scratch allocation, cache or codec.
+The 332-file integrated source includes the RGB tie-order correction, but every
+latency fixture has RGB disabled. Both 1676-query raw/pruned/count oracles match
+on the full-corpus layouts; all four ARM layouts also match and all index hashes
+are unchanged. The integrated core actually rebuilt before timing.
+
+On the same 5,032,104-document x86 fixture, previous/current/Tantivy official
+TOP10 is 668.198/659.236/530.903 µs (1.3% faster, six of seven passes), TOP1000
+1178.144/1173.096/938.324 (0.4%, seven), TOP100_COUNT
+1276.084/1285.205/860.477 (0.7% slower, five slower passes), and COUNT
+558.439/558.654/404.941 (flat). Current/Tantivy is **1.24×, 1.25×, 1.49× and
+1.38×** respectively. Parity remains unmet; ratios from earlier sessions must
+not be used as the control for this change.
+
+Supplemental standalone TOP10 is 179.182/142.964/50.939 µs (20.2% faster) and
+TOP1000 is 669.933/600.089/432.319 (10.4% faster), with all seven passes faster.
+Supplemental TOP100_COUNT regresses 2.7% (767.776/788.648, all seven slower);
+metadata COUNT is 13.286/13.170, a 0.9% movement in the unchanged dictionary
+shortcut. The gain is retained with this explicit scored-count tradeoff.
+The official workload has only one standalone-term query, so these term gains
+do not imply a comparable improvement in the official mix. The masked
+prototype's isolated official scored-count regression is not compounded into
+this final comparison.
+
+ARM official TOP10 is 32.272/32.253 µs on the canonical fixture and
+49.216/49.180 on the merged fixture: effectively flat. Supplemental TOP10 is
+20.190/19.417 and 24.540/23.629, improvements of 3.8% and 3.7%. Other small
+unchanged-path movements are inconclusive on the shared development machine.
+The inspected x86 fixed-width mask partially vectorizes; ARM emits an unrolled
+scalar comparison sequence. The integrated x86 dispatcher grows from 8,195 to
+9,480 machine-code bytes, including the RGB mapping boundary; this is not a
+mask-only code-size attribution. The implementation uses portable Rust, without
+an ISA-specific unsafe kernel or changed dispatch default.
+
+X86 peak RSS previous/current/Tantivy is 1,031,408/1,031,236/587,764 KiB on the
+official workload and 349,820/350,316/235,520 KiB on the supplemental workload.
+These are process mapped-plus-heap peaks across four warm commands, not heap
+residency. No memory reduction is claimed. The full native harness passes 1,798
+tests including real-server broker tests, with 25 ignored in the standard
+stage, plus formatting, Clippy, native-without-sync, portable compilation and
+API documentation. WASM is not rebuilt under the standing user instruction.
+
+Remaining performance work centers on intersection/phrase execution, scored
+counts and the scalar norm-gather cost. Additional bound preparation and bitmap
+branching did not justify production complexity. Cold-cache, concurrent-ingest,
+tail latency and original upstream-runner confirmation remain unrun. RGB
+merge-time planning, legacy standalone migration and the full budget/corruption/
+cancellation audit remain unfinished and separate from the RGB-disabled target.
+
+The corrected x86 **seek** experiment rebuilt the core in 2m23s and produced a
+different candidate hash (`bb70003399b96d233e7f79a9f58191fd50cd5b4b47b3f9c688081f63e160454f`).
+All source hashes, both exact oracles and unchanged index manifests pass.
+Official TOP10 is 656.162/661.658 µs (0.8% slower, six of seven passes slower),
+TOP1000 1166.774/1174.201 (0.6%, all seven), and intersection TOP10 regresses
+2.1% in every pass. The extra next-ID probe is rejected. COUNT also moves 2.3%
+slower in the artifact comparison; this is not evidence of a changed COUNT
+algorithm. This corrected run, not the stale first attempt, supports rejection.
+
+The corrected x86 **all-required windows** experiment also rebuilt (2m25s),
+with candidate hash `7fd939d719218cb5bf2dc4e8a4f25690912c013f4c6fc78a112c78e0b5c98a6f`.
+Both exact oracles, its complete source manifest and immutable index checks pass.
+Official TOP10 is 660.280/680.325 µs (3.0% slower) and TOP1000
+1167.558/1306.868 (11.9% slower), with all seven passes slower. Intersection
+TOP10 regresses 9.1% and TOP1000 43.0%, also in every pass. Together with the
+ARM intersection regressions and larger per-term scratch, this rejects the
+window-reuse prototype. No architecture or document-frequency cutoff is added
+from these fixtures. Supplemental single-term TOP10 is essentially flat, as
+expected for this source change. The original cached-binary attempt is retained
+only as invalid provenance evidence; it does not support an AND speedup.
+
+The verified parity archive (local archive `benchmark-results/parity-2026-09-15/results.zip`),
+full native checks (local archive `benchmark-results/parity-2026-09-15/native-check.zip`) and
+[reproduction notes](benchmark-results/parity-2026-09-15/README.md) preserve all
+selected, rejected and invalid attempts, with explicit identities and corrected
+rebuild recipes. Every transferred archive and packaged entry is hash-verified.
+
+The owned benchmark VM is confirmed `TERMINATED` after all runs and verified
+downloads. The stop command's status polling encountered a connection reset;
+a subsequent direct status check confirmed shutdown. Changes remain uncommitted.
+
+## AND block-bound experiment (September 15, follow-up)
+
+Proposal, not selected: retain the semantic conjunction's rarest-first cursor
+alignment and 128-hit canonical scoring batches, but shallow-seek existing text
+block metadata before alignment once the heap is full. Sum existing conservative
+BM25 block bounds and retain their minimum document endpoint. A strictly
+noncompetitive sum permits advancing the lead beyond that endpoint; equality
+still participates in the canonical score/document/ordinal ordering. Reuse the
+executor's relative floating-point threshold margin and existing bound cache.
+Pending hit batches may only make the heap threshold stale in the conservative
+direction. Count collectors continue through their existing exhaustive path.
+
+The public planner routes native and async in-memory text AND queries through
+this same executor. Posting lists own the persisted block metadata and decoders;
+no format, writer, scoring formula, query default, or RGB policy changes. Extra
+state is one document endpoint and one score, with O(terms) metadata probes per
+crossed overlapping block span, bounded by existing query-term limits. This
+trades metadata work for avoided decoding, alignment and scoring. Whole-workload
+ARM/x86 timing and exact ordered score-bit/count oracles determine selection.
+
+This follows the shallow block-bound pruning in
+[PISA ranked AND](https://github.com/pisa-engine/pisa/blob/4af477f227fcbf8a9fbd35b3cee0ecb0e258b285/include/pisa/query/algorithm/block_max_ranked_and_query.hpp)
+and [Lucene BlockMaxConjunctionScorer](https://github.com/apache/lucene/blob/main/lucene/core/src/java/org/apache/lucene/search/BlockMaxConjunctionScorer.java).
+It is distinct from the rejected dense required-window replacement: the current
+bounded 128-hit rows and canonical batch scorer remain in place.
+
+Fresh family profiles use the preserved selected binary, RGB off, the same
+5,032,104-document rounded fixture and CPU 2. AND TOP_10 self samples: cursor
+seek preparation 33.42%, conjunction loop 11.84%, checked document decode 8.88%,
+byte-gap SIMD decode 7.26%, seek wrapper 6.99%. Phrase TOP_10: candidate alignment
+26.55%, candidate score bound 13.96%, confirmation 7.62%, checked document decode
+6.59%, cached position reads 5.90%, position lookup 4.86%. These sample shares
+identify where this binary spends CPU time, not predicted speedups or latency
+measurements. DWARF call stacks contain unresolved frames; self symbols are used
+for attribution. Hardware cycles, instruction, branch and cache counters are
+unsupported on this VM, so the profiles do not establish a cache-miss rate or
+cycles per decoded posting. No page faults occurred during the sampled AND run.
+
+A separate proposed seek experiment narrows the iterator's decoded suffix by
+exponential probes before its existing binary search. The current/next probes
+remain. The search interval grows with the distance actually skipped, rather
+than always searching the whole remaining block. This affects the owning
+`BlockPostingIterator` (phrase and ordinary membership), not the unified
+MaxScore cursor's SIMD seek; that cursor's added next-ID probe was already
+rejected. No storage bytes, buffer sizes, frequency-prefix rules, backward RGB
+probe semantics, or out-of-block directory seek change. Near gaps may require
+fewer comparisons; distant gaps add probes. Both distributions and whole-query
+cost must be measured before selection.
+
+One batching interaction needs separate measurement: the initial conjunction
+batch contains 128 hits even for top-10, so pruning has no threshold until that
+batch is collected. A refined candidate fills the first batch at `min(k, 128)`
+(and respects any existing collector entries), then resumes 128-hit batches.
+The trigger is heap capacity, not a corpus/architecture cutoff. Canonical scoring
+and tie order remain unchanged; a partially filled heap never permits pruning.
+
+A further isolated phrase prototype borrows both posting cursors once for a
+two-term phrase's alignment loop. The general loop currently follows a sorted
+term-order vector and re-indexes the cursor vector on each probe and restart.
+Tantivy's typed two-leading-cursor intersection motivates removing that
+indirection for this common query shape. The same rarest-first leapfrog and
+budget check apply; term identities, position streams and canonical scoring stay
+in original query order. Longer phrases retain the existing loop. This is an
+execution specialization, with no allocation or storage change, and must earn
+its extra code through integrated measurements independently of galloping seeks.
+The reference is Tantivy 0.26's
+[typed intersection](https://github.com/quickwit-oss/tantivy/blob/0.26.0/src/query/intersection.rs).
+Its `TermScorer` does not override `seek_danger`; the trait default delegates to
+ordinary seeking. A membership-only seek shortcut is therefore not evidence for
+this benchmark version and is not part of this prototype.
+
+### Completed initial block-bound trial — rejected
+
+Seven rotated x86 passes on the frozen full corpus (µs geometric means):
+
+| Command       |   Before | Candidate | Tantivy | Candidate / before |
+| ------------- | -------: | --------: | ------: | -----------------: |
+| TOP_10        |  669.572 |   695.244 | 522.218 |             1.0383 |
+| TOP_1000      | 1177.506 |  1201.754 | 933.929 |             1.0206 |
+| TOP_100_COUNT | 1292.859 |  1281.244 | 868.158 |             0.9910 |
+| COUNT         |  563.951 |   554.271 | 402.195 |             0.9828 |
+
+AND TOP_10 regresses 12.1% and TOP_1000 6.6%, with all seven passes slower.
+The conjunction gained no clear ARM improvement: canonical AND TOP_10 is flat
+and merged is 1.2% slower. Small improvements in unchanged count/phrase paths
+do not establish a pruning benefit. The baseline implementation is restored.
+Both full-corpus layouts and all four ARM layouts preserve every ordered
+document/score-bit/count oracle across 1,676 queries. The skip/late-winner
+regression fails on baseline and passes on the prototype; all 42 focused scoring
+tests pass on both architectures. Synthetic pruning is real, but the integrated
+metadata/skip tradeoff is unfavorable.
+
+A final isolated structural candidate replaces the duplicated ISA-specific
+`find_first_ge_u32` scans with one portable integer reduction: count values below
+the target in each eight-value sorted run, stop on a count below eight, then
+binary-search the at-most-seven-value tail. In sorted order the count is exactly
+the lower-bound offset. This removes the unsafe NEON/SSE search implementations
+and feature dispatch without changing the helper's contract or memory budget.
+Native compilers may vectorize the integer comparisons; portable builds remain
+correct without SIMD. Existing exhaustive tests cover every length through 140,
+duplicates, unsigned sign-bit crossings and terminal IDs against partition_point.
+
+The current x86 `seek_prepare` assembly uses 128-bit compares/mask transfers
+plus sign-bit XORs. The prototype's unsigned comparisons give the compiler a
+simpler expression; ARM assembly confirms two four-lane comparisons per run.
+This is code-generation evidence only. It must pass actual whole-query tests on
+both architectures; the earlier rejected tile/next-probe/binary-search variants
+are not evidence that this replacement is faster.
+
+### Earlier first heap threshold — rejected
+
+The first-batch refinement also loses. Seven-pass x86 official screening:
+
+| Command  | Family       | Before (µs) | Candidate (µs) | Candidate / before |
+| -------- | ------------ | ----------: | -------------: | -----------------: |
+| TOP_10   | all          |     663.885 |        704.118 |             1.0606 |
+| TOP_10   | intersection |     571.496 |        678.529 |             1.1873 |
+| TOP_1000 | all          |    1202.249 |       1228.994 |             1.0222 |
+| TOP_1000 | intersection |     666.396 |        707.271 |             1.0613 |
+
+Both commands and their AND subsets are slower in every pass. ARM AND TOP_10
+regresses 2.0% canonical and 3.75% merged. All six layout/corpus exact oracles
+and focused scoring tests pass. Establishing the heap threshold earlier does
+not rescue the block-bound cost; no conjunction-pruning code is retained.
+
+### Distance-bounded iterator seek — completed screening
+
+| Command | Family       | Before (µs) | Candidate (µs) | Candidate / before | Faster passes |
+| ------- | ------------ | ----------: | -------------: | -----------------: | ------------: |
+| TOP_10  | all          |     677.182 |        676.853 |             0.9995 |           3/7 |
+| TOP_10  | union        |     721.652 |        725.576 |             1.0054 |           2/7 |
+| TOP_10  | intersection |     581.149 |        581.489 |             1.0006 |           3/7 |
+| TOP_10  | phrase       |     646.858 |        642.918 |             0.9939 |           5/7 |
+| COUNT   | all          |     575.694 |        568.017 |             0.9867 |           7/7 |
+| COUNT   | union        |     785.623 |        744.684 |             0.9479 |           7/7 |
+| COUNT   | intersection |     510.571 |        515.573 |             1.0098 |           1/7 |
+| COUNT   | phrase       |     734.608 |        730.830 |             0.9949 |           6/7 |
+
+All four ARM and both full-corpus layout oracles pass for 1,676 queries; index bytes remain unchanged. These two-command screens do not establish performance for top-1000, top-100 plus count, or supplemental queries.
+
+ARM overall count improves 1.5% on both fixtures; phrase top-10 improves 1.4% canonical and 2.8% merged. x86 top-10 is flat; union count improves 5.2%, while AND count regresses 1.0%. The 212 posting tests pass on both architectures.
+
+### Borrowed two-cursor phrase alignment — completed screening
+
+| Command | Family       | Before (µs) | Candidate (µs) | Candidate / before | Faster passes |
+| ------- | ------------ | ----------: | -------------: | -----------------: | ------------: |
+| TOP_10  | all          |     675.931 |        671.053 |             0.9928 |           4/7 |
+| TOP_10  | union        |     720.965 |        718.990 |             0.9973 |           3/7 |
+| TOP_10  | intersection |     580.480 |        581.565 |             1.0019 |           2/7 |
+| TOP_10  | phrase       |     646.229 |        633.717 |             0.9806 |           7/7 |
+| COUNT   | all          |     566.335 |        562.380 |             0.9930 |           6/7 |
+| COUNT   | union        |     748.883 |        760.765 |             1.0159 |           0/7 |
+| COUNT   | intersection |     505.572 |        504.906 |             0.9987 |           5/7 |
+| COUNT   | phrase       |     734.868 |        720.751 |             0.9808 |           7/7 |
+
+All four ARM and both full-corpus layout oracles pass for 1,676 queries; index bytes remain unchanged. These two-command screens do not establish performance for top-1000, top-100 plus count, or supplemental queries.
+
+ARM phrase top-10/count changes are small and essentially flat. x86 phrase top-10 and count improve 1.9% in every pass, but overall top-10 is only 0.7% faster with four of seven passes faster. The 16 phrase tests pass on both architectures.
+
+### Portable reduction rejected; explicit AVX2 follow-up
+
+The portable count reduction regresses x86 overall TOP_10 4.7% and AND 8.4%,
+with all seven passes slower. ARM mixed required/optional top-10 regresses
+7–9%. All tests and exact oracles pass, but the shorter source is not selected.
+Portable compilation passes with the existing no-native dead-code warning for
+`ChunkMapBuilder::set_document_units` (native reordering writers use it).
+
+Actual integrated x86 disassembly explains the reduction's cost: LLVM generates
+an eight-lane unsigned comparison, then seven mask shifts, eight mask transfers,
+per-lane scalar masking and an addition tree. It does not lower the integer sum
+to the compact mask count seen in the standalone ARM probe. This is a concrete
+code-generation reason to test an explicit packed-mask backend, not to assume
+that the portable expression will optimize well.
+
+Proposed AVX2 follow-up: scan eight sorted IDs with unsigned SIMD minimum,
+equality and one mask extraction, returning the first set lane. The existing
+SSE2 implementation serves the short tail and CPUs without AVX2. The existing
+ARM NEON and portable fallback remain unchanged. Runtime feature dispatch uses
+the module's existing AVX2 capability check; all loads stay inside the supplied
+slice. No new executor, allocation, bound, cache or on-disk representation.
+This candidate builds on the integrated phrase/iterator candidate and compares
+against both that exact binary and the original frozen baseline, plus Tantivy,
+across the full official/supplemental four-command matrix.
+
+### Integrated phrase/galloping build — completed
+
+The two retained portable traversal changes were rebuilt together before testing
+AVX2. Their full four-command official/supplemental matrix is archived as
+`and-phrase-final-evidence`. Against the frozen starting build, official
+TOP_10 is 662.015 → 657.533 µs (-0.7%), TOP_1000 1169.489 → 1157.446 (-1.0%),
+TOP_100_COUNT 1284.642 → 1281.412 (-0.3%), and COUNT 563.823 → 564.841 (+0.2%).
+Phrase improves 1.9–2.9% in every pass, but AND count regresses 1.8% and union
+count regresses 1.3%. The standalone galloping screen's 1.3% overall count gain
+does not survive this integrated measurement and is not claimed as retained.
+ARM top-10 improves 0.4–0.8% and count 1.8%. Exact oracles, source identities,
+immutable index hashes and the 1,794-test native check all pass.
+
+### Packed-mask AVX2 seek — selected after full comparison
+
+The final four-engine run rotates the original frozen build, the exact combined
+phrase/galloping binary, the AVX2 candidate and Tantivy. All four commands run
+on both 962 official and 714 supplemental queries, seven complete passes each,
+after ten seconds of warmup per engine/command. All source overlays contain
+332 verified files and every candidate actually recompiles core. The main tree
+matches the selected AVX2 source manifest exactly.
+
+| Operation             | Starting build (µs) | Selected build (µs) | Tantivy (µs) | Change | Selected / Tantivy |
+| --------------------- | ------------------: | ------------------: | -----------: | -----: | -----------------: |
+| Top 10                |             668.690 |             647.571 |      529.436 |  -3.2% |          **1.22×** |
+| Top 1000              |            1184.824 |            1154.399 |      939.181 |  -2.6% |          **1.23×** |
+| Top 100 + exact count |            1273.917 |            1267.541 |      852.847 |  -0.5% |          **1.49×** |
+| Exact count           |             564.696 |             562.863 |      404.698 |  -0.3% |          **1.39×** |
+
+These changes are measured against the original binary in the same run, not
+compounded from the separate screens. Incrementally against the two-change
+build, AVX2 improves official TOP_10 and TOP_1000 1.9% in all seven passes,
+including AND improvements of 5.4% and 5.1%. Incremental overall TOP_100_COUNT
+(+0.2%) and COUNT (+0.3%) regress slightly. Against the original build, AND
+TOP_100_COUNT regresses 1.6% and COUNT 2.4%, all seven passes slower; phrase
+improves 2.4–2.9% across all commands, all seven passes faster.
+
+Supplemental TOP_10 is 146.747 → 146.503 µs, TOP_1000 582.987 → 583.846,
+TOP_100_COUNT 783.677 → 771.585 and COUNT 13.435 → 13.478. Most standalone
+movements are flat. Against the intermediate build, TOP_10 regresses 1.3%
+and COUNT 0.9%; do not attribute unchanged-path movements entirely to AVX2.
+
+Actual selected `TermCursor::seek_prepare` disassembly uses an eight-lane
+`vpcmpleud`, `kortestb`, then one mask transfer and `tzcnt`. Native Cascade Lake
+flags let LLVM use AVX-512VL for the AVX2 source expression. Unlike the rejected
+portable sum, it has no eight-element scalar reduction tree. This is measured
+native-target code generation, not a claim about older AVX2-only CPUs.
+
+Selected-source ARM official TOP_10 improves 1.0% on both rounded fixtures;
+COUNT improves 2.3% canonical and 1.8% merged. ARM uses the existing NEON kernel.
+Full-corpus original/selected/Tantivy peak RSS is 1,031,372 / 1,030,912 /
+587,784 KiB official and 349,236 / 349,328 / 235,608 KiB supplemental. Memory
+is effectively unchanged and the three changes introduce no allocations.
+
+The final native check passes 1,794 tests (25 ignored), formatting, Clippy and
+native without sync. The selected x86 source passes all 1,578 core tests
+(16 ignored), all-target Clippy, both 1,676-query exact oracles and index-byte
+checks. All four ARM oracles and 40 immutable index-file hashes pass. Portable
+compilation passes with the existing no-native `set_document_units` warning.
+WASM is skipped under the standing user instruction. Lifecycle/RPC checks were
+not rerun because these changes do not alter lifecycle or wire semantics.
+
+The final comparison remains 1.22× Tantivy for top-10 and 1.39× for count.
+Parity and the separate RGB lifecycle/merge audit remain open. Future dispatch
+work must retain shared CPU admission across concurrent sync callers; simply
+bypassing the shared Rayon pool would change that policy and needs its own
+lifecycle tests. Full profiles, all rejected trials, exact source overlays and
+raw final results are in the
+[verified follow-up evidence](benchmark-results/and-phrase-2026-09-15/README.md).
+
+The first final-source native check hit two broker backend-registration timeouts
+(`client_deadline_propagates_and_absence_means_untimed` and
+`dead_backend_is_evicted_and_recovers`, both waiting ten seconds for mock index
+registration). All 13 broker integration tests passed on retry; the complete
+check was then repeated. Both attempts and the focused retry are archived.
+The cloud stop command lost its polling connection, and a direct describe
+confirmed `TERMINATED`; no shutdown success is inferred from that failed poll.
+
+## Decoded-block conjunction intersection — proposal (2026-09-15)
+
+The current ranked two-term AND loop repeatedly calls general cursor seek and
+reads cursor/block state for each candidate. The earlier profile attributes
+33.4% of starting-build AND self samples to seek preparation. The selected SIMD
+backend reduces its kernel cost but retains this per-candidate protocol.
+
+Proposed: intersect the two already-decoded posting slices within the existing
+conjunction collector, using local offsets until either block or the 128-hit
+batch ends. General checked seek/decode still owns cross-block navigation and
+corrupt-payload errors. Decode TFs only on the first eligible hit of each block
+overlap, then gather directly into the existing term-identity rows. Keep the
+canonical score-order batch reduction, predicates, document mapping, cancellation
+and fixed scratch budget unchanged. Larger conjunctions keep their existing
+loop; no new scorer, writer, executor, cache or persisted format is introduced.
+
+Invariant: both cursors resume at the first unconsumed posting, every eligible
+intersection appears once, TF rows keep original cursor identity, and all raw
+score bits and ordered top-k results equal exhaustive scoring. General native
+and async semantics remain equivalent; portable code retains its current path.
+Cost: compare loaded IDs directly, check block state only at block/batch
+boundaries, with the same O(postings) upper bound and no extra allocation.
+This is a hypothesis until paired ARM and full-corpus x86 measurements pass.
+
+### Complete impact bound before loose fallback bounds — proposal
+
+An independent candidate tests the existing complete impact envelope first in
+`TermCursor::text_block_bound` and `text_group_bound`. A finite result is already
+a conservative bound on canonical scoring under its validated parameters; in
+that case there is no correctness need to also compute max-TF/min-length and
+ratio bounds. Unknown envelopes and unsupported/nonfinite parameters retain the
+existing fallback. The rounding guard and all actual score arithmetic remain
+unchanged. The earlier standalone-term profile attributed 29.0% self time to
+`text_block_bound` and 12.3% to envelope geometry; this identifies redundant
+work worth measuring, not a guaranteed gain for the current source.
+
+The selected bound may be slightly looser than the minimum of three individually
+safe bounds; that can admit extra candidates, never discard a true top-k hit.
+No format/default/cache/allocation change. Compare against the preserved AVX2
+baseline independently of the block-intersection experiment before integration.
+
+### Exact-candidate capability for Boolean confirmation — proposal
+
+Count and complete Boolean collection align candidate cursors and then call
+`confirm_candidate` on every required child. Plain term children already yield
+exact postings: their default confirmation only calls `doc` again to reject
+TERMINATED, although the parent has just established a nonterminal match.
+This adds virtual calls per matched document, especially for count-heavy AND.
+
+Proposed `Scorer::requires_candidate_confirmation` defaults to true, preserving
+all custom/two-phase implementations. Only ordinary term, fast-field text and
+Boolean scorers opt out; their candidate methods are exact and confirmation has
+no side effects. `BooleanScorer::initialize` caches one boolean from its children
+and skips the verification loop only when every required child opts out. Mixed
+phrase/custom children retain the complete verification protocol. Consumers
+still reject TERMINATED before using the capability. No additional allocation,
+format, executor or lifecycle change; cancellation checks stay at their existing
+owners. Native and async construction share the same initialization.
+
+Measure independently against the preserved AVX2 baseline, including generic
+Boolean/phrase regressions, full exact oracles and the four-command matrix.
+
+The distinction is also explicit in [Lucene's Scorer API](<https://lucene.apache.org/core/10_3_1/core/org/apache/lucene/search/Scorer.html#twoPhaseIterator()>): two-phase iteration is optional and intended for scorers with expensive confirmation. Hermes keeps a conservative default so existing custom candidate methods still receive verification.
+
+Pre-benchmark review found that term and fast-field `doc()` also observe timed
+query cancellation. The first prototype was withdrawn before application or
+latency measurement, despite its library tests passing. A new
+`timed_term_candidates_keep_deadline_confirmation` regression pins this boundary:
+only untimed leaf scorers may opt out; timed leaves keep confirmation enabled.
+The corrected capability checks `budget.is_some()` once during parent setup.
+
+### Compact membership batches for sparse AND counts — proposal
+
+The existing Boolean count path uses document windows only when estimated
+membership density amortizes a bitmap. Sparse AND falls back to virtual
+per-document seek/advance/confirmation. Test a bounded `DocBatch` of 128 sorted
+IDs in the existing DocSet/Boolean/collector owners: copy the lead's decoded
+runs, retain candidates in each required child, then restore the parent's first
+unconsumed exact match. Posting iteration owns the block-aware copy and retain
+kernels; frequencies remain deferred. Dense windows keep their existing priority.
+
+The capability is opt-in and defaults to scalar exact traversal. Untimed term
+scorers and pure compatible conjunctions opt in. Timed or unsupported children,
+filters, exclusions, scoring and positions retain their existing path. Count
+collection checks its budget before and after a batch and discards a batch that
+expires, matching the existing window contract. Additional scratch is one
+128-ID array (512 bytes), with no cache or allocation. No representation,
+scorer, executor or scoring semantics change. Tests must cover resume state,
+frequency/position validity, empty/tail batches, all posting codecs and expiry
+before count publication, plus the complete ARM/x86 exact oracles.
+
+### Impact-first bound selection — rejected after measurement
+
+All correctness gates passed, but the complete seven-pass x86 matrix does not
+support retaining the simpler bound choice. Official TOP_10 changes
+641.619 → 642.734 µs (+0.2%, only 4/7 passes faster), TOP_1000
+1133.201 → 1138.231 (+0.4%, 2/7 faster), TOP_100_COUNT
+1276.886 → 1281.436 (+0.4%, 2/7 faster), and COUNT
+561.979 → 559.311 (-0.5%, 5/7 faster). Supplemental TOP_10 improves only
+0.7%, while TOP_1000 regresses 0.8%. ARM changes are similarly small.
+The original minimum of all supported bounds remains selected. Both complete
+source manifests, all raw timings and exact oracles are preserved under the
+`impact-first` experiment; the archive has 37 verified evidence members.
+
+### Cached position span expansion — proposal
+
+Phrase scorers reach `TermPositionCursor` through the same postings owner on
+native, async and portable builds. `PositionStream::read_cached` can expand a
+whole document directly from its existing decoded block when the complete TF
+span is resident. Keep global checked range validation before this shortcut;
+misses and spanning documents retain the validated block traversal. Both paths
+share one delta-prefix helper. No extra cache, allocation, format or writer.
+
+The cost hypothesis is avoiding a block lookup and general traversal setup per
+cached phrase document. Existing tests cover short copied blocks, forward and
+backward reads, spanning documents, failed cache replacement and encoded byte
+identity; extend the cached final-block test with an invalid span followed by a
+valid read. Measure this independently against the preserved AVX2 baseline on
+both architectures before deciding whether to retain it.
+
+### Packed rejection masks for exhaustive top-k collection — proposal
+
+The ranked single-term executor already screens eight scores before heap
+admission. Exhaustive `TopKCollector::collect_score_block` still performs total
+float ordering and tie comparisons for every set bit. Test sharing the existing
+eight-score mask kernel between both owning collectors: numerical scores below
+the current full-heap floor can be excluded as a group, while equal and unordered
+scores retain the canonical total-order comparison. A threshold that rises during
+the block only admits extra candidates. Count publication uses the original
+membership word, before screening; custom and position collectors keep their
+existing path. No scoring arithmetic, format, extra scratch allocation or cache.
+
+Use the existing exceptional-float, signed-zero, tie, late-winner and exact-count
+reference test and complete score-bit oracles. The isolated candidate must improve
+ARM before adding another full-corpus cloud experiment. Sparse words may make
+packed screening more expensive, so retain a one-candidate path for each byte.
+
+### Decoded two-cursor intersection — retained for combined measurement
+
+The isolated seven-pass full-corpus comparison reduces official TOP_10
+647.225 → 624.799 µs (-3.5%) and TOP_1000 1140.125 → 1109.534 (-2.7%),
+with all passes faster. AND improves 543.119 → 485.841 (-10.5%) and
+618.978 → 569.843 (-7.9%), also in every pass. TOP_100_COUNT is flat
+1277.100 → 1279.687 (+0.2%); COUNT changes 559.805 → 550.553 (-1.7%),
+though the count implementation is unchanged and AND count is 0.4% slower.
+Do not attribute the unchanged-path movement entirely to this algorithm.
+
+The disclosed tradeoff is supplemental TOP_1000 +2.0% in every pass and
+TOP_10 +0.9%. TOP_100_COUNT improves 2.3%, COUNT is essentially flat.
+Canonical/merged ARM ranked AND improves 2.5%/3.1%; official TOP_10
+improves 1.7%/1.8%. All four ARM and both x86 1,676-query exact ordered/raw
+score/count oracles pass, with identical index bytes. Full x86 core tests and
+Clippy pass. Official peak RSS is 1,024,224 → 1,024,396 KiB; no allocation
+is added. The candidate is retained for integration, not yet a combined result.
+Its isolated TOP_10 remains **1.20× Tantivy**; the performance goal remains open.
+
+### Exact-candidate confirmation capability — rejected after measurement
+
+The corrected candidate passes all library, cancellation, score-bit, count and
+immutable-index gates on both architectures. The full x86 comparison nevertheless
+rejects it: official TOP_10 646.377 → 643.919 µs (-0.4%, 4/7 faster),
+TOP_1000 1142.328 → 1138.590 (-0.3%, 4/7), TOP_100_COUNT
+1276.818 → 1308.140 (+2.5%, 6/7 slower), COUNT 563.802 → 562.497
+(-0.2%). AND COUNT improves 1.6% in every pass, but AND TOP_100_COUNT is flat.
+Supplemental TOP_100_COUNT improves 1.5%; other movements are small.
+
+This does not justify adding a capability and cached Boolean state. The existing
+confirmation protocol stays in production. Preserve the withdrawn initial source,
+the deadline regression's red/green logs and the corrected complete experiment;
+no timings came from the withdrawn version. All 37 cloud evidence members were
+downloaded and hash-verified before this decision.
+
+### Exhaustive scored-block masks — rejected on ARM
+
+Both complete ARM matrices and all four exact oracles pass. The target workload
+fails the performance screen: supplemental TOP_100_COUNT regresses 1.7% on the
+canonical layout and 0.8% on the copied layout. Official TOP_100_COUNT is flat
+(-0.5%/+0.1%). The small ranked and count movements are on unchanged paths.
+Do not add the shared mask helper or schedule a full-corpus run for this source.
+The original block collector remains selected; all 1,577 core tests passed.
+
+### Shared SIMD lower bounds in ordinary posting cursors — proposal
+
+The new packed-mask AVX2 kernel improved the ranked `TermCursor`; phrase and
+complete Boolean traversal still use `BlockPostingIterator`'s scalar binary
+search. Test reusing the existing sorted-ID kernel at its three lower-bound
+sites: inside the gallop-bounded suffix, after loading a later block, and during
+a point probe. Keep nearby current/next probes, galloping, directory navigation,
+TF deferral, position prefixes and corruption propagation unchanged. This is
+three call substitutions, with no new kernel, state, allocation, API or format.
+
+The kernel already has native SIMD and portable implementations with identical
+unsigned lower-bound semantics. Existing all-codec mixed seek/advance/point,
+frequency/position and boundary tests plus four ARM and two full-corpus exact
+oracles gate the substitution. ARM and x86 measurements decide selection.
+
+### Intersect decoded phrase posting blocks — proposal
+
+The ranked two-cursor experiment establishes a measured benefit from doing
+alignment inside loaded posting slices. Apply the same responsibility boundary
+to two-term phrase alignment: `BlockPostingIterator` owns a bounded seek to the
+next common document, compares local offsets inside both decoded blocks, and
+commits valid cursor positions before returning a match. Only an exhausted
+block or a target beyond its last ID re-enters general seek/decode. Phrase
+confirmation and frequency remain in `PhraseScorer` in original term order.
+
+The query supplies the existing stop check as a closure; the structure owner
+knows no deadline policy. Stop checks remain inside alignment and return no hit
+with valid cursor state. No frequencies or positions decode until their ordinary
+consumer asks. No allocation, new scorer, result cache, representation or writer.
+The first unconsumed intersection, resumed TF/position prefix, exhausted and
+cancelled states must match scalar traversal on every codec. Existing phrase
+multiplicity, backward point probe and deadline tests remain gates. Measure
+independently from the SIMD call substitution and integrate only after exact
+ARM/x86 oracles and whole-query timing pass.
+
+### Compact sparse count batches — retained for combined measurement
+
+The full-corpus x86 comparison improves official COUNT 566.095 → 527.791 µs
+(-6.8%) and AND COUNT 518.010 → 410.291 (-20.8%), in all seven passes.
+TOP_10 646.961 → 647.112, TOP_1000 1134.324 → 1135.247 and
+TOP_100_COUNT 1282.811 → 1282.357 are essentially flat. The candidate's
+COUNT remains **1.30× Tantivy**, whose same-run mean is 405.244 µs.
+
+Supplemental single-term COUNT regresses 13.286 → 13.619 µs (+2.5%) in
+all seven passes. That metadata-only shortcut does not use the new batches;
+the measured regression remains disclosed. Supplemental ranked changes are
+small (+0.7% TOP_10, +0.4% TOP_1000, +0.1% TOP_100_COUNT). All four ARM
+and both x86 exact oracles and immutable index checks pass. ARM runs 1,580
+core tests and x86 runs 1,581, with 16 ignored on each architecture; x86
+all-target Clippy passes. Retain this source for a combined fresh measurement
+with the ranked block intersection; do not multiply isolated percentages.
+
+### Decoded phrase intersection helper — rejected on ARM
+
+All 1,578 core tests, four exact oracles and both complete timing matrices pass.
+Phrase TOP_10 is 0.6% slower canonical and 0.1% slower merged; phrase COUNT
+is 0.6%/1.2% slower. TOP_1000 is flat to 0.7% faster. Other, unchanged query
+families improve 1–5% in the same run, so the overall movement is not a phrase
+algorithm gain. The binary has no out-of-line intersection helper symbol; merely
+adding an inline hint would not address the measured result. Reject the larger
+helper and retain the existing phrase alignment. No cloud run was scheduled.
+
+### Compact scored conjunction batches — proposal
+
+The retained compact count path removes 20.8% of x86 AND count time, but complete
+ranked AND collection still scores each match through child virtual calls.
+Extend the existing 128-ID batch protocol with exact score rows in `Scorer`.
+The posting owner copies or retains matching frequencies using the same bounded
+kernels as count (a compile-time frequency flag leaves count document-only).
+Untimed unit-boost term scorers then call the existing canonical text-run scorer.
+
+A pure compatible Boolean conjunction fills a selective lead batch and retains
+memberships through its children. Preserve an original lead-row index while
+compacting, and add each child's complete score in original query order. This
+preserves floating sums when the lead is not the first clause and when a child
+is nested. Existing dense score windows retain priority. Compact scoring is used
+only for sufficiently large compatible conjunctions; unsupported, timed, boosted,
+filtered and position consumers keep existing behavior. Defaults are conservative.
+No new scorer, executor, BM25 formula, heap, cache or format is introduced.
+
+Scratch is fixed to 128 candidates per active scorer: about 4.2 KiB for a flat
+conjunction including its leaf and collector, plus about 1.2 KiB per active nested
+conjunction. The server already caps query depth at 32. The collector checks
+cancellation before and after each batch and before
+per-hit publication. Tests cover score bits, missing lengths, zero frequencies,
+lead-order cancellation in floating addition, nested sums, resumption and expired
+batch discard. This source builds on the selected count-batches candidate and
+is measured against that exact binary, not against the AVX2 starting build.
+A final integrated comparison must still use the original AVX2 baseline/Tantivy.
+
+### Whole-span position cache shortcut — rejected after x86 measurement
+
+The full x86 comparison finds no material target-path gain: phrase TOP_10
+620.749 → 621.947 µs (+0.2%), TOP_1000 742.569 → 743.810 (+0.2%),
+TOP_100_COUNT 751.340 → 748.743 (-0.3%) and COUNT
+711.844 → 704.984 (-1.0%, five of seven passes faster). Overall commands are
+flat or slightly slower. Supplemental TOP_1000 regresses 1.0%; its TOP_100_COUNT
+improves 1.8% on an unchanged path. Keep the original position reader.
+All correctness gates pass and all 37 archive members are verified.
+
+The automation used the preceding experiment's SHA-file name for this archive,
+overwriting that marker and leaving the next stage queued. The preceding count
+archive had already been downloaded and verified; neither archive's bytes nor
+any timed samples changed. Before repairing the markers, the still-waiting next
+process was stopped and its output directory confirmed absent. Both archive
+hashes were recomputed, the count marker restored, the missing position marker
+created, and the next stage restarted with its corrected runner. Original scripts,
+repair script and before/after hashes are preserved. No latency runs overlapped.
+
+### Two-term union cardinality from exact overlap — proposal
+
+For two ordinary term sets, |A union B| = |A| + |B| - |A intersect B|. The current
+full-corpus count-batches build spends 758.805 µs on OR counts versus 410.291 on
+AND counts (same 300 query families; geometric means), so traversing only the
+overlap may avoid substantial work. This is a hypothesis, not an estimated gain.
+
+The existing complete `collect_segment` owner can offer this to count-only
+collectors accepting `collect_count(0)` (an empty contribution, already legal in
+window collection). Admit only a two-child plain union exposing count-equivalent
+text terms, indexed physical fields, positive dictionary DFs and no deletions or
+text mappings. Count the overlap through the existing Boolean query/scorer and
+ordinary count driver. Reject inconsistent overlap/DF metadata. Missing terms,
+fast-only fields, chunk/RGB mappings, tuning, proximity and other collectors keep
+their current behavior. No approximate count estimates, new intersection kernel,
+scorer, executor, persisted format or cache. Scratch and two cloned clause handles
+are bounded independently of the corpus; score bits/ranked paths remain unchanged.
+
+This optimizes the complete async collection entry point; limit-based sync and
+async ranked collection retain their existing total-seen semantics. Portable and
+native builds use the same helper. Preserve both raw and count-only behavior,
+including duplicate clauses, cross-field overlap, missing terms, empty matches,
+deletions, mapped multi-value fields and custom collectors declining aggregates.
+Measure independently against the selected count-batches binary on ARM and x86.
+
+The fallback test exposed an existing fast-only field bug: a standalone term
+uses the fast-column scorer, but a pure union can be admitted to the postings-only
+MaxScore/complete-text planner and return an empty result. A public behavior test
+runs on the preserved count-batches source before repair. Fix admission in the
+shared planner: both single-field preparation and per-field MaxScore eligibility
+must require an indexed field. Existing fast-column scorers then handle these
+clauses. The test covers complete counts and ranked async/sync results; this
+correctness repair is retained independently of the union-count experiment.
+
+### SIMD posting seek substitutions — rejected after x86 measurement
+
+Replacing three scalar partition searches with the existing SIMD search does not
+help the full-corpus workload. Official COUNT rises 560.975 → 566.812 µs (+1.0%),
+AND COUNT 515.853 → 533.864 (+3.5%, all seven passes slower), and AND
+TOP_100_COUNT 768.181 → 794.905 (+3.5%, all seven slower). Phrase TOP_10 regresses
+0.9%; its COUNT improves only 0.6% in four of seven passes. ARM phrase
+improvements do not generalize. Keep the original posting seek implementation.
+Both architecture oracles, core tests, x86 Clippy and immutable bytes pass; all
+37 archive members are verified.
+
+### Exact-count collectors with separate ranked traversal — proposal
+
+The complete collection API currently scores every match even when a top-k heap
+and an exact counter are its only consumers. A single physical term already has
+an exact dictionary DF; an eligible two-term union can obtain its exact count
+through the existing overlap traversal. Test composing these counts with the
+existing limit-based ranked collector, avoiding BM25 evaluation for discarded
+matches. This is a collector capability, not a new scorer or executor.
+
+The invariant is the same retained IDs, raw score bits, counts and top collector
+`total_seen`, including pre-populated and nested tuple collectors. Add conservative
+collector methods describing a finite retained rank limit and accepting counts
+of omitted matches; only score-only TopK and Count collectors opt in. Tuples opt
+in only when every child does and use the maximum child limit. Custom and position
+collectors keep exhaustive callbacks. Admit only indexed, unmapped, undeleted
+plain positive-weight text terms or same-field two-term unions, and only when
+exact matches exceed the requested limit. All other queries retain existing
+collection. Count and ranked traversal share the existing integrity checks.
+
+The existing ranked executor adds its bounded top-k heap alongside the original
+collector heap (up to twice the requested retained entries for the admitted plain
+text plans). A stack counter measures published candidates, then collection adds
+the exact number of omitted matches. Measure this memory tradeoff as well as
+latency. Keep the
+benchmark VERIFY/exhaustive branch explicitly exhaustive with a forwarding
+collector that does not opt in, preserving its independent scoring oracle. The
+cross-source oracle is also compared with immutable pre-optimization outputs.
+This candidate builds on union-count and must be measured against that exact
+binary independently before any integration. It adds no persisted format,
+concurrency, cache or deadline protocol; bounded ranked-query APIs are unchanged.
+
+### Compact scored conjunction batches — retained for combined measurement
+
+Against its exact count-batches parent, full-corpus AND TOP_100_COUNT falls
+802.463 → 685.130 µs (-14.6%) and the overall command falls
+1341.296 → 1274.334 (-5.0%), both faster in all seven passes. Phrase
+TOP_100_COUNT regresses 1.9% (758.895 → 773.231). Overall TOP_10 improves 1.0%,
+TOP_1000 regresses 0.4%, and COUNT is flat (-0.2%); these are not the target
+path. Supplemental commands move between -0.6% and +0.8%. ARM's small fixture
+has many conjunction leads below the 128-document gate; its AND TOP_100_COUNT
+is flat on canonical and +0.5% on merged. Full-corpus AND still takes 1.54×
+Tantivy for TOP_100_COUNT. Retain pending an integrated comparison with the
+original AVX2 starting binary; do not multiply the isolated improvements.
+All four ARM and both x86 exact oracles, core tests, x86 Clippy and immutable
+index bytes pass. All 37 archive members are downloaded and hash-verified.
+
+The ungated ARM trial passes 1,584 core tests and every exact oracle but regresses
+TOP_100_COUNT 4.8% overall on the canonical layout. Two-term unions with 101–1000
+matches regress 32.6%, and those with 1001–10000 regress 33.6%; their second
+traversal does not pay for itself. Standalone terms with 1001–10000 matches improve
+7.6% and larger terms 31.2%, while small terms regress. Preserve the complete
+ungated source/results and test a DF/limit gate: require at least
+16 × max(128, k) matches for a single term and a term DF of at least
+128 × max(128, k) before doing any union overlap traversal. These are experimental
+admission thresholds, pending both-architecture measurement. Below them retain
+the existing one-pass collection; no query's result limit or count is changed.
+
+### Exact two-term union counts — retained for combined measurement
+
+Compared with the count-batches parent, full-corpus COUNT falls
+525.963 → 453.260 µs (-13.8%), faster in all seven passes. Tantivy takes
+403.676 µs, leaving a 1.12× ratio. The changed OR family falls
+766.177 → 505.701 µs (-34.0%, all seven faster), versus Tantivy 542.840 µs.
+AND and phrase COUNT also improve 2.9% on
+unchanged paths; do not attribute those movements to the union algorithm.
+Other official commands move between -1.5% and -0.1%. Supplemental metadata
+COUNT regresses 1.2% in all seven passes (13.106 → 13.268 µs); its path is
+unchanged. ARM union COUNT improves 3.3% canonical and 3.2% merged; overall
+COUNT improves 1.8%/1.5%. Retain for combined original-baseline measurement.
+
+All 1,583 ARM core tests, four ARM and two full x86 exact oracles, x86 core
+tests/Clippy and immutable index bytes pass. All 37 archive members are verified.
+The included fast-only planner repair has a preserved failing baseline test and
+a passing regression covering exact count and ranked async/sync behavior.
+
+### Bounded AVX2 length gathering — proposal
+
+A fresh isolated standalone TOP_10 profile of the original AVX2 baseline assigns
+31.62% of Hermes user CPU self samples to `DocLengths::gather_lengths`, 12.55%
+to executor dispatch, 9.69% to block bounds, 8.32% to checked ID decoding and
+8.27% to canonical scoring. The actual binary emits a four-way unrolled scalar
+loop with an ID bounds branch, 16-bit load and output store per lane. Both engine
+profiles, binary hashes and 17 archive members are verified. No hardware cycles,
+branch or cache counters are exposed by this VM; perf reports them unsupported.
+Sampling fractions are not a predicted latency reduction.
+
+Test an owning-structures primitive that gathers eight little-endian u16 lengths
+with AVX2. Gather complete four-byte words by `id >> 1`, then select the requested
+halfword; mask every word whose full four bytes are unavailable. A final odd
+halfword is read separately and selected only for its exact ID, so a vector load
+never crosses the supplied slice. Missing IDs still return zero; trailing bytes
+are ignored exactly as the scalar pairs view does. Output tails remain untouched.
+Runtime AVX2 dispatch retains the existing scalar semantics on ARM and portable
+builds. Strict chunk-length reporting/floors keep their existing path.
+
+This adds no length cache, resident payload, scoring formula or persisted format.
+Test arbitrary ID order, missing IDs, unsigned extremes, odd lengths, unaligned
+byte views, every lane tail and a protected page immediately after the input.
+Compare all four score-bit oracles, all index bytes, memory and complete workloads
+on ARM and x86 against the original AVX2 baseline, separately from count changes.
+
+### Gated separate ranking and exact counting — retained for combined measurement
+
+Against its union-count parent, supplemental TOP_100_COUNT falls
+739.015 → 249.711 µs (-66.2%, all seven passes faster); Tantivy takes 246.077 µs,
+a 1.015× ratio. Official TOP_100_COUNT falls 1283.609 → 1198.149 µs (-6.7%,
+all seven faster), versus Tantivy 851.246 µs. Official TOP_10 regresses 0.9%,
+TOP_1000 0.7%, and COUNT 1.2%. AND TOP_100_COUNT regresses 2.9% and phrase
+1.9% on unchanged traversal paths. The final combined measurement must include
+these tradeoffs; the supplemental gain does not establish overall parity.
+
+The gated ARM trial is essentially flat: official TOP_100_COUNT -0.2%/-0.5%,
+supplemental -0.0%/+0.3% for canonical/merged layouts. Both architectures' tests,
+exact ordered ID/score-bit/count oracles and immutable index bytes pass; all
+37 archive members are verified. The final VERIFY adapter additionally checks
+the optimized exact-count collector at each k=10/100/1000 against its explicitly
+exhaustive reference, since admission depends on k.
+
+### Memory difference investigation — protocol (completed below)
+
+The user requested an explanation of the memory gap as well as further latency
+work. A preserved standalone TOP_10 snapshot shows Hermes RSS 350,416 KiB and
+Tantivy 222,728 KiB. Proportional file-backed residency is 343,098 versus
+219,895 KiB; anonymous residency is 5,032 versus 516 KiB. Neither process has
+locked pages or swap in this snapshot. Anonymous memory includes stacks/runtime
+allocations as well as heap; do not label all RSS as allocated heap. Most of this
+measured gap is resident file-backed data. This is a standalone-workload snapshot,
+not the peak of the four-command official workload.
+
+Immutable full-corpus files: Hermes postings 2,203,973,483 bytes versus Tantivy
+1,054,571,755 bytes (2.09×); positions 2,752,821,603 versus 1,850,554,774 (1.49×).
+Hermes stores little-endian u16 lengths (10,064,248-byte chunks file), while
+Tantivy's quantized field norms occupy 5,032,209 bytes. The current Hermes Rounded
+posting codec uses byte-rounded widths; Tantivy packs exact bit widths. These
+format differences explain a reason for the larger footprint, but the fraction
+of resident memory attributable to each must be measured rather than inferred
+from file size alone. No cache/residency default or scoring precision is changed.
+
+The audit was queued after final latency verification, on the original, integrated
+and Tantivy binaries with identical RGB-off indexes. For each fresh engine and
+workload, capture /proc smaps, smaps_rollup and status after one explicit opening
+COUNT query and after each of three complete passes of each command. Aggregate
+RSS/PSS/anonymous/locked bytes by mapped file, retain high-water RSS, and compare
+pass stability. This is a memory attribution run with no latency claims. Verify
+index hashes afterward and package every snapshot and script before stopping
+the VM.
+
+### Vector document-length gather — rejected
+
+The AVX2 masked gather passes both architectures' tests, protected-page bounds
+coverage and all exact oracles. All 37 cloud evidence members are verified.
+It does not help the workload that motivated it: supplemental TOP_10 rises
+143.794 → 146.758 µs (+2.1%), TOP_1000 +1.6% and TOP_100_COUNT +2.0%.
+Official TOP_100_COUNT regresses 2.2% in all seven passes; TOP_10 is flat (-0.2%).
+Official AND ranked queries improve 1.3–1.7%, but that does not justify retaining
+the kernel. Keep the current scalar length representation and reads for this
+traversal integration. The user's subsequent request to investigate quantized
+lengths and compact postings/positions is a separate format/scoring experiment.
+
+### Postings, positions and quantized norms — audit protocol
+
+The user requested format investigation and permits evaluating quantized lengths.
+The [format comparison and design](text-format-comparison.md) records the pinned
+Tantivy implementation, Hermes ownership/compatibility constraints, and the
+proposed quantized-norm and compact-position experiments. The read-only audit
+streams all term ranges and accounts for actual payload versus metadata bytes
+in both immutable indexes. It also estimates narrower widths and reports the
+corpus-wide precision loss from the 256-representative norm table. These are
+size/precision measurements, not a new format or a latency prediction. The
+separate process residency audit precedes these full-file scans.
+
+### Completed memory attribution
+
+All 401 audit members and input index hashes verify. After the third official
+COUNT pass (following all ranked commands), selected Hermes RSS is 1007.29 MiB
+versus Tantivy 574.24 MiB. Position RSS is 664.19/343.77 MiB and posting RSS is
+276.88/180.53 MiB: these account for 74.0% and 22.2% of the 433.05 MiB gap.
+Anonymous residency is only 6.16/0.78 MiB; lengths/norms 9.60/4.80 MiB. Hermes's
+term dictionary is actually 6.70 MiB less resident. Original and selected builds
+have the same mapped index residency. All three count-pass snapshots are stable;
+all locked-byte observations are zero. Supplemental after/Tantivy RSS is
+341.52/230.24 MiB, with no position-file residency. Keep this steady-state audit
+separate from latency-run peak RSS and from the earlier standalone TOP_10 profile.
+
+Source review identifies another layout cost: cache-miss admission checks every
+interleaved block header, touching essentially every payload page in the term's
+stream before pruning. The bounded proof cache avoids repeated validation but
+cannot undo that initial page residency. A proposed compact directory should
+carry sufficient structural metadata to validate without walking payload headers;
+it must preserve rejection of corrupt data and block-owned content validation.
+The observed RSS decomposition supports prioritizing postings/positions; it does
+not assign a causal fraction of warm query latency to file size or cache misses.
+
+### Integrated traversal result and validation
+
+The selected 332-file source combines block-local ranked intersections, compact
+count/score batches, eligible two-term union counts, and gated separate ranking
+with exact counting, plus the reproduced fast-only planner fix. It changes nine
+files from the preserved AVX2 baseline. Direct seven-pass full-corpus comparison:
+TOP_10 648.391 → 633.884 µs versus Tantivy 523.427; TOP_1000
+1138.350 → 1112.322 versus 918.857; TOP_100_COUNT 1269.097 → 1140.216 versus
+847.893; COUNT 564.411 → 458.047 versus 402.800. All seven passes improve on
+each operation. Ratios to Tantivy are 1.211/1.211/1.345/1.137; parity remains open.
+Supplemental TOP_100_COUNT is 750.801 → 252.057 versus Tantivy 251.636 (1.002×).
+Other supplemental operations are essentially flat.
+
+Report the full-binary tradeoffs: phrase TOP_10 +1.8%, phrase TOP_100_COUNT +1.9%,
+negated TOP_10 +7.6%, all seven slower. Negated COUNT +1.7% and mixed COUNT +2.0%.
+Official peak RSS remains 1,031,540/1,031,444/587,744 KiB for before/after/Tantivy.
+No memory reduction or universal per-query improvement is claimed.
+
+ARM core 1,587 pass and x86 core 1,588 pass, each 16 ignored. Four ARM and two
+x86 layouts preserve all 1,676 exact ordered ID/score-bit/count outputs and check
+ranked and separately counted top-k at k=10/100/1000. All 40 ARM immutable files
+and all full-corpus index manifests match. All 37 final cloud archive members
+verify. Full native harness: 1,804 pass, 25 ignored, fmt/Clippy/native-no-sync
+pass. Portable compilation passes with the preexisting set_document_units
+dead-code warning. WASM is skipped per user instruction; lifecycle/RPC full,
+cold-cache and concurrent ingest/merge tests are not run for this traversal-only
+change. Main source hashes match every one of the 332 benchmark source files.
+
+### Completed format and quantization accounting
+
+All 13 format-audit members verify, including every component-sum identity and
+immutable index hashes. Hermes/Tantivy posting metadata is 652.434/50.166 MiB
+(13.01×), explaining 54.9% of the posting-file gap. Position metadata is
+339.989/13.429 MiB (25.32×), explaining 38.0% of the position-file gap. Posting
+gap/frequency payloads are 887.465/660.291 and 561.974/295.261 MiB; position
+payloads 2285.306/1751.398 MiB. The timed Rounded fixture has ratio/L1 bounds but
+no impact records. Short blocks are 67.1% of postings and 46.4% of positions.
+
+Exact/minus-one payload estimates save 577,974,979 posting bytes and exact-width
+position estimates save 568,889,062 bytes, preserving existing block boundaries.
+These are overlapping-format counterfactuals, not measured latency or a writer.
+The documented analyzer difference remains: 177 terms, 220 document occurrences
+and 247 position values more in Hermes; timed-query counts match. This is tiny
+beside the billion-byte format gap. See [full accounting and priorities](text-format-comparison.md).
+
+Quantizing the existing norm column with the pinned 256-value table changes
+58.28% of lengths, with 2.3456% mean and 11.0726% maximum downward relative loss
+among nonzero lengths. It saves 4.80 MiB of norm payload. This is not a ranking
+quality measurement. Quantized norms and lookup scoring, compact admission
+metadata, and smaller payload/tail encodings remain versioned-format proposals;
+none is silently enabled in the selected traversal source.
+
+## September 16: bounded admission lookup experiment
+
+Before changing the persisted block layout, measure repeated structural
+admission caused by collisions in the existing direct-mapped proof cache.
+The file-owning PostingListReader remains the sole proof owner for immutable
+posting/position ranges. A proposed four-way set keeps the exact current entry
+budget, read-lock-only hits, range plus proof-kind identity, and conservative
+uncached lazy-file behavior. On a miss, validate completely before publishing;
+under the existing write lock, reuse an identical entry or empty way, otherwise
+replace one deterministically selected way. Probe at most four entries, use no
+new allocation per request, and do not retain payloads or change cache defaults.
+
+Invariant: every reused proof belongs to the same immutable file/kind/range;
+corruption and short reads are rejected exactly as before. Reproduce repeated
+collision validation with a behavior-named test before the change. Measure
+against the September 15 integrated traversal build with the same immutable
+indexes, budgets, compiler and flags; compare exact ordered score bits/counts,
+RSS and both full workloads on ARM/x86. This remains an experiment until its
+complete workload results pass; a hit-rate hypothesis alone is insufficient.
+
+### Proposed batch admission for length gathers
+
+The existing full-corpus standalone profile attributes 31.6% of sampled CPU to
+`DocLengths::gather_lengths`. Its scalar loop checks every ID separately before
+a two-byte read. The prior masked AVX2 gather was rejected on full workloads.
+A separate portable experiment computes the maximum ID once for batches of at
+least eight values. If it is within the existing two-byte column, all reads are
+proven in range; otherwise the existing per-ID path retains missing-value and
+strict chunk diagnostics. This introduces no sorted-ID assumption, allocation,
+quantization, or new column representation. The structure owner remains
+`segment/chunk_map`; `score_text_run` and canonical scoring are unchanged.
+
+Cost: an O(n) maximum reduction over already-hot input IDs, followed by O(n)
+length loads without per-ID conditional branches. This may cost more on short
+or cache-cold runs, so selection requires the complete ARM and x86 workloads,
+including supplemental terms and count-only controls. Compare exact raw score
+oracles and all immutable bytes. Exercise arbitrary/repeated/unsigned-extreme
+IDs, unaligned and odd-length columns, output tails and chunk floors before
+claiming that the unchecked read is equivalent to the validated scalar path.
+
+### Proposed reuse of admitted position directory lengths
+
+Current sampled phrase-count CPU includes 6.38% in `PositionStream::locate_value`.
+Trace: `TermPositionCursor::read_into` calls `read_cached`, whose noncanonical
+(interior partial-block) lookup binary-searches the logical directory, then
+re-reads and structurally checks the selected payload header to obtain its count.
+`PositionStream::open` has already admitted every directory/header pair; proof
+cache hits restore exactly that immutable admitted layout. Canonical streams
+already trust the same admission proof for O(1) cursor addressing.
+
+An isolated rewrite derives the located offset from the admitted logical start,
+with the existing cursor/total and checked-subtraction guards. The upper-bound
+search and admission invariant guarantee that a valid cursor precedes the next
+logical start (or total). Do not change `validate_blocks`, decoding, file
+ownership, serialized bytes, merge copying or the cache budget. Verify all
+logical positions across mixed codecs and short copied interior blocks, backward
+lookups and forward hints, corruption regressions, raw query oracles and both
+architecture workloads. This is a format-preserving removal of repeated checks,
+not permission to skip admission validation or defer malformed headers.
+
+### Admission-cache result and rejected length experiment
+
+The four-way cache is retained. On the full x86 corpus, unchanged budgets and
+RGB off, before/cache/Tantivy official microseconds are TOP10
+612.266/604.898/508.565, TOP1000 1089.938/1081.868/901.787, TOP100_COUNT
+1116.342/1100.190/840.081, COUNT 453.954/446.120/400.934. The three ranked
+commands improve in all seven rotated passes; COUNT improves in six. This is
+only 0.7–1.7% overall. Union TOP10 and TOP1000 regress 1.6% and 1.8% in every
+pass, while AND and phrase gains are larger. Supplemental TOP10 is effectively
+flat at 142.837/142.671/52.974; scored count is 246.824/244.151/249.425. All 37
+cloud members verify, all raw score/count oracles match, and the native harness
+passes 1805 tests (25 ignored). ARM changes are small on the shared machine.
+
+The separate memory audit verifies all 401 members. Official RSS after three
+passes of each command is 1008.16/1007.60/574.26 MiB before/cache/Tantivy;
+anonymous residency is 6.16/6.16/0.77 MiB. The index-file working set is
+unchanged. Cache associativity saves repeated validation work, not file bytes
+or the first admission's payload-page touches. Do not advertise an RSS fix.
+
+The length-batch maximum reduction is **rejected**. All 37 x86 members and
+correctness gates pass, but official TOP10 regresses 6.3% in every pass,
+TOP1000 4.1% in every pass and TOP100_COUNT 2.0%; supplemental TOP10 and
+TOP1000 regress 3.0% and 5.0% in every pass. The small ARM gains do not
+transfer. The initial position-directory ARM prototype included this rejected
+change; its queued cloud runner was cancelled before creating its output
+folder. A clean position-only source is rebased on the retained cache source
+and remeasured. No reported final gain may include the rejected gather.
+
+The new cache-build CPU profiles verify all 45 archived members. Standalone
+TOP10 still attributes 25.81% of sampled self CPU to `DocLengths::gather_lengths`,
+10.86% to block bounds and 9.36% to checked doc-ID decoding. Phrase COUNT has
+23.12% in posting seek, 10.53% in position reads and 6.38% in logical position
+lookup. Hardware cycles/instructions/branch/cache counters are unsupported on
+the VM; CPU-clock samples work. These samples select experiments, not substitute
+for unprofiled latency or prove that file size alone causes the runtime gap.
+
+### Final cache-plus-position source — verified September 16
+
+The clean source removes the rejected length gather completely. Its 332-file
+archive changes only the existing posting reader and position stream relative
+to the September 15 traversal source, SHA-256
+`722875a6e1a771a600e0edd61187c71cf6a1d0fac4bd3862366c84997feed921`.
+Every main and cloud source hash matches. The original and cache-parent binary
+hashes match their preserved selected builds. The final cloud archive verifies
+42 members; the separate final memory audit verifies 401.
+
+Direct original/cache-parent/final/Tantivy official geometric-mean microseconds:
+TOP10 620.026/620.732/616.652/510.792; TOP1000
+1115.694/1089.637/1071.549/929.304; TOP100_COUNT
+1141.103/1105.286/1090.108/835.435; COUNT
+458.181/447.773/441.880/401.152. Final versus original improves
+0.5/4.0/4.5/3.6%, with 5/7/7/7 faster passes. The added position change improves
+0.7/1.7/1.4/1.3% against the cache parent, with 5/7/6/7 faster passes. Top-10 is
+nearly flat; parity is unmet at 1.207/1.153/1.305/1.102× Tantivy.
+
+Supplemental original/final/Tantivy microseconds: TOP10
+137.075/136.365/50.050, TOP1000 564.936/558.808/426.294, TOP100_COUNT
+246.615/245.448/250.694, COUNT 12.945/13.160/8.938. Standalone top-10 remains
+2.725× Tantivy. The metadata-only count regression is 1.7%, every pass slower;
+union TOP10 regresses 1.2%, five slower passes. These tradeoffs are retained
+explicitly; isolated gains are not multiplied into the direct final comparison.
+
+Final position-only ARM official changes against the cache parent are
+-0.5/-1.2/-0.8/-1.0% canonical and -0.3/-1.5/-0.8/-0.2% copy-merged, in the
+same command order. These are small changes on a shared Mac, not architecture-
+independent guarantees. All four ARM and two x86 1,676-query raw-score/count
+oracles match, including independent exhaustive checks and optimized exact-count
+TopK at 10/100/1000. Forty ARM files and all full-corpus index hashes are
+unchanged. Final native harness: 1806 passed, 25 ignored; all four stages pass.
+Portable core passes with the preexisting dead-code warning. Final ARM/x86 core
+suites pass 1589/1590 tests, 16 ignored each. WASM is skipped as instructed;
+cold/concurrent and full lifecycle/RPC checks are unrun.
+
+Final official RSS original/final/Tantivy is 1008.24/1007.56/574.09 MiB;
+anonymous residency 6.16/6.16/0.78 MiB. Supplemental RSS is
+342.43/341.38/230.25 MiB. These are separate three-pass residency runs, not
+latency-process peak RSS. Latency-run original/final/Tantivy peaks are
+1031384/1031652/587800 KiB official and 349816/350352/235524 KiB supplemental.
+No meaningful RSS reduction is claimed. The next larger work remains compact
+posting/position metadata and payload experiments, plus versioned quantized
+norms and lookup scoring with explicit ranking validation. None is silently
+enabled here. [Complete evidence and reproduction](benchmark-results/admission-2026-09-16/README.md).
+
+## Compact text directories and byte norms — September 16
+
+### Ownership, format and cost model
+
+The [format design](compact-text-format.md) preceded implementation. New writes
+opt in with `compact_text` and `quantized_norms`; both defaults remain false.
+BPL2 adds separate four-byte descriptors and optional four-byte position cursors.
+POS4 stores two-byte descriptors and one checkpoint per eight blocks. Admission
+reads these directories without touching packed payloads. Pfor exception framing
+retains the old posting layout. Existing codecs and copied-block geometry remain
+unchanged; ordinary merges remap small metadata and copy encoded arrays.
+
+CHNK version 5 adds byte norm sections for ordinary fields, preserving exact
+original token totals and physical chunk/reorder geometry. Pruning bounds use
+the same rounded representatives as scoring. All-byte merges copy codes; mixed
+old/new columns expand byte representatives to u16 with bounded scratch, keeping
+source scores and copied bounds valid. The canonical BM25 owner supplies a
+query-local 256-float lookup table, one KiB per active quantized cursor.
+Metadata version 9 prevents older readers from silently accepting these layouts.
+
+The first reader's profiles exposed out-of-line header/payload accessors. The
+selected cleanup shares the descriptor/L0 borrow and reuses one header/payload
+lookup during document decoding and content validation. It changes two files
+from the first measured reader and no persisted bytes. Unit tests cover codec
+combinations, short copied blocks, old/new/mixed merges, zero-width payloads,
+malformed directories, cancellation and scratch budgets. Format-preserving
+paths compare bytes as well as query results.
+
+### Final direct measurements and tradeoffs
+
+Same full corpus, compiler, machine, flags, caches and seven rotated passes;
+RGB off. The final source is measured against the preserved September 16
+baseline, a reader-only old-index control, compact/exact, compact/byte norms,
+Tantivy and the first byte-norm reader in one run.
+
+Official compact/exact changes versus the original baseline are
+**-0.4/-0.5/+1.9/+0.5%** for top-10/top-1000/top-100 plus count/count.
+Compact/byte changes are **+5.1/+4.0/+2.3/+3.4%**. The final reader cleanup helps
+the byte-norm case **2.5/1.6/2.6/2.5%** against its first reader in the same run,
+but standalone top-1000 regresses **5.5%** against that reader and **14.8%**
+against the original baseline. These tradeoffs prevent a blanket speedup claim.
+The old-index reader control changes **+0.7/+0.1/+3.2/+2.4%**; disabling the new
+write options does not remove all reader-code overhead.
+
+Compact/byte final Hermes/Tantivy ratios are **1.254/1.242/1.323/1.140×**.
+Compact/exact remains faster than byte norms overall, but still trails Tantivy.
+ARM's 100,000-document check also gives mixed results: compact/byte official
+changes **-0.3/+2.0/-0.4/+1.3%**. Shared Mac load limits interpretation of small
+movements. Neither experiment supports changing defaults.
+
+File savings: **96.589 MiB postings + 185.028 MiB positions**, plus **4.80 MiB**
+for byte norms. Every term, encoded array, block boundary, codec, width and
+document ID matches across layouts. Official RSS baseline/compact/byte/Tantivy
+is **1034.65/816.10/811.29/574.09 MiB**. Anonymous RSS is only
+**6.16/6.18/6.23/0.77 MiB**. Position mappings explain most of the improvement:
+**671.06 → 458.94 MiB**; postings **286.94 → 280.38 MiB**. Norms fall from
+**9.60 → 4.80 MiB**. The reduction is mainly mapped pages, not heap memory.
+
+Quantization is a precision change. Full-corpus mean set overlap with exact
+norms is **95.15/97.44/98.46%** at top-10/100/1000; it is not a relevance judgment.
+All counts agree. Each representation independently matches exhaustive ordered
+IDs/raw-score bits/counts for all 1,676 queries, including optimized exact-count
+collectors at k=10/100/1000. Compact/exact matches the old score oracle exactly;
+final reader outputs match the first reader for every layout on ARM and x86.
+
+### Rejected probes and remaining work
+
+The norm-code gather prototype did not improve ARM ranked search consistently
+and was not promoted. A separate two-line decode-buffer reuse prototype passes
+220 posting tests and all ARM oracles, but its small gains also appear in
+metadata-only COUNT, which does not exercise that decoder. It is not evidence
+of a decoder speedup and is absent from the selected source.
+
+Remaining measured costs include seeks, decoding, phrase confirmation and
+scoring. The current formats still retain Rounded payloads, ordinary tails and
+large per-term footers; compact posting metadata is still 555.85 MiB and
+position metadata 154.96 MiB. Lookup normalization is implemented but its CPU
+benefit is unproven. Separate candidate/scored-block counts from arithmetic
+cost before attributing the quantized regression; the current profiles alone
+do not settle that question. Decoder payload-span lookup still reads neighboring
+L0 metadata; further reuse of admitted offsets needs its own correctness and
+performance checks. Additional payload/tail changes must preserve
+copied merges and bounded seeks. [Upstream source findings](text-format-comparison.md#priorities-from-the-evidence)
+remain research directions, not adopted defaults.
+
+### Validation and evidence
+
+Final full native harness: **1,816 passed, 25 ignored**, plus **4 real-server
+checks passed**. Formatting, Clippy, native no-sync, portable core and docs build
+pass. Portable core retains the existing `set_document_units` warning. Final
+x86 core passes **1,599 tests, 16 ignored**, plus the compact/norm integration.
+An initial parallel broker discovery timeout is retained alongside the passing
+serial rerun and both passing full runs. WASM is skipped as instructed. Cold,
+concurrent performance and judged relevance are unmeasured.
+
+Final 335-file source SHA-256:
+`fa9e4bf6c205058c84f35717015c4527e1aa3d19196e11b0dd18a79c52ff2260`.
+Main, ARM and cloud source hashes agree; the immutable legacy/Tantivy indexes
+are unchanged. The downloaded cloud archive verifies 1,503 members. The VM
+stop command lost its connection, but a subsequent direct status query confirms
+`TERMINATED`. [Verified source, scripts, raw measurements, checks and profiles](benchmark-results/compact-text-2026-09-16/README.md).
+
+## Query work diagnosis — September 16
+
+Implemented `query-diagnostics`: fixed-size per-scope counters in posting,
+position, scorer and admission owners; async poll-scoped capture; explicit
+synchronous segment-worker propagation with one merge per completion. Production
+builds compile out counter calls and argument evaluation. The benchmark retains
+its stdout protocol and emits structured stderr records; the reusable Python
+collector checks responses, scope coverage and aligned comparisons.
+
+The [diagnosis](search-work-diagnosis.md) records full-corpus and ARM evidence.
+This changes no writer, index bytes, scoring formula, query plan or defaults.
+Remaining review targets are single-term bound tightness/ties, COUNT norm-table
+construction, scoring-loop cost, complete intersection traversal, and payload
+density. Instrumented times are phase attribution only. Selected payload content
+validation is still required; structural admission reuse is measured separately.
+
+## Targeted pruning and setup fixes — September 16 proposal
+
+The public collector builds ordinary `TermScorer`s for complete membership as
+well as scored collection. Its byte-norm table is currently constructed when
+lengths are attached, even if the collector never requests a score. Defer that
+1 KiB allocation and its 256 normalizations until the first scoring call, cache
+once per scorer, and invalidate the cache when parameters or lengths change.
+Batch/window scoring resolves the cache once outside the document loop. Actual
+score arithmetic, missing-length fallback, and async/sync paths stay shared.
+Regression: quantized Boolean COUNT builds zero tables; subsequent ranked
+collection still uses lookups and preserves exact score bits.
+
+The selected ratio-only index cannot infer coupled frequency/length statistics
+that were not persisted. Existing impact records supply those statistics, but
+currently every bound evaluates all alternatives. Investigate threshold-aware
+refinement: reject blocks with cheap bounds first and decode the bounded impact
+record only when that can change the pruning decision. Preserve strict score
+comparison and complete fallbacks for unsupported/unknown records; never change
+query-global statistics or use a locally computed winning document as a global
+bound. Measure impact-bearing and ratio-only fixtures separately.
+
+Gap representation experiments must use existing codec tags or an explicit
+format gate. Byte-rounded gaps consume eight bits even for dense runs; compact
+directories do not change those arrays. Keep copy merges and content validation.
+No codec/default change follows from work counters alone.
+
+Before testing threshold refinement, cache the supported BM25 bound coefficients
+once per text cursor: parameter checks, the IDF numerator, and `b / average`
+are query constants. The existing ratio/impact formulas remain in the BM25
+owner with their rounding guard. This adds bounded cursor-local scalars, no
+index-sized cache, and applies to both ratio and impact indexes. The existing
+public-internal bound helpers delegate to the same prepared implementation.
+
+### Bounded strict-gap validation — implemented
+
+Codec 3 stores gap-minus-one values. After validating its reserved first zero,
+a block has at most 127 positive gaps. At widths at most 25 their sum is at
+most `127 * 2^25 < 2^32`; a wrapped prefix necessarily has an endpoint below
+its start. Matching ordered L0 endpoints therefore proves strict ordering,
+without scanning the decoded u32 array again. Wider widths retain the generic
+ordering reduction. This preserves rejection semantics and persisted bytes,
+including old codec-3 tails. It makes the existing denser representation cheaper
+to read; it does not relabel encoded bytes as physical I/O or change codecs.
+Tests compare the shortcut with the general validator across every count, width,
+unsigned wrap, sentinel endpoint and mismatched directory endpoint, plus existing
+per-byte corruption and copy-merge tests.
+
+The [follow-up results](search-pruning-fixes.md) also test a fresh combined
+compact/Simd4x/impact index with exact norms, using the same corpus order, writer
+budget and one indexing thread. This is a configuration experiment with existing
+formats; no corpus reorder or writer implementation changes are involved. The
+ideal-threshold probe distinguishes loose bounds from slow threshold discovery.
+
+### Threshold-directed impact rejection — rejected experiment
+
+The ideal-threshold probe on the full corpus leaves 17,524 decoded blocks for
+`is` and 23,789 for `to` with ratio bounds, versus 26 and 16 with impact bounds.
+Tight metadata is necessary; merely establishing a heap floor earlier is not
+enough. Test a standalone-term rejection predicate over complete impact records:
+invert the existing guarded bound once when the score threshold changes, then
+compare every `(1 - b) + b * length / average` with `minimum * TF`. This avoids
+per-point and final score divisions in groups that can be rejected immediately.
+An inconclusive predicate retains the current complete bound calculation.
+
+The inversion targets `threshold.next_down()` and rounds its quotient, cutoff
+and comparison conservatively using the existing f32 error guard (much wider
+than the new f64 operations' error). Zero/nonfinite floors and k1=0 retain the
+existing path. A successful predicate caches `threshold.next_down()` as a valid
+score bound, never a boolean that could be reused with a different threshold.
+Scratch remains a threshold bit pattern and one optional f64 per executor.
+Regression compares every successful shortcut with the existing inflated bound
+and with canonical scores, including adjacent float thresholds and extremes.
+Measure independently on the frozen packed candidate before retaining it.
+
+### Collector-directed norm setup — selected revision
+
+The full-corpus first timing pass shows a byte-norm ranked regression in the
+combined reader candidate. Isolate lazy setup, and test avoiding its per-score
+OnceLock access entirely: carry a private `skip_scoring_setup` hint from the
+collector through existing `ScorerOptions`. Membership collectors set it; ranked
+and positioned callers retain eager tables. Ordinary term scorers attach the
+same represented lengths even when optional setup is skipped, so scoring remains
+valid through canonical arithmetic if a nested/custom consumer requests it.
+The hint is preserved by threshold/required-clause option transformations.
+This reuses the existing collection intent boundary, with no new public query
+mode, scorer implementation or hot-loop branch/atomic access.
+
+### September 16 pruning follow-up: disposition
+
+The [pruning fixes](search-pruning-fixes.md) retain collector-directed norm setup,
+prepared BM25 bound constants, cheap-bound-first refinement, and the bounded
+strict-gap ordering proof. The reader changes preserve encoded bytes and exact
+results; tighter pruning and smaller gap payloads use the existing opt-in impact
+and Simd4x formats in a newly built combined index. No default changes.
+
+The lazy normalization cache was replaced by collector intent so ranked scoring
+retains its original table lookup without a per-score initialization check.
+The inverse-threshold impact predicate was removed: on the full-corpus paired
+run it changed combined-index top-10 from 263.496 to 271.283 microseconds (+3.0%),
+and impact-only from 264.428 to 265.108 (+0.3%). Its ARM gains did not justify
+retaining the numerical shortcut. These are prototype comparisons; the final
+selected-reader run is reported separately, without multiplying phase gains.
+
+### Selected reader: final matched evidence
+
+Full-corpus combined-index top-10 changes +4.0% on official queries and -26.6% across all queries. Official top-10 remains 1.208× Tantivy. The final COUNT pass constructs zero norm tables with all counts preserved. Native harness: 1,817 passed / 25 ignored; all five layouts match exhaustive references on both architectures. WASM was skipped per user instruction.
+
+The [complete tables and evidence](search-pruning-fixes.md) separate code-only controls, the new combined configuration, byte norms, anonymous memory and resident index pages. Retained changes do not alter format defaults or silently transcode existing segments. Remaining Tantivy parity work is open.
+
+Retained reader-only official top-10 is effectively flat (-0.5%), still 1.155× Tantivy. Byte-norm official COUNT improves 3.1%. The combined configuration regresses official top-10 4.0%, especially unions; keep it experimental. The largest common-category gaps on the original index are intersections (1.240× Tantivy) and phrases (1.263×), versus unions (1.035×). These workload timings locate remaining work without claiming a CPU-level cause.
+
+## Official-workload parity — September 16 continuation
+
+Acceptance target: compare the official 962-query workload with the pinned
+Tantivy build, RGB disabled, on the same full corpus, CPU, compiler and flags.
+Measure top-10, top-1000, top-100 plus exact count, and exact count separately;
+supplemental standalone terms cannot compensate for an official regression.
+Preserve exact result bits, membership, positions, cross-segment statistics,
+corruption errors, bounded scratch and native/async equivalence. Keep final
+latency separate from profiles, builds and memory audits.
+
+The starting source is the retained pruning/count reader. Its original compact
+index is the main fixture; the combined packed/impact index remains an
+experiment because its official workload regressed. Refresh per-family CPU
+profiles before choosing changes. Earlier samples point at intersection cursor
+alignment and phrase candidate handling, but they predate several reader
+changes. Proposed work must remove recurring work inside those existing owners,
+not introduce a benchmark-specific executor or bypass validation.
+
+### Current profile and bounded candidates
+
+The refreshed exact-norm reader attributes 22.4% of phrase top-10 sampled CPU
+to posting seek and 15.0% to per-candidate score bounds. Intersections attribute
+25.2% to conjunction alignment and 18.6% to typed-cursor seek preparation.
+These are sampled CPU shares, not latency improvements or exclusive causes.
+
+Test two independent changes before combining them:
+
+- Prepare the phrase bound's query-constant coefficients once, with the existing
+  conservative arithmetic and first-term multiplicity semantics. This removes
+  repeated parameter checks/divisions from each phrase candidate; candidate TF
+  and represented document length still vary.
+- Expose the fixed 128-document geometry to an in-block lower-bound search.
+  Tantivy's [fixed-block search discussion](https://quickwit.io/blog/search-a-sorted-block)
+  motivates comparing a fixed seven-step search with the current variable-slice
+  gallop/SIMD loop. Retain monotone seek, exact exhaustion and tail behavior.
+  This is a reader-only experiment; compare generated code and both architectures.
+
+If these are insufficient, batch intersection matching inside loaded posting
+blocks in the existing iterator/cursor owners, sharing the decoded membership
+operation with phrase alignment. Scratch must remain bounded by the posting
+block; no document-universe materialization or benchmark query classification.
+
+The complete-count union profile attributes 17.8% of sampled CPU to scalar
+heap admission over score windows. Test screening each 64-score block against
+the current full-heap threshold before visiting its set bits. The screening
+threshold may become stale only by admitting extra candidates; equal and
+unordered scores must reach the existing total-order comparison. Count the
+original membership mask before screening. This needs no new allocation, score
+formula, posting format, or collector implementation.
+
+Negated top-k queries spend 51.1% of sampled CPU in scalar term scoring.
+Extend the existing Boolean score-batch capability to required-only queries
+with exclusions. Score bounded positive batches in the existing child scorer,
+then remove excluded IDs with exact child seeks and compact scores in place.
+Keep optional clauses and non-batching positive scorers on their existing path;
+resume at the next exact match and preserve positive-clause reduction order.
+
+Byte-norm batches currently interleave the table lookup, missing-length fallback
+and division in one loop, unlike exact-norm batches which first gather lengths
+and then score contiguous inputs. Test the same two-phase shape for byte norms:
+gather at most 128 canonical normalization values, then evaluate the existing
+boosted formula over contiguous TF and normalization arrays. Preserve code-zero
+TF-as-length fallback, zero TF/boost, strict floating arithmetic and per-query
+table ownership. Compare exact-norm and quantized fixtures independently.
+
+The L0 seek currently gathers up to 32 strided skip entries into a stack array
+before searching them. Test lower-bound search directly over the validated
+16-byte entries after the existing L1 gallop. It reads logarithmically many
+entries, avoids the gather and leaves both the current-block shortcut and the
+serialized representation unchanged. The existing near/distant seek regression
+checks membership, position cursors and byte identity across codecs.
+
+The fixed-128 seek screen is rejected: official x86 TOP_10 rises
+610.583 → 668.926 µs (+9.6%); ARM rises 33.542 → 34.408 µs (+2.6%).
+Keep the prior SIMD/galloping document searches. A subsequent reader candidate
+separates loaded-block cursor seeking from block-directory lookup so the small
+common case can inline without the cold sparse/text dispatch body. Phrase
+bounds additionally test the equivalent direct TF/length envelope with one
+f64 division instead of dividing normalization by TF and then dividing the
+score. Retain the same conservative f32 rounding margin and test extreme
+frequencies/lengths; scored values remain unchanged.
+
+### Bounded decoded-block intersections — experiment
+
+Use one structures primitive for sorted posting blocks: compare each candidate
+from the sparser stream against eight IDs from the other block, emit matching
+index pairs, and stop when the output or either block ends. The output is at
+most 128 pairs of byte indices. SIMD equality avoids finding an exact lower
+bound for every failed candidate inside an eight-ID group. Unsigned range
+checks, scalar tails and a portable equality fallback preserve exact membership.
+
+The existing two-cursor conjunction consumes the pairs to fetch TFs and keeps
+query-order score reduction. The phrase iterator uses a one-pair output and
+parks both posting cursors on the match before reading positions. Directory
+skips remain outside the primitive; distant gaps must not turn into linear
+block scans. Cancellation is checked at least once per bounded block operation.
+No new query executor, document-wide bitmap, format, cache, or heap allocation
+is introduced. Test suffixes, partial outputs, tails and unsigned extremes
+against scalar intersection, then exact scores/counts/positions on both hosts.
+
+The rejected global fixed-block search has a useful narrower signal: x86
+intersection COUNT improves 397.40 → 367.41 µs and TOP_100_COUNT improves
+668.30 → 615.42 µs; ARM intersection COUNT improves 24.64 → 23.66 µs.
+Test that search only in sorted candidate-batch retention, keeping ordinary
+posting seeks and ranked cursor alignment on their prior algorithms. This
+separates membership probes from the harmful global substitution; the final
+combined comparison must confirm the benefit.
+
+ARM code inspection of the first intersection primitive confirms NEON equality
+comparisons but also cursor-position stores inside the matching loop. Keep
+positions in local integers and commit them once on return; no caller observes
+intermediate block positions. Compare this refinement with the narrow batch
+retention change against the frozen first-intersection binary.
+
+### Validate byte views once — experiment
+
+The directory owner resolves the Vec/mmap enum, follows its Arc and bounds-checks
+the same range in each `OwnedBytes::as_slice`. Test a stored validated pointer/length
+with the unchanged backing Arc, as specified in [owned byte views](owned-byte-views.md).
+This targets recurring reader work across postings, positions and norms without
+changing their formats, removing corruption checks or adding resident copies.
+A slice-boundary regression must fail first; lifetime, mmap and threaded clone
+tests precede performance selection. The direct view keeps the current struct
+footprint, with a documented unsafe dereference and Send/Sync proof.
+
+### Reuse exact required-term counts with ranked collection — experiment
+
+The latest official comparison isolates another avoidable cost: the 40 queries
+with one required text term plus optional terms take 5730.65 µs for top-100
+with exact count, versus Tantivy's 2537.44 µs. Their count-only path already
+uses the required term's exact dictionary cardinality. Reuse that cardinality
+with the existing bounded ranked executor instead of scoring the full required
+stream solely to count it.
+
+Add a conservative query capability for a term-equivalent count alongside an
+exact text rank plan. Ordinary positive text terms and untuned, same-field
+positive text Booleans with one required term may expose it. A count-only hint
+from an opaque/custom query is insufficient. The collector keeps its existing
+physical, indexed, undeleted/unmapped/nonchunked checks and its existing
+16 × max(128, k) cardinality gate. Optional clauses change scores, not membership;
+all actual scoring and top-k selection remain in the existing query scorer.
+Test duplicate and missing optional terms, ties, nested collectors, preexisting
+hits, both sides of the cardinality gate and all posting codecs against the
+exhaustive callback path before matched measurements.
+
+### Share the existing conjunction executor with complete ranked collection — experiment
+
+Pure text AND already enumerates every intersection in the typed ranked executor;
+it does not prune matches. Complete top-k-plus-count currently uses the generic
+Boolean scorer, which scores lead candidates before other terms reject them.
+Allow a top-level score-only/count-compatible collector to request a bounded
+ranked result plus the exact cardinality of this existing traversal. Keep the
+same posting intersection, TF rows, canonical scoring and top-k owner. No second
+executor, count pass or corpus-sized buffer is introduced.
+
+The request is private scorer-construction metadata and is cleared at nested
+clause boundaries. Only the existing untuned/unboosted same-field, nonchunked,
+unmapped text conjunction plan may fulfill it; optional terms, positions,
+deletions and unsupported plans retain complete streaming. The materialized
+result scorer reports its exact count only for this explicit request. The
+collector adds omitted hits through its existing exact-count capability. The
+usual ranked APIs keep their existing total-seen semantics. Test all codecs,
+empty/missing terms, duplicate terms, query order, ties, prepopulated/nested
+collectors, k=0 and fallback plans against complete streaming before measurement.
+
+### Reuse bounded heap screening for conjunction score batches — experiment
+
+The conjunction scorer already produces contiguous exact score batches, but
+inserts each hit individually. Reuse `ScoreCollector::insert_text_run`, already
+used by single-term batches and tested for ties, unordered floats and seeded
+heaps. For mapped results retain the existing identity conversion and scalar
+insertion; ordinary conjunctions use the same bounded eight-score screen.
+No scores, counts, traversal or heap policy change. Measure ranked AND and the
+complete counted plan independently before selecting this dispatch.
+
+### Reuse initialized block storage without a redundant zero pass — experiment
+
+The optimized ARM `decode_block_doc_ids_checked` contains a vector zero-store
+loop before decoding: `clear(); resize(count, 0)` discards the initialized
+length on every block. All document, frequency and position kernels overwrite
+every output lane, including zero-width streams. Keep the previous initialized
+length and call `resize` alone: equal-sized blocks require no preliminary writes,
+shrinking truncates, and growth initializes only the new suffix. No uninitialized
+memory, unchecked indexing, allocation policy or decoder is introduced.
+
+Apply this only to the owning decoders with full overwrite semantics. Preserve
+output clearing on errors and document-position assembly (which uses push), and
+preserve score-buffer clearing because it marks deferred computation state.
+Test changing sizes, codecs, zero values and nonzero stale buffers; compare
+immutable encoded bytes and full score/count oracles. Inspect the optimized
+caller and measure both architectures before selection.
+
+Counted-AND review found a wrapper boundary hazard before selection: a unit-boost
+wrapper could pass the private construction request through, then hide its
+child's exact count. The regression compares unit-boosted and filtered AND to
+complete streaming. Only a query explicitly advertising the exact conjunction
+handoff now receives that request; opaque/wrapped queries retain the existing
+stream. Box forwarding preserves the underlying query's explicit capability.
+
+### Extend block intersection to longer conjunctions — experiment
+
+The refreshed counted-stage profile attributes 22.59% of ranked AND CPU samples
+to `TermCursor::seek_sync`, 13.07% to the new block intersection, and only 3.46%
+to length gathering. Of 300 official AND queries, 102 have three or more terms;
+their existing path still aligns every document with generic seeks. Extend the
+same pair-batch owner to the two rarest clauses, then verify the remaining
+clauses against its bounded candidates. Keep TF rows in original cursor identity
+using a 128-byte origin map and compact them once after membership is known.
+Use later-clause cursor heads to skip impossible future candidates. No new
+executor or scorer is introduced, and canonical reduction order remains intact.
+
+Within the pair driver, seek through the directory only when an entire block
+ends before the other head; the SIMD intersection already aligns overlapping
+blocks. Longer phrases similarly intersect the two rarest posting lists before
+probing remaining terms, while retaining their original position identities.
+Test empty batches, late matches, duplicate clauses, every query order, budgets,
+all codecs and exact score/count references. Measure the two-term controls too.
+
+### Expose fixed intersection call-site sizes to the optimizer — experiment
+
+The selected ARM phrase caller still calls `intersect_posting_blocks` out of
+line, despite requesting exactly one pair; the generic callee retains dynamic
+output-capacity and cursor-writeback handling. Add an ordinary `#[inline]` hint
+to this shared bounded primitive so LLVM can specialize the fixed phrase output
+and batch callers when profitable. No `inline(always)`, new kernel, unchecked
+access or semantic change. Retain only with matching x86/ARM measurements and
+inspect the final call sites rather than assuming the hint is honored.
+
+### Compare packed score-only heap ordering — experiment
+
+The remaining top-1000 gap may include collector ordering cost. Test encoding
+`(reverse f32 total order, doc ID)` in the existing eight-byte private score-only
+entry. This permits one integer comparison in heap and result ordering, while
+recovering the exact score bits for output and the vector admission screen.
+Keep the position-aware heap and canonical tie policy unchanged. The encoding
+must round-trip signed zero, infinities and every NaN payload; compare ordering
+against the current comparator and full collection results before measurement.
+This is an isolated candidate; retain only after same-fixture timing.
+
+### Cache immutable phrase frequency without an initialization lock — experiment
+
+The counted-stage phrase profile includes OnceLock initialization/wakeup work on
+successful phrase hits. The cached value is a pure count over immutable position
+buffers; simultaneous shared score reads may compute and store the same value.
+Test an AtomicU32 with zero meaning uncomputed and positive values meaning the
+exact frequency. A confirmed phrase always has at least one occurrence. Reset
+through exclusive mutable access at both cursor movement and backfill writes.
+Relaxed atomics suffice because this cache publishes no other memory: shared
+borrow/ownership already protects the input buffers. Preserve deferred counting
+for membership-only consumers, thread-safe repeated score reads, duplicate-start
+multiplicity and every existing invalidation boundary. This remains an isolated
+candidate until correctness and matched timing support selection.
+
+### Block-execution selection and remaining limits
+
+The cumulative `packed` candidate retains the bounded intersections, direct
+L0 search, validated byte view, complete-count handoffs, initialized-buffer reuse,
+lookup gathering and packed eight-byte score-only heap. The global fixed-128
+seek replacement is rejected. The wrapper/count regression discovered during
+review is fixed in the selected source. No index-format defaults change.
+
+The five-pass x86 screen of `inline` / `packed` / Tantivy measures, in µs:
+
+| Command       |  Inline | Packed heap | Tantivy |
+| ------------- | ------: | ----------: | ------: |
+| TOP_10        | 518.550 |     519.512 | 546.600 |
+| TOP_1000      | 947.152 |     919.891 | 935.636 |
+| TOP_100_COUNT | 843.042 |     802.024 | 869.517 |
+| COUNT         | 408.617 |     408.897 | 433.485 |
+
+This is an experiment screen; use the independent final seven-pass confirmation
+in the [block-execution report](search-block-execution.md) for the final claim.
+The ARM packed-heap isolation screen changes top-1000 by +1.5%; it does not
+establish a cross-architecture win for that individual change. The complete
+before/after ARM comparison remains a separate acceptance check.
+
+Actual ARM heap call-site assembly shows one 64-bit comparison for packed
+entries, replacing score-key conversion and a separate document tie comparison.
+All score bits round-trip; collector tests cover signed zero, infinities, NaN
+payloads, ties and preexisting hits. Main source matches the recorded 205-file
+packed source manifest. Final native checks pass 1,828 tests with 25 ignored.
+
+Standalone terms, memory and per-family tails remain explicit review findings.
+The initial confirmation's compact-exact RSS is 749.79 MiB versus Tantivy's
+565.77 MiB, dominated by mapped positions and postings. Byte norms save about
+4.8 MiB and do not establish latency parity across all commands. The optional
+combined layout reduces payload residency but has workload-dependent latency.
+No conclusion about cold-cache or concurrent ingest/merge performance follows.
+
+The isolated `memo` phrase-frequency cache is rejected. Its x86 compact screen
+changes TOP_10 502.233 → 504.498, TOP_1000 941.754 → 944.007,
+TOP_100_COUNT 834.332 → 838.841 and COUNT 401.059 → 402.243 µs.
+The small ARM gains did not reproduce on x86. Preserve the existing OnceLock;
+its generic profile symbol also includes block-frequency initialization, so its
+entire CPU share must not be attributed to the phrase-frequency cache. The
+candidate passes correctness checks but provides no measured selection benefit.
+
+## Final RGB-off confirmation and separate RGB experiment — September 16
+
+The seven-pass confirmation selects the compact/exact `packed` reader. Official
+962-query geometric means beat Tantivy by 4.0%, 1.8%, 8.6% and 5.8% for top-10,
+top-1000, top-100 + count and count. Final fresh-process peak observed RSS is
+760.03 MiB versus 574.24 MiB. All 1,676 exact references pass across five layouts
+on both hosts; immutable compact and byte-norm files retain their hashes.
+See [final results and evidence](search-block-execution.md). Supplemental terms
+and memory remain open findings; the aggregate win does not erase those gaps.
+
+The user requested a separate RGB benchmark. Before adapting the harness, the
+invariant is stable document IDs, raw score bits, counts and positions across
+reordering. The cost model includes the field-local map, graph construction,
+postings/positions rewriting, mapped query execution and evictable payloads.
+Use the existing standalone `IndexWriter::reorder` owner on a freshly built,
+explicitly eligible schema. The benchmark adapter only exposes eligibility and
+that existing operation; it must not edit persisted schema or implement a writer.
+Compare the selected compact index, identity-mapped eligible control, RGB output
+and Tantivy. Freeze the selected reader, corpus, compiler, flags and cache limits.
+Measure official and supplemental workloads separately, construction/reorder
+resources, query residency and file sizes. Require exact references before
+latency runs. Preserve the RGB-off result independently. Merge-time RGB and the
+remaining budget/migration audit are outside this benchmark's claim.
+
+RGB setup audit found another format cost: the current standalone text reorder
+writer preserves bound kinds but emits its existing noncompact postings and
+positions representation. Passing `--compact-text` does not change that writer.
+Thus RGB versus the winning compact index measures the complete current feature,
+including format expansion; it is not a pure permutation experiment. Preserve
+an identity-mapped control and report this limitation with file sizes. An initial
+ARM attempt also inherited a 16 KiB dictionary target; it was stopped and excluded
+before completing measurements, then rerun with the matched 4 KiB target.
+
+### RGB execution diagnosis
+
+The mapped plain-text complete path currently calls
+`required_text::mapped_documents`: it first exhausts the physical scorer into a
+logical-document bitmap, then `DocumentMappedScorer::position` walks logical IDs,
+looks up each physical slot and calls `PostingIterator::seek_physical`. Backward
+probes search from block zero and reload decoded buffers. Identity maps bypass
+this wrapper, which explains why they do not expose its cost. This is a concrete
+loss of RGB locality, not evidence that the partitioner produced no permutation.
+The ARM partitioner reports convergence and a nonidentity permutation.
+
+A future optimization must keep compatible same-field Boolean, phrase and exact
+count evaluation in the shared physical order, translating predicates/results
+at the appropriate boundary. Preserve stable-ID tie ordering, position identity,
+exact scores, independent field permutations and the existing query owner; do
+not replace this with a new executor or a global document reorder. Cross-field
+compositions still need explicit mapping. This is a proposed fix, not part of
+the frozen-reader RGB benchmark.
+
+The published site snapshot fetched during this run contains Lucene 10.3.0,
+Lucene 10.3.0-bp and Tantivy 0.25. Across its 962 queries, geometric means of
+per-query median top-10 times give 1.33× for plain Lucene / Lucene-bp and 1.63×
+for Tantivy / Lucene-bp. Larger speedups depend on query subset/aggregation.
+These figures are from the public host, not comparable absolute times to our
+Cascade Lake host. The original [Lucene analysis](https://jpountz.github.io/2025/05/12/analysis-of-Search-Benchmark-the-Game.html)
+explains the locality/pruning benefit; [Lucene's reorder API](https://lucene.apache.org/core/10_4_0/misc/org/apache/lucene/misc/index/BPIndexReorderer.html)
+describes physical doc-ID reassignment. Preserve the downloaded raw data and
+calculation with the separate RGB evidence.
+
+The ARM diagnostic pass confirms the mapping cost: official top-10 posting-block
+decodes grow 42,105 → 339,303, while exact-count decodes grow 68,583 → 14,851,059.
+Exact-count compressed gap bytes processed grow 9,460,850 → 2,640,608,494; these
+are repeated decoder inputs, not disk reads. Top-10 exact scoring units fall
+835,690 → 566,549, so improved pruning does exist. Ranked unions are 17% faster
+and top-10 for the single official stop-word query `the` is 2.77× faster. The
+feature regresses overall because other paths discard that locality.
+
+During full-corpus eligible-index construction, a sampled RSS of 11,010,036 KiB
+included 10,999,876 KiB anonymous residency despite the configured 2,000,000,000
+byte indexing budget. This is measured process residency, not an estimate of
+live allocations; allocator-retained memory may contribute. Treat that setting
+as a configured budget rather than a demonstrated RSS cap. Record final resource
+usage separately from search-process residency; a writer memory audit remains
+outside this read-path benchmark.
+
+The mapped disjunction fallback has another avoidable cost:
+`complete_text_scorer` accepts `skip_scoring_setup`, but its unordered-map branch
+calls `required_text::scorer` without that intent. `RequiredTextScorer::position`
+probes every term and computes BM25 even for count-only collection. Those direct
+BM25 calls are not included in the generic exact-score diagnostic counter;
+zero reported units on COUNT is not proof of zero scoring work there. Carrying
+count-only intent through the existing owner is another required correction.
+
+On the same ARM COUNT pass, TF block decodes rise 6,725 → 5,194,781 and decoded
+TF values rise 834,484 → 662,866,934, while normalization-table builds remain zero.
+Phrase verification needs some TF data; unordered mapped complete collection
+adds repeated frequency decoding and direct scoring beyond that baseline.
+
+The completed seven-pass full-corpus ranked runs confirm the same split.
+TOP_10 compact/identity/RGB/Tantivy are 499.001/675.705/2410.780/517.486 µs;
+TOP_1000 are 909.733/1106.567/3916.042/925.268 µs. RGB makes ranked intersections
+36.0× slower (300 queries) and ranked unions 9.4% faster (301 queries). For the
+single official term query `the`, top-10 improves 5002.494 → 290.489 µs (17.2×);
+Tantivy is 1764.875 µs on that query. Do not generalize that one-query gain to the
+workload. It demonstrates that stable IDs do not inherently eliminate RGB gains;
+physical-order execution already benefits on the same full corpus and binary.
+
+Full-corpus file manifests show compact 4,550.15 MiB, identity 4,598.14 MiB and
+RGB 4,481.59 MiB. The mapping adds 47.99 MiB, but reordering shrinks postings
+2005.28 → 1904.10 MiB and positions 2440.27 → 2425.66 MiB. Thus the old encoder
+selection does not imply a larger full-corpus index: clustering compensates here.
+The large ranked slowdown is execution overhead, not an increase in index bytes.
+Representation-only effects remain unisolated in this end-to-end RGB comparison.
+
+### RGB screening protocol adjustment
+
+Before any full-corpus counted-command result was completed, the observed RGB
+runtime showed that seven repeats would spend hours measuring the already
+identified fallback. Preserve the completed seven-pass ranked results and use
+three matched passes for counted commands on x86 (including supplemental terms).
+All queries, engines, indexes, binaries, flags, correctness checks and warmup
+rules remain identical. ARM retains its completed seven/five-pass runs. Restart
+and rewarm all engines for the remaining commands; discard unfinished samples
+and retain the interrupted run's configuration/logs. This is a screening result
+for a regressing feature, not a claim of improved latency or changed defaults.
+The separate x86 residency comparison uses one full pass per command for every
+engine; report observed residency without claiming a long-run memory plateau.
+
+The reduced counted run was subsequently stopped during its second timed RGB
+pass. No full-corpus counted command completed its repetitions, so none is
+reported as a latency measurement. The final x86 scope is seven-pass official
+and five-pass supplemental top-10/top-1000, plus one separate residency pass for
+each ranked command. ARM retains completed measurements for all four commands;
+both full-corpus layouts passed all 1,676 exact references. Interrupted logs and
+both protocol changes are retained. Full-corpus counted latency/residency remain
+unmeasured. This limits the report; it does not establish a counted-query win.
+
+The [execution repair proposal](maxscore-text-reordering.md#proposed-execution-repair)
+records the address-space invariant and the existing conjunction admission point.
+In particular, `skip_scoring_setup` currently preserves valid scores for nested
+consumers. Avoiding count-only probes requires lazy valid scoring or an explicit
+membership-only contract, not substituting zero scores based on that hint.
+
+Final separate ranked residency samples are compact 759.81 MiB, identity
+1115.71 MiB, RGB 1019.41 MiB and Tantivy 574.46 MiB RSS. Anonymous residency is
+5.76/5.75/5.80/0.73 MiB respectively. RGB's increase over compact is chiefly
+214.50 MiB more resident position pages plus 47.43 MiB more map/length pages;
+the query heap is not the main contributor. Formats and traversal differ, so
+this does not isolate permutation's effect on page residency. These are
+one-pass ranked snapshots, not a memory plateau or counted-search measurement.
+The source/control/preserved-payload audit and all 145 downloaded evidence
+members passed verification. Eligible-index construction peaked at 15,615 MiB
+RSS; standalone reorder peaked at 8,964 MiB. Writer memory budgeting warrants
+its own investigation.
+
+## RGB physical traversal repair — September 16
+
+Implemented same-field physical composition and late stable-ID translation,
+with the existing ranked conjunction executor and dictionary count paths admitted
+for plain document maps. The precomputed ranked handoff avoids a second heap;
+the validated dense inverse column replaces O(log N) probes for retained hits.
+Cross-field, chunked and opaque compositions keep the existing logical fallback.
+
+On the frozen 5,032,104-document x86 fixture, official RGB top-10/top-1000 are
+440.615/885.654 µs, versus 2444.065/3873.167 µs for the old RGB reader and
+524.345/987.633 µs for contemporaneous Tantivy. Repaired top-100+count/count are
+725.922/342.566 µs versus Tantivy 869.111/424.969 µs. Old full-corpus RGB counted
+timing remains unmeasured. Supplemental single-term results still trail Tantivy;
+these aggregate official wins do not imply every query family wins.
+
+ARM work counters reduce count decoding from 14,851,059 to 60,157 blocks and
+TF decoding from 5,194,781 to 5,197 blocks. Phrase counts still require positional
+verification. No index payloads changed. The remaining resident map/position
+working set is not fixed by eliminating replay; report it separately from heap.
+ARM latency has substantial between-run host drift, exposed by unchanged controls.
+
+All 1,676 exact references pass on ARM compact/identity/RGB and x86 compact/RGB.
+The final native harness passes 1,830 tests, formatting, Clippy and native without
+sync; four focused diagnostics tests and portable compilation pass. The latter
+retains the existing unused-method warning. WASM was not rebuilt as instructed.
+
+The updated user requirement is RGB top-10 faster than Lucene BP/RGB. The matched
+60-second-warmup run is 444.841 µs for Hermes RGB versus 392.235 µs for Lucene
+10.4.0 BP, a 13.4% deficit. The goal remains open. Unions account for the main
+family gap (499.622 versus 325.063 µs); phrases favor Hermes (486.759 versus
+505.129 µs). An isolated required-window candidate regresses ARM AND and is not
+promoted. Block pruning and a proven two-term OR-to-AND transition are experiments
+to evaluate, not delivered wins.
+[Implementation, measurements and raw evidence](search-rgb-repair.md).
+
+### Matched Lucene continuation: isolated reader experiments
+
+The full-corpus Lucene BP comparison remains the acceptance target. The first
+mapped two-term AND block-bound probe is rejected: TOP10 442.875 → 441.498 µs
+is flat, while TOP1000 836.338 → 848.838 µs regresses. Reducing the synthetic
+block count from 64 to 4 did not establish a workload benefit.
+
+The two-term-only OR-to-AND tail is also rejected (x86 TOP10 487.156 → 483.137,
+ARM top-10 regresses). A guarded, once-per-query proof for any arity performs
+better: x86 TOP10 441.735 → 428.431 µs, with Lucene RGB at 396.400 µs. Union
+queries improve 495.87 → 458.39 µs; Lucene is 332.69 µs. TOP1000 is essentially
+flat (837.864 → 841.411). ARM TOP10 is 29.519 → 29.349 µs. All 1676 ordered
+ID/raw-score-bit/count references pass on both hosts and both fixed Hermes
+indexes. This remains a candidate pending selection and confirmation, not a
+claim that Hermes has surpassed Lucene.
+
+Adaptive window sizing, mapped batch admission and local score-required union
+driving are separately frozen experiments. Their source and measurements stay
+outside the main implementation until assessed. The latter revisits a previously
+rejected approach only because candidate probing now scores matching postings
+rather than the entire loaded block, and mapped execution retains RGB locality.
+
+### Selected RGB reader and representation repairs
+
+The general guarded OR-to-AND tail and mapped batch admission are selected.
+The latter leaves official top-10 flat in isolation but reduces supplemental
+single-term top-10 from 100.745 to 67.505 µs on x86 (Lucene RGB: 86.588 µs).
+Supplemental top-1000 improves 839.725 to 744.854 µs. These are separate workload
+results, not evidence of an official-workload Lucene win.
+
+Adaptive windows and local required-term classification are rejected: x86
+TOP10 is 444.663 → 445.214 and 442.069 → 440.835 µs respectively. The narrower
+SIMD intersection within required OR windows also regresses (442.112 → 459.126).
+Profiles explain why fewer candidates alone are insufficient: baseline unions
+spend 16.04% of sampled CPU in window orchestration, 13.51% in candidate probing,
+10.50% in scoring, and 7.82% in block bounds. Required-window classification adds
+bookkeeping without reducing candidate cost materially. These samples are
+attribution, not latency measurements.
+
+The standalone writer now preserves compact input layouts. The regression first
+failed on lost compact headers, then passed with exact score bits, counts,
+positions and byte-identical untouched fields. On the full corpus, the rebuilt
+index retains exactly the original RGB permutation while saving approximately
+192 MiB in postings/positions. Query latency and RSS require separate measurement.
+Graph-frequency and finer-partition variants remain isolated experiments.
+
+The selected main source passes 1,833 native tests (25 ignored), formatting,
+Clippy, native without sync and portable compilation. The existing portable
+unused-method warning remains; WASM is skipped under the standing instruction.
+
+A first admission-probe cloud build reused stale artifacts because extracted
+source mtimes predated the preceding binary. Its identical binary hash exposed
+the mistake; that run was stopped and quarantined. All accepted later cloud
+builds touch extracted sources, record distinct binary hashes, and compile anew.
+An ARM warmup overlapping a compile was likewise discarded and rerun. Neither
+rejected run contributes to reported measurements.
+
+### Full-corpus RGB layout comparison
+
+The eight-engine follow-up confirms the selected reader at 424.943 µs official
+top-10, versus the handoff reader's 441.718 and Lucene RGB's 393.534. The target
+remains unmet by 8.0%. Top-1000/top-100+count/count are 839.102/724.421/349.461 µs,
+versus Lucene 854.396/1078.629/378.291. Supplemental top-10 improves from 103.642
+to 69.277 µs and beats Lucene's 86.756, but still trails Tantivy's 56.148.
+
+A same-permutation compact rewrite is 429.560 µs top-10. Frequent-term and finer
+partition graphs are 432.040/432.673 µs; both are rejected for query performance.
+ARM ranked results are flat. The graph default remains unchanged.
+
+Fresh top-10 RSS is 1019.39 MiB for the selected reader on the original RGB index,
+1055.73 MiB for compact RGB, 745.95 MiB for RGB off, 573.92 MiB for Tantivy and
+860.11 MiB for Lucene. Hermes anonymous memory stays near 5.6 MiB. Compact output
+saves 192.2 MiB on disk but reduces position residency by 95.88 MiB while increasing
+posting/dictionary residency by 114.69/17.68 MiB. This is not a resident-memory win.
+The larger mapped working set is established; its page-fault mechanism is not.
+
+All eight-engine timing samples, memory snapshots and immutable index audits are
+verified in the evidence. A PATH-resolution error in the Java binary inventory
+was fixed before memory queries; forty timing files remained hash-identical
+through recovery. The expanded mapped two-term regression is now in the main
+source; the latest native harness again passes 1,833 tests, 25 ignored. It changes
+only test code relative to the measured reader.
+
+An existing-codec experiment measures Simd4x on the same RGB permutation, with
+exact norms and existing ratio bounds. ARM official top-10 improves
+30.043 → 28.549 µs; x86 is flat (compact 474.245, SIMD 473.595, Lucene 440.889 µs).
+The target remains unmet. Full-corpus compact/SIMD index sizes are
+4,289.08/3,117.26 MiB; fresh top-10 RSS is 1055.71/855.82 MiB, versus original
+RGB 1018.90 and Lucene 859.91 MiB. Anonymous Hermes memory remains about 5.5 MiB.
+This is a measured storage/residency benefit, not an x86 latency win. The codec
+remains opt-in. All exact references and permutation/unchanged-payload audits
+pass; both fixture and comparison exports are locally hash-verified.
+
+### Selected two-term contribution elision
+
+Mapped two-term windows with validated finite, nonnegative scoring now reuse
+their accumulated score, omitting duplicate per-term writes and canonical
+reduction. Two-term addition retains exact score bits; longer/unsupported cases
+keep the original reduction. All 1,676 references pass on RGB and RGB-off
+indexes on ARM and x86. The expanded mapped regression remains in main.
+
+Matched x86 official top-10 improves 421.535 → 414.659 µs, versus Lucene
+392.170 µs; top-1000 improves 833.542 → 819.923 µs, versus Lucene 860.651 µs.
+Every paired top-10 pass improves. ARM top-10 improves 30.120 → 29.580 µs.
+Supplemental x86 top-10/top-1000 are essentially flat. The target remains unmet
+by 5.7%. The selected source passes 1,833 native tests (25 ignored), formatting,
+Clippy, native without sync and portable compilation. WASM remains skipped.
+The delivered scorer is production-byte-identical to the measured pair-sums
+source; only the existing mapped regression is expanded.
+
+The separate SIMD candidate-join probe is not selected: x86 top-10 is
+427.854 → 429.181 µs, although top-1000 improves 830.612 → 817.965 µs.
+Local window boundaries likewise fail to improve x86 ranked latency
+(top-10 440.348 → 441.180 µs; top-1000 847.646 → 849.651 µs) and are rejected.
+The combined-window probe is not selected (x86 top-10 424.858 → 421.053 µs,
+ARM top-10 flat). Canonical reduction with a term-major loop regresses x86
+top-10 419.165 → 422.230 µs and top-1000 826.648 → 834.807 µs; it is rejected.
+Their exact references pass and both 30-file exports are locally verified.
+
+### Scheduling attribution experiment (not a production candidate)
+
+The synchronous searcher also installs single-segment work on the shared Rayon
+pool. An isolated caller-thread experiment retains the same segment closure,
+statistics, IDs, offsets, errors and collectors, while async/multi-segment/BMP
+execution stays pooled. A thread-affinity regression fails before and passes
+after, and also checks async equivalence, offsets and error propagation.
+
+This experiment is for attribution only: concurrent synchronous callers would
+bypass the configured shared CPU bound. It is not eligible for selection even
+if serial latency improves. Main retains pooled scheduling. Any production
+follow-up must preserve bounded admission across sync, async, nested and parallel
+searches; a serial benchmark cannot justify weakening that contract.
+
+The caller-thread diagnostic measures x86 top-10 419.414 → 411.142 µs
+(Lucene 393.957) and top-1000 817.116 → 802.778 µs. It still misses the target.
+ARM official top-10 regresses 29.028 → 34.460 µs despite faster supplemental
+terms. These timings include thread placement and scratch locality, not only
+the cost of a queue operation. The source remains isolated and rejected.
+
+A final local release build initially reused the same-name example artifact
+from an isolated experiment sharing the target directory. Its binary hash
+identified the mismatch before any results or timing used it. The source hashes
+were checked, selected source mtimes refreshed, and a fresh build completed.
+The resulting binary is byte-identical to the measured ARM pair-sums binary.
+It also passes all 1,676 same-binary pruned-versus-exhaustive score/count checks
+on compact RGB-off, original RGB and SIMD RGB fixtures.
+This reinforces using immutable copied binaries for measurements and separate
+target directories when switching checkouts. Native validation and the accepted
+paired measurements did not use that stale final artifact.
+
+### Coarse ratio group admission result
+
+Enabling the existing group-skip proof for mapped ratio-bounded lists reduces
+fine-window work in the regression fixture, preserving exact scores and stable
+ties across all four codecs. It is rejected on actual workloads: ARM top-10
+29.183 → 29.522 µs; x86 top-10 460.574 → 474.224 µs and top-1000
+866.730 → 891.303 µs. All exact references pass. Fewer fine windows alone do
+not pay for the added coarse-bound checks on this corpus. Main keeps the
+existing impact-only admission and the selected two-term contribution repair.
+
+### Final selected-reader confirmation
+
+The four-engine final run confirms selected/original RGB at 416.881 µs top-10
+versus predecessor 422.282 and Lucene RGB 390.625: a 1.3% reader improvement,
+but the target remains unmet by 6.7%. Top-1000 is 824.472 versus Lucene 848.283.
+Selected/SIMD top-10 is 425.249 µs, 2.0% slower than selected/original RGB; the
+codec remains an opt-in space/residency tradeoff. Fresh top-10 RSS is 1019.28 MiB
+for selected/original, 856.00 for selected/SIMD and 864.87 for Lucene. Hermes
+anonymous memory stays near 5.5 MiB.
+
+Supplemental selected top-10 wins 70.099 versus Lucene 88.379 µs, while
+top-1000 still loses 752.598 versus 475.309. These results cannot be pooled with
+official queries to claim the requested top-10 win. All 145 exported files are
+locally hash-verified; the four-engine query/pass matrix is independently checked.
+The selected x86 SIMD combination passes all 1,676 canonical references after
+timing. Native validation remains 1,833 passing tests, 25 ignored; portable
+compilation passes, and WASM remains skipped.
+
+A requested late control expansion was refused by an internal guard because
+final latency had started; it stopped before any process or script mutation.
+The final run remains the original four-engine protocol. Final pair-sums x86
+RGB-off latency is unmeasured; paired ARM RGB-off controls and the earlier
+eight-engine x86 reader results are separately identified.
+
+## September 17: merge preparation review
+
+See [the merge review](search-merge-review.md) for scope, corrections, BMP transfer
+analysis and final validation. The branch now includes `origin/main` at
+`b6212939`; content-hash deduplication and the search format stamp are reconciled.
+
+Reproduced and corrected: untouched byte norms expanded by standalone RGB;
+mixed exact/byte norm columns expanded by row compaction; insufficient text BP
+scratch admitted before allocation; BMP-only merge status claiming text was
+reordered; and legacy plain RGB silently skipping fields without document maps.
+Text planning reuses the BMP frequency/budget helpers; term rewriting reuses
+bounded compaction readers/writers. Raw benchmark archives remain unchanged.
+
+WASM was explicitly re-enabled for this review. The stale native SIMD fixture
+was regenerated with valid short-block tags, and a compact-directory/byte-norm
+fixture was added. This review makes no new latency/parity claim. Integrated
+merge-time text planning and the measured Lucene top-10 gap remain open.
+
+Final review validation passes the eight-stage `full` harness: 1,856 workspace
+tests, 26 ignored in that stage, plus four real server/broker tests. WASM passes
+32 tests; targeted query diagnostics pass six. The final local reorder control
+reduces peak process RSS from 119.2–122.0 to 35.5–36.3 MiB on 131,072 documents,
+with identical payload bytes and exhaustive query checks. Timings are short and
+variable (before 0.24/0.24 s, after 0.43/0.22 s); no speedup is claimed. This
+measurement caught and corrected output fragmentation from copying position
+blocks across permuted document boundaries. Ordinary compaction still copies
+compatible blocks; explicit reorder repacks through the existing encoder.
+Per user instruction, benchmark artifacts remain local and uncommitted.
+
+## September 17 follow-up: integrated merge and remaining RGB gap
+
+Integrated merge-time text RGB is complete. Opted-in text fields are planned
+over the source segments and written once in their final physical order. The
+implementation reuses BMP's BP selection/budget helpers and CPU gate, copy
+merge's k-way dictionary traversal, standalone text rewriting, and the existing
+posting/position/CHNK formats and writers. Ordinary merges still copy compatible
+encoded payloads. No second output generation or publication protocol is added.
+
+The [merge review](search-merge-review.md#follow-up-integrated-merge-time-text-rgb)
+records byte-equivalence, query correctness, budget/cancellation coverage and
+measurement limits. All eight `full` stages pass: 1,859 workspace tests,
+26 ignored, plus four real server/broker tests. A fresh WASM build passes all
+32 tests. The same-binary 131,072-document ARM lifecycle comparison takes
+0.30/0.31 s for merge followed by reorder versus 0.22/0.22 s for integrated
+merge-time RGB; peak RSS is 43.31/44.80 versus 38.19/31.56 MiB. Payloads match
+byte-for-byte. This does not establish a query-latency improvement.
+
+### Exact mapped normalization lookup: rejected
+
+The frozen RGB index stores exact u16 document lengths in its physical map.
+Its lengths cannot be passed through the existing byte-norm lookup without
+changing scores. An isolated candidate instead caches one exact 4,096-entry
+normalization table per worker, keyed by the raw BM25 parameter/average bits.
+It costs 16 KiB per table and retains canonical arithmetic for larger lengths.
+Active cursors retain their table; cache replacement cannot invalidate a query.
+This experiment is confined to `.context/rgb-norm-lookup/candidate-src/` and is
+**not included in the implementation**.
+
+Both frozen RGB-on and RGB-off indexes pass all 1,676 canonical references on
+ARM and x86 for the candidate (exact IDs, score bits, ranked limits and counts).
+The candidate's edge/cache regression and 43 scoring unit tests also pass.
+Correctness alone does not justify selection:
+
+| Official workload, geometric mean of per-query medians | Current Hermes | Lookup candidate | Lucene RGB |
+| ------------------------------------------------------ | -------------- | ---------------- | ---------- |
+| ARM top-10, µs                                         | 29.386         | 29.039           | unmeasured |
+| ARM top-1000, µs                                       | 44.402         | 44.381           | unmeasured |
+| x86 top-10, µs                                         | 426.918        | 470.017          | 400.954    |
+| x86 top-1000, µs                                       | 867.289        | 931.035          | 882.210    |
+
+The candidate regresses x86 top-10 by 10.1% and top-1000 by 7.4%, despite a
+small ARM improvement. It is rejected without changing defaults or query code.
+Current Hermes remains **6.5% slower than Lucene RGB on official top-10** and
+1.7% faster on top-1000. The official x86 category split isolates the remaining
+deficit:
+
+| Top-10 category, µs | Hermes  | Lookup candidate | Lucene RGB |
+| ------------------- | ------- | ---------------- | ---------- |
+| AND                 | 308.930 | 333.310          | 315.764    |
+| Phrase              | 497.401 | 537.676          | 506.094    |
+| OR                  | 449.058 | 519.244          | 335.619    |
+
+OR queries remain 33.8% slower; the wider exact-length lookup worsens that path.
+These timings do not isolate whether lookup dependencies, cache pressure,
+instruction layout or vectorization caused the regression. Hardware performance
+counters are unavailable on this VM (`cycles` reports no supported events).
+
+A separate 15-second userspace CPU-clock sample over official OR queries
+(499 Hz, after warmup, no lost samples) attributes 14.59% of baseline CPU to
+`run_text_windows`, 10.79% to `score_candidates_sync`, 10.15% to
+`run_conjunction`, 10.15% to `score_text_run`, and 7.27% to block-bound evaluation.
+The candidate's `score_text_run` share rises to 12.62%. These sampled shares
+support investigating scoring, candidate probing and window/bound overhead;
+they are not isolated per-function speed comparisons. Position decoding is not
+a leading symbol in this OR workload. The OR-only resident snapshot is
+353.25 MiB with 5.29 MiB anonymous memory for the baseline; candidate anonymous
+memory is 5.32 MiB. Most residency is file-backed, not query heap. The full
+official workload below additionally touches phrase position pages.
+
+The protocol uses immutable executables built from separate source snapshots,
+the same frozen index, Rust 1.98.1, native CPU flags and release LTO. It rotates
+engine order for seven passes over all 962 official queries; x86 engines are
+pinned to CPU 2. Builds, canonical verification and profiles are outside timing.
+Peak RSS over the official top-10 plus top-1000 process lifetime is
+1,012.19 MiB for Hermes, 1,011.87 for the candidate and 906.41 for Lucene.
+These are process maxima, not isolated heap sizes or a top-10-only comparison.
+
+The separate 714-query supplemental workload uses five passes: x86 top-10
+73.985/83.038/91.018 µs and top-1000 804.620/876.217/474.109 µs for
+Hermes/candidate/Lucene. It is not pooled with official queries to claim parity.
+Source and binary hashes, complete query/pass matrices, canonical checks and
+raw measurements remain local under `.context/rgb-norm-lookup/`; the downloaded
+x86 archive's SHA256 and every query/pass matrix were verified. No benchmark
+artifacts or implementation changes have been committed.
+
+### September 17: optional probing and window work
+
+The next investigation keeps the frozen RGB/RGB-off indexes and canonical raw
+score contract. Candidate source snapshots, executable hashes, verifier logs,
+per-query/per-pass samples and experiments are local under
+`.context/rgb-or-cost/`; none are commit inputs. The production candidates reuse
+`TermCursor`, `score_text_run`, the existing block-bound cache and window scratch.
+They add no persistent format or cache allocation.
+
+Initial matched screens (geometric mean of per-query medians, µs):
+
+| Official workload | Baseline | Optional probe specialization | Combined bound division | Lucene RGB |
+| ----------------- | -------: | ----------------------------: | ----------------------: | ---------: |
+| ARM top-10        |   29.609 |                        29.243 |                  29.268 | unmeasured |
+| ARM top-1000      |   45.262 |                        44.655 |                  44.715 | unmeasured |
+| x86 top-10        |  441.006 |                       428.601 |                 444.719 |    396.455 |
+| x86 top-1000      |  885.299 |                       878.999 |                 912.756 |    900.657 |
+
+The probe specialization avoids optional candidate compaction, skips lower-bound
+search when the cursor is already at or beyond the candidate, and stores the
+128-entry block's posting slots as bytes. Required membership still compacts;
+block-level and periodic candidate deadline checks remain. The bound-division
+candidate passes correctness but regresses x86 and is rejected. An eight-lane
+filter mask also fails selection: x86 top-10 is flat and top-1000 regresses 2.1%.
+Neither rejected implementation is in production source.
+
+All-essential windows can visit terms in canonical order and omit duplicate
+contribution-plane writes and the final fold. An initial x86 screen suggested
+an improvement, but a seven-pass confirmation of this plus probe specialization
+measured **451.391/455.251/428.735 µs** for baseline/combined/Lucene top-10.
+Top-1000 was 836.921/833.715/866.941 µs. This does **not** establish a win or
+parity. Whole-pass timing drift motivates a separate stability run interleaving
+engines every 32 queries and recording Linux process CPU time alongside wall
+time. These protocols must not be pooled. A later ARM screen is excluded because
+unrelated system/build load changed baseline timings substantially.
+
+A separate proposal to replace globally optional window bounds with list bounds
+is rejected for correctness: `plus size clothing` stops making progress when a
+loose bound promotes an optional cursor that has already passed the window and
+all remaining drivers are demoted. Unit tests alone missed this; the complete
+1,676-query verifier exposed it. That candidate was isolated and never copied
+into production. Any future version needs an explicit window-progress invariant.
+
+The probe, combined-division, filter and canonical-accumulation candidates each
+pass all 1,676 canonical reference queries on both frozen layouts on ARM and x86
+(exact IDs, score bits, ranked limits and counts). This correctness evidence does
+not override the rejected candidates' performance results.
+
+The closer paired combined run uses seven official and five supplemental passes,
+rotating engines every 32 queries on CPU 2. The process CPU clock is read through
+libc's `clock_getcpuclockid`; an initial harness API error occurred before any
+samples and is retained separately. Official wall times are
+435.270/432.335/416.160 µs for baseline/combined/Lucene top-10 and
+843.557/837.377/883.282 µs for top-1000. Corresponding top-10 process CPU times
+are 424.598/421.427/389.788 µs. OR wall times remain
+457.136/450.503/347.604 µs: a small improvement in this paired run, with the material OR
+gap still open. Supplemental wall times are 115.386/110.777/131.411 µs top-10
+and 808.715/801.428/521.707 µs top-1000; they remain a separate workload.
+
+Memory is effectively unchanged by the combined change. After official top-10,
+baseline/candidate RSS is 1,012.11/1,012.27 MiB, of which only 5.79/5.79 MiB is
+anonymous. Lucene's corresponding RSS is 877.76 MiB with 334.42 MiB anonymous.
+Hermes' larger RSS here is file-backed residency, not a larger query heap.
+These full-workload snapshots touch phrase positions too. PSS must not be used
+as an engine comparison here: concurrent Hermes processes share the same mapped
+index pages. Peak RSS over both ranked limits is 1,012.24/1,012.33/901.91 MiB.
+The downloaded stability archive and all query/pass matrices were verified;
+SHA256 `9c2882482b08c8d4e9d753ff2bba055a0194c9c4311594e5e209dcd2385b56c1`.
+
+#### Paired screens of remaining window costs
+
+Each row below is a separate matched x86 run on the frozen 5,032,104-document
+RGB fixture, Rust 1.98.1 with native CPU flags and release LTO, CPU 2, rotating
+engine order every 32 queries. Values are geometric means of per-query median
+microseconds (seven passes over 962 official queries). Do not compare absolute
+values across rows: host timing drift is substantial. These are selection
+screens, not independent confirmation of a final production build.
+
+| Screen                               | Baseline top-10 | Candidate top-10 | Lucene top-10 | Baseline top-1000 | Candidate top-1000 | Lucene top-1000 |
+| ------------------------------------ | --------------: | ---------------: | ------------: | ----------------: | -----------------: | --------------: |
+| Current block covers window          |         435.686 |          428.155 |       417.308 |           857.471 |            843.187 |         892.914 |
+| Adaptive mapped OR windows           |         434.766 |          426.666 |       420.097 |           838.355 |            824.190 |         886.037 |
+| Cost-aware local partition           |         446.929 |          436.073 |       425.965 |           870.953 |            859.310 |         908.281 |
+| Consecutive candidate TF slice       |         475.342 |          473.128 |       460.666 |           863.124 |            849.796 |         901.363 |
+| Pruned two-term OR intersection tail |         443.890 |          434.088 |       424.740 |           857.399 |            847.400 |         891.653 |
+
+The covered-window shortcut preserves the exact old bound, including the
+whole-group substitution and zero clamp; it only avoids redundant navigation.
+The adaptive policy amortizes tiny multi-driver windows, with scratch still
+capped at 4,096 IDs. Cost ordering changes candidate drivers using the existing
+prefix-bound proof. These candidates pass all 1,676 reference queries on both
+RGB and RGB-off layouts on ARM and x86.
+
+The TF-slice experiment is rejected: its own same-run adaptive parent measures
+469.602/846.406 µs, better than its 473.128/849.796. The pruned tail's incremental
+benefit is also inconclusive: its adaptive parent measures 435.993/844.151 µs,
+so the tail improves top-10 slightly but regresses top-1000. It remains isolated.
+Its behavior regression proves that a strong-prefix fixture needs only 256 of
+8,192 matches scored, while equal-score ties still visit all matches and exact
+count traversal always returns 8,192. The isolated tail passes 45 scoring tests.
+The supplemental workload is retained separately in the raw evidence; it is
+not pooled to claim a win over Lucene.
+
+ARM uses its frozen approximately 100,000-document fixture, not the x86 corpus.
+The adaptive screen measures 30.624/30.403 µs top-10 and 46.564/46.099 µs
+top-1000 against baseline: near flat. Its supplemental top-1000 run is excluded
+because severe external load changed baseline timing by an order of magnitude;
+the raw samples and exclusion reason are retained. A later cost-ordering ARM
+screen was also variable and does not establish a gain. Tail's ARM top-10 is
+30.239 versus its adaptive parent's 30.214 µs; top-1000 is 46.061 versus 45.597.
+No configuration or codec default changes are supported by these measurements.
+
+Mandatory validation attempts before final selection encountered two distinct
+failures: one native test process terminated with SIGTERM, and a later harness
+run passed formatting/Clippy but timed out during broker fixture discovery.
+The exact broker test immediately passed in isolation (0.31 s); the timeout's
+cause is not established. These attempts do not count as completed checks.
+The final selected source requires a fresh complete harness and WASM validation.
+
+Bulk candidate probing through the shared intersection kernel passes 44 scoring
+tests and all canonical references on ARM/x86 and both layouts, but is not
+selected. Its ARM top-10/top-1000 screen improves 30.422/45.703 to
+30.153/45.259 µs. In the x86 run, however, bulk measures 433.479/844.057 µs
+against its adaptive parent's 430.171/842.523 µs (baseline
+439.740/857.535, Lucene 414.675/887.927). A small ARM gain does not justify
+regressing the target architecture. Its supplemental improvements are kept
+separate from that decision.
+
+The combined adaptive/cost policy passes 44 scoring tests and all ARM references.
+Its ARM screen measures 28.987/44.594 µs top-10/top-1000 against baseline
+29.485/45.151 and adaptive parent 29.084/44.731. Supplemental results are
+16.197/36.740 versus baseline 16.553/37.020 µs. The cloud runner initially waited
+on its own completion marker due to an orchestration typo; it was corrected
+before any build or samples. The source snapshot and binary are unchanged by
+that runner correction. Final cross-architecture selection is still pending.
+
+The cost/window merge candidate completes `python3 scripts/check_search.py check`
+with `RUST_TEST_THREADS=2`, `CARGO_BUILD_JOBS=2` and incremental compilation off:
+formatting, Clippy with warnings denied, **1,860 tests passed** (26 ignored,
+including the four separate real-server E2E tests), and native without sync.
+Evidence is `.context/search-harness/20260917T102649.676426Z-check/`.
+The final-source WASM build and **32 tests in seven files** pass. Existing
+missing-LICENSE and newer-wasm-pack notices remain nonfatal. `full` is not rerun
+for this scorer-only change; the preceding lifecycle review's full run remains
+separate evidence. Any subsequently selected ranked-conjunction change requires
+validation again on that source.
+
+The combined adaptive/cost x86 screen completes all canonical references on both
+layouts. Official top-10 is 472.087/467.834/463.928/453.361 µs for
+baseline/adaptive/combined/Lucene; top-1000 is
+905.303/889.949/895.359/930.728 µs. Combined improves baseline by 1.7% at top-10
+but remains 2.3% behind Lucene, and trades a 0.6% top-1000 regression against
+adaptive for its 0.8% top-10 improvement. Supplemental top-10 is
+86.903/81.035/78.672/100.134 µs; top-1000 is
+874.246/870.557/870.111/506.670 µs. This is still a screen, not the final
+independent confirmation. The isolated ranked-conjunction extension passes 45
+scoring tests; the complete public counted path remains exhaustive.
+
+The ranked mapped-pair extension passes all 1,676 reference queries on ARM and
+x86 for both frozen layouts. Its ARM screen is effectively flat: official
+base/combined/ranked times are 30.144/29.868/29.835 µs at top-10 and
+44.836/44.732/44.616 µs at top-1000. Supplemental times are
+15.728/15.770/15.697 and 37.152/37.137/36.858 µs. The public Boolean planner
+routes ranked counts through `execute_counted_conjunction`, whose compile-time
+pruning flag remains false. Count-only collection rejects the ranked shortcut
+at k = 0. Both caller contracts were traced before testing this extension.
+
+#### Selected reader and independent confirmation
+
+The adopted source combines optional membership specialization, canonical
+all-essential accumulation, covered-block bounds, bounded adaptive mapped
+windows, cost-aware local ordering, and ranked mapped-pair pruning. All changes
+remain in the existing query/scoring owner. The bulk membership join, consecutive
+TF slice, combined-bound arithmetic, vector filter, loose optional bounds and
+large norm lookup remain isolated/rejected; none are copied into production.
+No format, default, persisted bytes, scorer owner or retained cache is added.
+The shared BP/reorder and BMP implementations are unchanged by these text-only
+traversal changes; the typed text cursor and BM25 proofs do not apply to BMP's
+separate sparse block scoring without a separate measured policy.
+
+In the final selection screen, baseline/cost-window/ranked/Lucene x86 top-10 is
+450.381/446.033/437.665/428.347 µs, with top-1000
+891.691/882.465/884.199/923.907 µs. Ranked improves top-10 1.9% over its
+parent while trading 0.2% at top-1000; it remains 2.2% behind Lucene at top-10.
+The corresponding top-10 process CPU times are
+431.881/426.893/419.773/395.156 µs, so wall-time proximity is not CPU parity.
+OR wall times are 475.711/459.380/446.540/362.690 µs; AND is
+328.086/330.915/320.567/343.144 µs. The remaining deficit is concentrated in OR.
+Supplemental top-10 is 81.529/75.164/72.907/95.360 µs and top-1000
+790.927/787.337/780.161/486.013 µs; these queries remain a separate workload.
+
+The production scorer was adopted byte-for-byte from the `ranked-src` snapshot.
+The independent confirmation reuses that frozen executable, avoiding a new
+compiler/layout draw after selection. Its source identity is recorded in
+`.context/rgb-or-cost/accepted-source.json`; all artifacts remain gitignored.
+Confirmation covers all four commands on both layouts, with seven official and
+five supplemental passes, process CPU time and resident-memory snapshots on
+x86, and separate ARM measurements. Final-source harness and WASM checks are
+rerun after local timing so our builds do not contaminate the ARM samples.
+
+Independent ARM confirmation on its frozen smaller corpus (µs, seven official
+passes; same binaries, flags and 32-query interleaving):
+
+| Official command      | RGB before | RGB adopted | RGB-off before | RGB-off adopted |
+| --------------------- | ---------: | ----------: | -------------: | --------------: |
+| Top 10                |     30.418 |      29.995 |         32.651 |          32.049 |
+| Top 1000              |     45.858 |      45.414 |         48.569 |          47.517 |
+| Top 100 + exact count |     34.982 |      34.814 |         36.533 |          36.322 |
+| Exact count           |     24.821 |      24.514 |         25.173 |          25.003 |
+
+These are modest improvements, not a universal ARM speed claim. Count-only traversal remains
+unchanged; sub-percent shifts do not establish a causal speedup. Ranked-plus-count
+collection may reuse the improved ranked pass after an independent exact count.
+The supplemental workload remains separate: RGB before/adopted is
+16.428/16.143, 37.033/36.905, 23.723/23.117 and 9.685/9.396 µs in command
+order; RGB-off is 18.901/18.749, 37.598/37.505, 27.483/26.932 and
+9.781/9.388 µs. No compilation ran during these local measurements. Complete
+query/pass matrices and `/usr/bin/time -l` process maxima are preserved under
+`.context/rgb-or-cost/arm-confirm-*`.
+
+Final adopted-source validation completes successfully:
+`.context/search-harness/20260917T104951.078336Z-check/` contains formatting,
+Clippy with warnings denied, **1,861 passing native tests** (26 ignored) and
+native-without-sync checks. The rebuilt WASM package passes **32 tests in seven
+files** (`accepted-wasm-build.log`, `accepted-wasm-tests.log`). The adopted
+scorer SHA256 is
+`d8e1bfc38bd068ce210401ddf3625c6f4dad58c3bad82a397e6fe9100e09a1ff`.
+The full lifecycle/RPC mode is not rerun for these scorer-only changes.
+
+#### Final independent x86 results
+
+The Google Cloud session expired briefly during the run and was reauthenticated.
+All four commands completed on both layouts; the full archive and its raw
+query/pass matrices have now been downloaded and verified. Same frozen corpus,
+compiler/flags, CPU 2 and cache budgets; seven official and five supplemental
+passes with 32-query engine rotation. Values are geometric means of per-query
+median microseconds.
+
+| Official command      | RGB before | RGB adopted | Lucene RGB | RGB-off before | RGB-off adopted |
+| --------------------- | ---------: | ----------: | ---------: | -------------: | --------------: |
+| Top 10                |    441.487 |     432.761 |    420.303 |        534.265 |         529.659 |
+| Top 1000              |    854.970 |     856.225 |    878.540 |        923.156 |         910.948 |
+| Top 100 + exact count |    758.613 |     734.300 |   1111.100 |        857.318 |         846.729 |
+| Exact count           |    365.429 |     364.564 |    399.772 |        415.177 |         415.922 |
+
+RGB top-10 improves **2.0%**, but is still **3.0% slower than Lucene**. Top-1000
+is flat against baseline (+0.15%) and 2.5% faster than Lucene. Top-100 plus exact
+count improves 3.2%; count-only is effectively flat. RGB-off improves 0.9% at
+top-10 and 1.3% at top-1000. These results do not establish Lucene parity.
+
+The official RGB top-10 families before/adopted/Lucene are
+465.569/441.818/351.736 µs for OR, 319.986/316.231/334.779 µs for AND and
+514.607/520.426/526.713 µs for phrases. OR improves 5.1% but remains 25.6%
+behind Lucene. Phrases regress 1.1% against baseline while remaining faster than
+Lucene in this run. The aggregate win must not hide that tradeoff.
+
+Process CPU means for the four RGB commands are
+428.701/419.037/390.979, 830.980/831.209/833.961,
+704.896/684.598/1047.784 and 324.054/323.885/359.301 µs for
+before/adopted/Lucene. Top-10 CPU improves 2.3% but remains 7.2% behind Lucene;
+wall-time proximity is not CPU parity. These clocks include process bookkeeping,
+not just the scoring kernel. RGB-off CPU before/adopted is 516.716/513.008,
+907.180/894.977, 799.132/788.341 and 375.023/375.718 µs.
+
+Supplemental results remain separate:
+
+| Supplemental command  | RGB before | RGB adopted | Lucene RGB | RGB-off before | RGB-off adopted |
+| --------------------- | ---------: | ----------: | ---------: | -------------: | --------------: |
+| Top 10                |     78.793 |      73.639 |     93.859 |        140.270 |         140.005 |
+| Top 1000              |    787.764 |     779.449 |    474.634 |        609.264 |         618.607 |
+| Top 100 + exact count |    240.691 |     233.196 |    460.460 |        295.658 |         298.957 |
+| Exact count           |     19.176 |      19.057 |     18.857 |         18.998 |          19.037 |
+
+RGB-off supplemental top-1000 regresses 1.5%, and ranked-plus-count regresses
+1.1%. Supplemental RGB top-1000 remains substantially slower than Lucene; no
+pooled official/supplemental result is used to claim a win.
+
+#### Final memory and evidence
+
+After official RGB top-10, baseline/adopted RSS is **1,012.215/1,011.707 MiB**;
+anonymous residency is **5.789/5.793 MiB**. Lucene's RSS is 881.602 MiB, with
+338.281 MiB anonymous. The adopted reader does not materially change memory.
+Hermes' larger RSS is predominantly mapped index pages, not query heap growth;
+anonymous residency includes more than heap alone. Phrase queries also touch
+position pages. These are the unchanged frozen fixtures, not a claim that every
+RGB encoding has this residency. PSS is unsuitable for comparing these processes
+because the two Hermes executables share mapped index pages.
+
+RGB-off baseline/adopted RSS is 736.605/736.496 MiB, with
+5.773/5.770 MiB anonymous. Lifetime peak RSS across all four official commands is
+1,037,152/1,036,500/927,536 KiB for RGB baseline/adopted/Lucene and
+768,152/768,172 KiB for RGB-off baseline/adopted. Peaks are not isolated top-10
+measurements and must not be presented as heap sizes.
+
+The verified late archive contains **653 manifest-checked files**, **28 complete
+query matrices**, and **1,237,968 timing samples** spanning the later screens and
+final confirmation. SHA256:
+`650af8ffed25acbdc919224cb3d7d9d1dd61adf4052eec670fd1e7d0aa76a80a`.
+The final matrices contain all four commands on both layouts; their binary hashes
+match the frozen adopted executable, and the archived production scorer matches
+the workspace byte-for-byte. Verification and source identity are saved under
+`.context/rgb-or-cost/late-evidence-verification.json` and `accepted-source.json`.
+Benchmark artifacts remain gitignored. No commits or pushes were made.
+
+The VM is confirmed **TERMINATED**. The stop command lost its connection while
+polling the operation, but an independent `instances describe` completed with
+status `TERMINATED`; the result is recorded in `vm-stop-confirmed.json`.
+
+### September 17 — cleanup after acceptance of the measured results
+
+Scope is source organization and reuse; the accepted algorithms and settings
+remain fixed. `query/scoring.rs` keeps public construction/dispatch, shared
+cursor state, heap, and scratch. Private `scoring/conjunction.rs` owns typed
+intersection and counted/ranked admission; `scoring/windows.rs` owns bounded
+windows, local partitions, and canonical reduction. Both are implementations of
+the existing executor. `scoring/tests.rs` retains the existing regression suite
+and module paths. The parent shrinks from 6,426 to 2,674 lines.
+
+Ranked conjunction entry and a union's proven conjunction tail now call the
+same `run_ranked_conjunction` helper. Exact counted traversal still explicitly
+calls `run_conjunction::<false>`. Admission conditions, scoring arithmetic,
+strict comparisons, cancellation points, scratch capacities, public visibility,
+and persisted representations are preserved. No new writer, scorer, cache,
+allocation, or dynamic dispatch is introduced. The different proofs for
+nonnegative window accumulation and ranked-pair pruning remain separate.
+
+Review of the surrounding owners confirmed that term/cursor/intersection scoring
+already shares `score_text_run` and `NormTable`; compact codecs reuse the existing
+horizontal tail codecs; text reorder uses the shared graph-bisection planner,
+merged-term traversal, and posting/position writers. These owners do not need
+another abstraction for this cleanup. BMP's different score semantics remain
+outside the text-only pruning admission.
+
+Movement evidence is under `.context/scoring-cleanup/`: the retained parent is
+unchanged after accounting for the extracted regions, the test file matches the
+original after dedenting/rustfmt, and reviewed traversal diffs contain only the
+shared dispatch extraction plus paths/visibility/formatting. The before snapshot
+matches the accepted frozen scorer. All cleanup benchmark scripts, binaries,
+source snapshots, and raw measurements stay in this ignored directory.
+
+Validation for this cleanup:
+
+- `python3 scripts/check_search.py check`: passed, including formatting,
+  Clippy with warnings denied, **1,861 native tests** (26 existing ignored), and
+  the native-without-sync all-targets compile. Evidence:
+  `.context/search-harness/20260917T111243.307467Z-check/`.
+- Focused scoring suite: **45 passed**. Documentation checker: 118 Markdown
+  files, 558 local links, and 20 benchmark targets passed.
+- The lifecycle/RPC `full` harness is not repeated: this cleanup changes only
+  query implementation organization. No lifecycle, RPC, encoding, or merge
+  implementation changes are included.
+- WASM release build and all **32 tests in 7 files** passed. The build emitted
+  the existing nonfatal missing-LICENSE and newer-wasm-pack notices. Logs:
+  `.context/scoring-cleanup/wasm-build.log` and `wasm-tests.log`.
+- Release exact-reference checks passed for **1,676 queries on each local
+  layout**, RGB on and off: ranked IDs/raw score bits at k=10/100/1000,
+  complete top-100, and exact counts. Logs: `verify-rgb.log` and `verify-off.log`
+  under `.context/scoring-cleanup/`.
+- The cloud/x86 benchmark is not rerun for this source-only cleanup; the VM
+  remains stopped. Local ARM measurements below compare the accepted frozen
+  executable against the cleanup on identical fixtures/compiler/flags. They
+  check for local regressions and do not replace the earlier full-corpus x86
+  evidence or establish a new engine-parity claim.
+
+Local ARM cleanup check (microseconds, geometric mean of per-query medians;
+962 official queries, 7 interleaved passes, 10-second per-engine warmup for
+each command, unchanged 100k-document fixtures). Rust 1.98.1, native CPU
+code generation, release LTO; no builds ran during measurement. These are
+process round-trip timings, including the benchmark protocol.
+
+| Command               | RGB accepted | RGB cleanup | Change | Off accepted | Off cleanup | Change |
+| --------------------- | -----------: | ----------: | -----: | -----------: | ----------: | -----: |
+| Top 10                |       36.967 |      36.545 | -1.14% |       43.238 |      43.229 | -0.02% |
+| Top 1000              |       51.162 |      50.974 | -0.37% |       55.439 |      55.393 | -0.08% |
+| Top 100 + exact count |       44.893 |      44.756 | -0.31% |       40.639 |      40.466 | -0.42% |
+| Exact count           |       25.331 |      25.257 | -0.29% |       25.924 |      26.018 | +0.36% |
+
+Lifetime peak RSS (accepted/cleanup): rgb: 49.109/49.125 MiB; off: 44.922/44.891 MiB.
+This is process residency, including mapped pages, not a heap measurement.
+The observed timing differences are small; no new speedup claim is made.
+All 20 fixture files remain byte-identical after both correctness and timing
+checks. Raw samples, executable hashes, manifests, and commands are retained
+under `.context/scoring-cleanup/`. No commits were made.
+
+## Trusted text query reads and SIMD audit (2026-09-17)
+
+Normal segment queries now trust Hermes writers for posting directory, decoded
+document order/range, pruning bounds and position-stream invariants. Full metadata
+scans and decoded-document content checks are removed from that path, together
+with the proof cache, lock, budget, CLI option and cache statistics. Explicit
+deserialization and merge admission retain their checks. Format envelopes, I/O
+failures and extents needed by unsafe decoders remain checked. An unsupported
+block count is rejected before allocation or fixed-size kernel entry.
+
+The position reader shares one view constructor; its obsolete cached proof type
+is removed. A regression pins strict rejection of an overflowing checkpoint
+before deriving its layout. Byte encodings and writer defaults are unchanged.
+Footer flags remain necessary layout descriptors: their unknown-bit test is one
+constant mask (`0xff`), not eight runtime validations. See
+[posting codecs](posting-codecs.md#footer-flags-describe-stored-layout).
+
+### Paired measurement
+
+Same fixtures, Rust 1.98.1, release LTO, `target-cpu=native`, and machine per pair.
+The ARM fixture has 100,000 documents; the x86 Xeon fixture has 5,032,104. Both
+use 962 official queries, seven interleaved passes, ten seconds of warmup per
+engine/command, the same dictionary budgets, and unchanged RGB-on/off indexes.
+Reported latency is the geometric mean of per-query median wall time. The old
+comparison uses its tuned 256 KiB validation cache; negative deltas are faster.
+
+| Host / layout | Top 10 | Top 1000 | Top 100 + count |  Count |
+| ------------- | -----: | -------: | --------------: | -----: |
+| ARM / rgb     | -1.54% |   -1.44% |          -2.74% | -1.43% |
+| ARM / off     | -1.48% |   -1.93% |          -1.85% | -1.90% |
+| x86 / rgb     | -3.12% |   -3.00% |          -2.55% | -3.58% |
+| x86 / off     | -3.54% |   -2.24% |          -4.63% | -3.53% |
+
+Against the old zero-byte validation-cache setting (with the same dictionary
+budgets), x86 RGB latency falls 21.8–26.7%. The retained RGB top-10 time is
+433.79 µs versus 447.78 µs with the tuned cache, or 591.46 µs without it.
+These are warm Hermes comparisons; they do not establish cold-I/O, concurrent
+ingestion, tail-latency or cross-engine parity. No BMP speedup is claimed.
+
+The final owner-only cleanup was recompiled and compared against the selected
+query implementation for top-10/count on both layouts, five interleaved passes:
+ARM changes range from −1.18% to +0.53%; x86 from −1.37% to +0.10%.
+
+### Memory
+
+Peak process RSS (MiB), old tuned cache → trusted query implementation:
+
+| Host |           RGB on |         RGB off |
+| ---- | ---------------: | --------------: |
+| ARM  |    48.94 → 45.53 |   44.70 → 44.77 |
+| x86  | 1013.95 → 794.21 | 751.40 → 749.67 |
+
+The deleted proof table saves its configured 256 KiB per segment. RSS additionally
+includes file-backed pages touched by queries and scans; it is not a heap-size
+measurement. The RGB RSS reduction is much larger than the removed allocation.
+A separate one-pass replay with `/proc/PID/smaps` attributes it to position-file
+pages: RGB `.pos` RSS falls from 635.02 to 417.77 MiB, while anonymous RSS falls
+only from 5.52 to 5.28 MiB. Posting-file RSS is nearly unchanged (265.53 to
+265.03 MiB). The removed position validation scan was touching pages that query
+execution did not need. On RGB-off, `.pos` RSS is unchanged at 417.52 MiB. Inspected final-stream
+footers are POS3 for RGB and POS4 for RGB-off: the former interleaves block
+headers and payload, while the latter keeps a separate directory.
+
+### SIMD selection and correctness
+
+An AVX-512F lower-bound candidate used unsigned 16-lane comparisons and masked
+tail loads, retaining AVX2 below 32 values. It passed exhaustive unsigned/tail/
+alignment comparisons and a protected-page test on x86. Its isolated kernel was
+11–25% faster for 32–256 values, but complete RGB top-10/top-1000 queries regressed
+4.3–4.9% against trusted AVX2. The candidate was rejected. Existing AVX2/SSE2,
+NEON and scalar text paths remain, along with supported AVX-512F dense-vector
+and AVX-512 VPOPCNTDQ binary-vector paths. No experimental SIMD code is retained.
+
+The full search harness passed: 1,854 native tests, four real-server broker tests,
+strict Clippy, API docs, native without sync and portable compilation (26 existing
+tests ignored in the ordinary native run). Final cleanup additionally passed
+220 posting/position tests, strict Clippy, a fresh WASM release build and all
+32 JavaScript tests. Final ARM and x86 executables each match 1,676 reference
+queries on each layout: ranked IDs and score bits at k=10/100/1000, complete
+top-100 and exact counts. Healthy serialization is byte-identical for all codecs.
+
+Evidence, executable/source hashes, raw samples and rejected prototypes remain
+local in `.context/validation-simd/`; full-harness evidence is in
+`.context/search-harness/20260917T120701.487250Z-full/`. Benchmark programs and
+raw results are excluded from the PR.
+
+## Binary IVF comparison and scan optimization (2026-09-17)
+
+### Scope and reference engines
+
+The [Faiss binary benchmark](https://github.com/facebookresearch/faiss/wiki/Binary-hashing-index-benchmark)
+uses 50 million 256-bit image descriptors for **range search**. It is relevant
+algorithmically, but its timings are not comparable to Hermes top-k search.
+[Faiss BinaryIVF](https://github.com/facebookresearch/faiss/wiki/Binary-indexes)
+is the measured reference here. Its
+[merge implementation](https://github.com/facebookresearch/faiss/blob/main/faiss/IndexBinaryIVF.cpp)
+copies inverted-list contents and rebases IDs; the caller must supply compatible
+centroids. Hermes also checks the persisted quantizer generation.
+[Milvus BIN_IVF_FLAT](https://milvus.io/docs/bin-ivf-flat.md) exposes a related
+index, but this experiment does not measure Milvus service/storage overhead.
+
+The fixture derives 256-bit and 2,560-bit codes from public SIFT1M vectors by
+centering and seeded Gaussian sign projection: one million rows, 256 held-out
+queries, 256 clusters, probes 1/4/16/64, and top-k 10/100. This is a derived
+binary task, not the published SIFT Euclidean leaderboard. The main comparison
+imports identical Faiss-trained centroids, list membership, codes, and probe
+order into Hermes's existing writer. It isolates the scanner and routing;
+it does not establish independently trained model quality or build-speed parity.
+
+Each engine uses one search thread, a warm-up pass, and five timed batch passes
+per process. The main comparison has three interleaved process rounds. Rust
+1.98.1 builds use release LTO and native CPU targeting; Faiss 1.15.1 uses official
+CPU wheels and their shipped compiler/dispatch. No server, response hydration,
+network, cold-I/O, concurrent ingest, or tail-latency claim follows from these
+warm native timings. ARM is an Apple M4 shared desktop with matched thread QoS;
+x86 is a dedicated eight-vCPU Intel Xeon VM using AVX2. The x86 CPU lacks
+AVX-512 VPOPCNTDQ, so that Hamming path was not performance-tested.
+
+### Retained changes
+
+1. Binary leaf scoring reads the existing collector's conservative threshold
+   once per 64 scores. Scores strictly below it skip document IDs, ordinals,
+   visibility checks, and collector insertion. Every selected code is still
+   scored. Equal-score candidates retain existing tie-breaking; Sum/Avg/
+   LogSumExp/WeightedTopK retain every ordinal. The shared sink now owns the
+   threshold method previously confined to ScaNN AH, avoiding a second trait.
+2. The existing Hamming kernel receives a literal width for 256-bit code batches,
+   allowing LLVM to unroll the same implementation. The four-row kernels are
+   inline-eligible; CPU feature guards, bounds, row tails, and scalar fallback
+   remain intact. No separate scoring implementation, cache, or format is added.
+
+Representative preassigned-leaf top-10 times at 16 probes (microseconds/query):
+
+| Host / bits |   Before | Threshold only | Threshold + width specialization |    Faiss | Tie-aware recall |
+| ----------- | -------: | -------------: | -------------------------------: | -------: | ---------------: |
+| ARM / 256   |   182.39 |          92.82 |                            80.11 |    41.32 |           97.62% |
+| x86 / 256   |   523.28 |         334.57 |                           272.29 |   193.34 |           97.62% |
+| x86 / 2,560 | 2,488.73 |       2,330.52 |                         2,309.28 | 2,741.84 |           98.52% |
+
+The x86 specialization column is a separate two-round interleaved check against
+threshold-only: 332.30 → 272.29 µs at 256 bits and 2,323.48 → 2,309.28 µs at
+2,560 bits. Across probe budgets, specialization improves x86 256-bit top-10 by
+16.8–18.4%, versus 13.0–16.6% on ARM. The x86 wide-code effects are approximately
+−0.6% to +2.0%; ARM wide-code samples drift substantially on the shared desktop
+and are inconclusive. Do not infer a wide-code ARM gain from them.
+
+Hermes remains slower than Faiss for 256-bit codes: approximately 1.41× on x86
+and 1.94× on ARM at the tabulated point. Hermes is approximately 16% faster for
+2,560-bit x86 scanning on this fixture. Neither is a general engine-parity claim.
+
+All main baseline/threshold results have identical document IDs, ordinals, and
+score bits at every budget. Specialized scans match their controls too. With
+identical preassigned leaves, Faiss's sorted Hamming distances match exactly;
+recall is tie-aware against exhaustive BinaryFlat ground truth. At 64 probes,
+top-10 recall is 100% for both widths. A separate quality-only check trained
+Hermes on the same 65,536 sampled rows for ten iterations: top-10 recall at 16
+probes is 97.54% / 98.98% for 256 / 2,560 bits, versus the shared Faiss model's
+97.62% / 98.52%. Those separately trained runs have different list populations
+and are not substituted into the scanner timing comparison.
+
+### Memory, storage, and merge
+
+For one million single-value vectors, 256 clusters:
+
+| Bits  | Hermes ANN bytes | Hermes flat bytes | Faiss serialized bytes |
+| ----- | ---------------: | ----------------: | ---------------------: |
+| 256   |       38,012,368 |        38,000,016 |             40,010,355 |
+| 2,560 |      326,012,368 |       326,000,016 |            328,084,083 |
+
+Hermes keeps two exact binary code copies, each with six bytes per vector for
+IDs and ordinals. Together they use about 1.9–2.0× the standalone Faiss index's
+disk space before outer container/shared model metadata. The measured Faiss index has no direct map (type 0), so its disk size does not
+include an arbitrary-ID vector lookup structure. Flat storage currently supports
+retrieval, training, rebuild, and multi-value completion; removing its writer
+alone would break those operations. A single-value ANN query does not
+read that second code payload for reranking.
+
+Both Hermes corpus payloads are evictable; disk size is not heap residency.
+The isolated ANN reader's measured heap directory is 18,632 bytes at 256 runs,
+plus existing bounded query scratch. A Linux warm-query snapshot reports Hermes
+process RSS of 39.36 / 313.94 MiB and anonymous RSS of 0.70 / 0.70 MiB at the two
+widths. Faiss's Python process reports 80.88 / 356.04 MiB RSS and 58.40 / 333.54
+MiB anonymous RSS. These include different language runtimes and exclude Hermes's
+flat representation/document fields; they illustrate mmap versus heap ownership,
+not a fair whole-index memory ratio. The retained changes add no query or index
+allocation and change no persisted bytes.
+
+Two distinct one-million-row sources were merged. Hermes's copied payload
+columns remain byte-identical, with rebased IDs and 512 post-merge query checks
+per width. Faiss's codes and rebased IDs match its sources too. Hermes streams
+the persisted output, while Faiss first merges heap lists and then serializes;
+these are different timing/durability contracts, so no merge speedup is claimed.
+The first wide merge ran out of VM disk space; after removing build-cache
+artifacts, the retry and byte/query checks passed.
+
+### Remaining storage work and validation
+
+The selected [exact binary storage design](binary-vector-storage.md) preserves
+retrieval, multi-value scoring, and rebuild/ALTER by retaining cluster-ordered
+exact codes and adding a document lookup. At the end of the scanner experiment,
+the indirect format was not implemented; the following section records its
+subsequent implementation as the default, without a flag. Lossless XOR-residual compression saved 25–27% of code
+bytes on this fixture, but compressing one of two copies only saves roughly
+12–13% overall before metadata; one-copy storage offers greater potential savings.
+
+The final implementation passed `python3 scripts/check_search.py check`: formatting,
+strict Clippy, 1,857 native tests (26 existing tests ignored), and native compilation
+without sync. A fresh WASM release build and all 32 JavaScript tests passed, as
+did the documentation/link checker. The regression covers ties, deletions,
+batch/run boundaries, serial/parallel collectors, and complete ordinal output.
+The shared Hamming test explicitly exercises scalar and runtime-selected kernels
+across widths and tail counts. Lifecycle/RPC code and persisted formats are
+unchanged; the full lifecycle/RPC harness was not rerun for these scanner changes.
+The benchmark VM was confirmed `TERMINATED` after results were collected.
+
+All benchmark adapters, fixtures, raw samples, hashes, failed exploratory runs,
+and experiment scripts stay ignored under `.context/binary-ivf/`; they are not
+part of the production diff. Final harness logs are in
+`.context/search-harness/20260917T133803.778018Z-check/`.
+
+## 2026-09-17 — Single-copy binary ANN storage by default
+
+Implemented the [exact binary storage format](binary-vector-storage.md) for
+Binary IVF and binary ScaNN. New trained writes retain their exact codes in ANN
+and replace the flat duplicate with TOC type 11: a versioned document/ordinal
+lookup into copyable code spans. There is no flag. Flat-only and untrained
+fields retain their sole flat representation; float formats are unchanged.
+SOAR still has its intentional secondary ANN assignments, while exact retrieval
+exposes each logical value once.
+
+### Ownership and merge review
+
+- The existing ANN writers report their actual code positions. A bounded
+  external metadata sorter creates lookup blocks during build/rebuild and
+  deletion compaction. Sort files are anonymous, owned before writing, and
+  removed on drop, failure, cancellation, or unwind. Fan-in is capped at 16;
+  the in-memory run holds at most 65,536 sixteen-byte records. Compaction
+  splits its existing scratch budget between ANN output and lookup creation.
+- Normal binary merge copies both ANN payloads and document lookup rows
+  byte-for-byte. It relocates only ANN run directories, span byte bases, and
+  block document bases. No vector reconstruction, assignment, retraining, or
+  per-vector address rewriting occurs in this path. Retaining source extents
+  means fragmentation can grow; this replaces automatic binary run coalescing.
+  Float AH retains its existing packing policy.
+- Legacy flat-plus-ANN sources have no lookup blocks. Their first merge logs
+  the upgrade and sorts lookup metadata from existing ANN labels and spans;
+  ANN code bytes remain unchanged. Subsequent merges copy the lookup. Existing
+  BMP reorder clones the vectors file through the existing reorder owner.
+- The exact-vector reader shares the ANN reader's immutable byte owner.
+  This matters for HTTP/WASM as well as mmap: no duplicate corpus allocation
+  or second range-fetch path is introduced. Contiguous reads retain shared
+  byte views; scattered batches gather directly from the same owner.
+- Existing readers, scorers, training, generation publication, and row deletion
+  own their existing responsibilities. ALTER's deferred-flat path materializes
+  exact codes through the common reader. Direct ALTER to a `flat` algorithm
+  remains unsupported by the existing schema contract. Raw flat merge keeps
+  its bounded byte windows even for vectors larger than one window.
+- Diagnostics report `exact_storage` and `exact_lookup_bytes`; `flat_bytes`
+  becomes zero for ANN-backed exact storage. Old readers reject the unknown
+  type-11 entry. New readers retain compatibility with old flat-plus-ANN files.
+
+### Measured storage and memory model
+
+Same one-million-row projected-SIFT fixtures, 256 clusters, Apple M4, Rust 1.98.1,
+release with LTO and `-C target-cpu=native`. The source ANN payload is byte-identical
+to the earlier fixture; every exact vector was also checked against the original
+base codes. Serialized field regions, excluding the common 58-byte outer TOC
+and footer and the unchanged shared model:
+
+| Bits  | Previous ANN + flat |  ANN + lookup | Reduction |
+| ----- | ------------------: | ------------: | --------: |
+| 256   |        76,012,384 B |  52,015,488 B |    31.57% |
+| 2,560 |       652,012,384 B | 340,015,488 B |    47.85% |
+
+The lookup is 14,003,120 bytes at either width: 14 bytes per logical vector,
+256 twelve-byte spans, one sixteen-byte block, and a 32-byte header. The new
+reader's owned block directory adds 40 heap bytes for this one-block fixture
+(240 versus 200 bytes for the exact-vector view object plus owned directory).
+Lookup rows/spans and ANN codes remain file-backed under mmap. The wider lookup
+adds eight bytes per logical value to document lookup metadata, so a fully
+pinned lookup budget can grow even though total disk storage falls. These sizes
+are not whole-process RSS measurements. At dimensions below 64 bits, the map can
+be larger than the removed duplicate codes and labels; the requested single-copy
+default still applies.
+
+### Correctness and verification
+
+The new behavior test first failed because trained binary fields still emitted
+flat payloads, then passed with type 11 present and the duplicate type 4 absent.
+Tests cover repeated three-generation byte-copy merges for binary IVF and binary
+ScaNN, missing documents, multi-value ordinals, SOAR deduplication, legacy lookup
+construction, malformed addresses/versions, all five combiners, retraining,
+ALTER through deferred flat and back, deletion compaction, and readers retained
+across generation replacement. Native async and sync paths are exercised. The
+ScaNN writer/compactor test also preserves a surviving nonzero ordinal while
+removing a document with a secondary assignment.
+
+The spill sorter matches in-memory output byte-for-byte with forced tiny runs.
+Write failure and cancellation propagate as errors. Publication and cleanup
+continue through the existing generation/lifecycle owners and their regression
+suite. WASM's release build and 32 existing JavaScript tests pass; an additional
+native-built single-copy fixture opens in WASM and returns exact multi-value
+codes and missing-value results.
+
+Benchmark adapters, source snapshots, fixtures, and logs remain ignored under
+`.context/single-copy/`. No benchmark source was added to the production change.
+
+Warm exact-access microbenchmarks on that shared desktop, median of five
+iterations, same optimized executable for both layouts:
+
+| Bits  | Flat / shared point read (ns/vector) | Flat / shared full scan (ms) |
+| ----- | -----------------------------------: | ---------------------------: |
+| 256   |                         6.66 / 43.00 |                0.526 / 6.624 |
+| 2,560 |                        66.03 / 98.63 |               5.363 / 21.997 |
+
+Point reads sample 10,000 deterministic rows. Full scans use 1,024-row batches
+and checksum all bytes in both paths. These are warm mmap access costs, not
+ANN-query latencies. Gathering makes document-order scans slower than the removed
+contiguous copy. The initial per-row range-read implementation took 14.17 / 34.75
+ms for the two full scans; sharing the ANN byte owner and gathering directly
+reduced those samples to 6.62 / 22.00 ms. The runs were separate checks on a shared
+desktop, so their ratio is directional evidence, not a controlled service-level
+speedup. Normal ANN scan bytes and kernels are unchanged.
+
+One observed two-million-row copy merge wrote ANN plus lookup in 6.75 / 44.66 ms
+at the two widths, with outputs retained in RAM. Those single observations do
+not measure durable filesystem throughput and are not compared with the previous
+coalescing policy. The correctness tests separately pin payload byte identity
+through repeated merges. Cold-query latency, whole-process RSS/peak scratch,
+concurrent ingest/merge latency, and x86 storage measurements were not rerun for
+this format change; no improvement in those quantities is claimed.
+
+Full harness evidence: `.context/search-harness/20260917T142950.056452Z-full/`
+passes 1,864 tests (26 normally ignored), then four real-server broker tests,
+strict Clippy, native-without-sync and portable compilation, and API docs.
+The final bounded-copy/budget cleanup also passed
+`.context/search-harness/20260917T143624.567115Z-check/`. The initial broad run
+caught a stale error-message assertion and another run hit an existing broker
+10-second discovery timeout; the complete rerun passed with `RUST_TEST_THREADS=2`.
+WASM evidence is `.context/single-copy/wasm-final.log`; all benchmark data and
+source adapters remain under the ignored context directory.
+
+A final failure-path regression reproduced acceptance of a short lookup read
+when the returned prefix happened to form a valid smaller map. Opening now checks
+the returned metadata length against the declared slice before parsing. The
+focused regression (`exact_vector_lookup_rejects_short_metadata_reads`) passes,
+as does fresh strict Clippy; this admission-only fix was checked separately after
+the full harness. Final WASM verification includes the same guard. Evidence is
+in `short-read-before.log`, `short-read-after.log`, and `clippy-final.log` under
+`.context/single-copy/`.
+
+## 2026-09-17 — Binary storage compatibility removal and standalone reorder
+
+The earlier single-copy implementation retained an upgrade branch for duplicate
+flat-plus-binary-ANN segments. Removed that branch and the normal ANN merge
+writer's optional lookup-construction callback. Search and filtered training
+admission now reject that duplicate layout explicitly; flat-only/untrained binary
+fields still work. Old duplicate-layout indexes must be recreated.
+
+Standalone `IndexWriter::reorder` now uses the existing encoded-run compactor
+for fragmented binary IVF/ScaNN fields and the existing bounded exact-location
+sorter. Codes and ordinals remain exact, document labels are rebased, and global
+ANN artifacts are unchanged. The operation shares the existing output claim,
+cancellation, cold writer, memory budget, and generation publication. Its budget
+reserves compactor directories/span metadata and 256 KiB label scratch before
+admitting the sorter. Text plan scratch is released before vector coalescing.
+
+This is separate from ordinary merge and from configured text/BMP merge-time BP.
+Normal binary merge copies ANN payloads and lookup rows unchanged and only rebases
+run/span/block directories. It cannot allocate a lookup sorter. A copied cluster
+can consequently span multiple source extents; standalone reorder joins those
+extents. Already contiguous vector files are linked/copied unchanged. Explicit
+reorder works on binary-only indexes; the server's automatic BP scheduler still
+selects indexes through its existing text/BMP reorder-field policy.
+
+The behavior regression failed before the change with fragmentation
+`1.875 -> 1.875`; after wiring the existing compactor it reaches `1.0`. Coverage
+also checks binary-only and mixed BMP indexes, exact codes/labels, old readers,
+byte-identical vector files after a second reorder, repeated merges, SOAR
+secondary assignments, and cancellation. Evidence lives in the ignored
+`.context/single-copy/` directory; no benchmark harness is added to production.
+
+Reader admission now resolves lookup spans to ANN label columns once, then
+validates rows sequentially through the shared document-map validator. ANN
+label checks follow physical payload order. Native metadata prefetch is bounded:
+up to two 64K-row lookup windows and an 8 MiB page-rounded ordinal budget. Exact
+code payloads remain untouched during this validation. This removes repeated
+per-row lookup-block/run searches without dropping corruption checks.
+
+The durable vector-only comparison uses two copies of the same one-million-row
+projected-SIFT input, 256 clusters, production cold writers and fsync. The prior
+layout is reconstructed with the existing ANN compactor and duplicate-flat copy
+loop; the new layout uses the normal ANN/lookup copy writers. Both run in the
+same release executable on the Apple M4 with native CPU flags. Six alternating
+rounds discard the first; the following are medians of the remaining five from
+`merge-qos-{256,2560}.json` under `.context/single-copy/`:
+
+| Code width | Prior write + open | Single-copy write + open | Prior process CPU | Single-copy process CPU |
+| ---------- | -----------------: | -----------------------: | ----------------: | ----------------------: |
+| 256 bits   |          319.18 ms |                436.30 ms |          86.34 ms |                76.98 ms |
+| 2560 bits  |         1623.96 ms |                774.19 ms |         444.49 ms |               235.33 ms |
+
+These measurements overlapped validation builds/tests and are diagnostic, not
+quiet-machine service benchmarks. Earlier repetitions also varied substantially.
+Writing is cheaper in both cases, but opening the copied metadata remains more
+expensive; the small-code case still regresses in elapsed time. Thus the requested
+no-slower end-to-end merge condition is **not established**. No retraining,
+re-encoding, or corpus-sized sort occurs in normal merge. This experiment omits
+other segment files and atomic publication, and does not measure whole-process
+peak RSS or x86 performance. The existing single-copy storage-size measurements
+above remain applicable; bounded scratch accounting is not a measured RSS result.
+
+The lifecycle implementation passed the full harness at
+`.context/search-harness/20260917T155806.521805Z-full/`: 1,866 native tests,
+26 ignored, four real-server broker tests, strict Clippy, portable/native
+compilation and API documentation. The final `check` run at
+`.context/search-harness/20260917T161756.487246Z-check/` also passes all four
+stages against the subsequent reader refinements. Final WASM release build and all 32 tests pass, including a
+native-built binary ANN fixture with exact multi-value and missing-value reads
+(`.context/single-copy/reorder-wasm-final.log`).
+
+## Experimental Seismic sparse retrieval (2026-09-17)
+
+An isolated native prototype under `.context/seismic-experiment/` reuses upstream
+Seismic clustering/summaries and Hermes BMP forward storage, query preparation,
+candidate scoring and collection. No production dependency, format, dispatch or
+schema option was added. It supports one nonnegative vector per document only.
+The source snapshot, patches, source/data hashes, commands and full results are
+preserved there in `README.md`, `reproduction.json`, and `RESULTS.md`; benchmark
+artifacts remain ignored and are not intended for commit.
+
+On Apple M4, release LTO/native flags and the same nightly compiler, 1,000
+eligible public NeurIPS SPLADE sparse-1M queries produced these fastest tested
+results at >=99% recall against common quantized exhaustive truth. Times are
+warm mean milliseconds, with one warm-up and two measured passes. Search budgets
+were swept for BMP and Seismic; these are not held-out parameter selections.
+
+| Engine                                | Top-10 ms / recall | Top-100 ms / recall |
+| ------------------------------------- | -----------------: | ------------------: |
+| BMP                                   |    7.596 / 99.860% |    11.651 / 99.101% |
+| BMP + existing BP reorder             |    2.529 / 99.450% |     6.190 / 99.523% |
+| Reference Seismic, fresh              |    0.297 / 99.320% |     1.084 / 99.218% |
+| Hermes Seismic prototype, fresh       |    0.814 / 99.320% |     3.163 / 99.218% |
+| Hermes prototype, 4 copied fragments  |    2.464 / 99.470% |  target not reached |
+| Hermes prototype, 16 copied fragments |    1.954 / 99.440% |     5.705 / 99.402% |
+
+Fresh high-recall Seismic uses up to 4,096 postings/term; copy-fragment tests use
+512 per term in each independent source. With 512, a fresh 1M index tops out near
+93% top-10 recall in the tested sweep, so its fast low-recall timings are excluded
+from the table. The 100K fixture, p95/p99, configurations and candidate counts are
+also recorded in the ignored report.
+
+The fresh 4,096-posting prototype stores 2.553 GB (1.916 GB nominations plus
+0.637 GB forward values), versus BMP's 1.591 GB or BP BMP's 1.401 GB. At fixed
+512-posting build settings, total prototype bytes grow from 1.274 GB fresh to
+2.432 GB with four fragments and 4.700 GB with sixteen. The corresponding
+vector-only copy+fsync times were 1.55, 2.43 and 6.61 seconds. These exclude reader
+opening, other files and atomic publication; they do not resolve the separate
+binary ANN end-to-end merge regression above. Build/RSS measurements are in the
+report; summary objects still reside on heap and require an evictable format
+before production integration.
+
+Merge streams unchanged nomination payloads with a 64 KiB buffer and remaps run
+headers; forward values use the existing copy writer. Repeated-copy bytes and
+all copied forward vectors are checked. Missing IDs, duplicate nominations and
+ties pass exact exhaustive-score comparisons on synthetic 1/4-fragment indexes;
+cancellation, short writes and overflowing row offsets fail as expected. Normal
+merge performs no sparse clustering, summary recomputation or model training.
+It retains locally pruned candidates, so it is not equivalent to rebuilding one
+globally pruned index. Bounded optimization outside normal merge is still needed
+to control retained-list and summary growth.
+
+Caveats: first 1,000 of 5,655 eligible <=64-term queries out of 6,980, no truncation;
+quantization alone yields 99.37% (100K) and 99.03% (1M) original-float top-10 overlap.
+Approximation can lose further original-float neighbors. No cold/RPC/concurrency,
+filters, multi-value, deletion/purge, mixed quantization scales or prototype WASM
+support is established. Reference Seismic uses f32 storage for the shared integer
+values and no optional kNN graph; this is not a claim about its fastest encoding.
+Future work should profile the shared forward candidate path, budget fragmentation,
+and implement production lifecycle integration before considering any default.
+
+Validation: the final native prototype checks pass. `python3 scripts/check_search.py
+check` passes all four stages (format, strict Clippy, native tests and portable
+native compilation), with evidence in
+`.context/search-harness/20260917T174456.373217Z-check/`. Documentation checks pass
+for 119 Markdown files, 568 local links and 20 benchmark targets. Prototype WASM
+was not run; the new experimental dependency requires native nightly compilation.
+
+### Seismic scorer and memory follow-up (2026-09-17)
+
+The isolated prototype now reuses the existing BMP query-weight lookup experiment
+and CPU prefetch helper. A reusable 120,436-byte query table replaces repeated
+sparse-query walks; prefetch is bounded to 32 candidates and 512 bytes per vector.
+At the user's request, the final experimental scorer skips per-candidate payload
+corruption scans. Safe slice/table bounds and score-overflow checks remain;
+explicit validation remains available for diagnostics. No scan was moved to
+reader admission. Production BMP dispatch and validation are unchanged.
+
+Three alternating independent process runs per engine on the same M4/compiler,
+fixture and release flags give these median warm mean latencies:
+
+| Top-k | Original Hermes ms | Final Hermes ms | Reference Seismic ms |  Recall |
+| ----: | -----------------: | --------------: | -------------------: | ------: |
+|    10 |              0.828 |           0.306 |                0.318 | 99.320% |
+|   100 |              3.162 |           1.098 |                1.107 | 99.218% |
+
+The improvement is 2.7–2.9x; this supports parity on this fixture, not a general
+cross-platform lead. All 110,000 returned IDs, scores and positions are
+byte-identical between Hermes scorers in every paired run. Candidate counts and
+recall against shared quantized truth are unchanged. A separate single-run
+16-fragment top-100 comparison improves 5.550 to 2.635 ms with byte-identical
+results and 99.402% recall. Formats, nomination budgets and merge logic did not
+change. Reproduction metadata, source patches and full measurements are in
+`.context/seismic-experiment/optimization/RESULTS.md` and `reproduction.json`.
+
+Query-process peak RSS remains about 2.61 GB. Owned nomination structures account
+for approximately 1.57 GB of summaries, 171 MB of row IDs and 31 MB of offsets;
+the forward file maps another 637 MB. Reused visited/query scratch is only about
+4.12 MB. Thus the peak chiefly reflects resident index state, not per-query
+scratch. Across the 1,000 queries, the selected-term union covers only 523 MB at
+cut=10 or 669 MB at cut=20, while the current loader owns all nomination objects.
+A term-addressable file-backed representation or byte-budgeted cache remains
+necessary before production integration; cold-I/O costs are not established.
+
+The high-recall build took 103.4 seconds and peaked at 8.92 GB RSS, including BMP
+preparation and export, so it is not an isolated constructor comparison. Its
+2.553 GB disk footprint and the copy-merge measurements above are unchanged.
+At fixed 512-posting settings, sixteen fragments occupy 3.69x the fresh bytes.
+Copy-only merge preserves local pruning and clusters; an explicit bounded
+optimization outside normal merge is required to control that growth. Merely
+reordering forward vectors cannot remove duplicated retained lists/summaries.
+
+Final native kernel and copy checks cover duplicate contributions, refreshed and
+empty queries, score overflow, explicit corrupt-payload validation, missing IDs,
+ties, repeated-copy bytes, cancellation and short writes. All four production
+harness stages pass at `.context/search-harness/20260917T180804.078981Z-check/`;
+that harness does not exercise the isolated CLI, which has separate checks.
+Prototype WASM and x86 remain untested. No production Seismic integration or
+benchmark-artifact commit is included.
+
+### Seismic maintenance feasibility (proposal, 2026-09-17)
+
+The existing optimizer/reorder lifecycle can host bounded term-level Seismic
+maintenance while ordinary merges continue copying encoded fragments. Repacking
+alone cannot remove retained nominations and cluster summaries; reducing that
+debt requires re-pruning and rebuilding selected terms with the shared forward
+vectors and existing Seismic builder. The prototype needs term-addressable
+payloads and a bounded term builder before this can be an incremental pass;
+its current whole-fragment bincode loader is unsuitable. No maintenance code or
+new production defaults were added in this investigation.
+
+For fixed top-L pruning, local retained lists suffice to compute global top-L
+under matching capacity, weights and stable tie order. This does not establish
+identical approximate results after reclustering. Increased capacity, deletions
+and changed weights can require recovery from complete forward data. Maintenance
+must preserve a measured recall target: the fixed-512 fresh index's approximately
+93% top-10 recall makes its smaller bytes an invalid equal-recall compaction
+claim. Budget scratch, clustering, output I/O and reader overlap; keep separate
+Seismic debt and completion cooldown. Reuse source/output claims and atomic
+replacement instead of creating a second publication protocol.
+
+Code tracing also found that binary ANN coalescing runs inside standalone
+reorder, but periodic fresh/deepening selection in the server optimizer is gated
+on `has_reorder_fields()`. Seismic integration needs independent debt eligibility;
+ANN-only scheduling should be reviewed alongside it. Detailed proposal and
+acceptance criteria are in the ignored experiment's `DESIGN.md`. These are
+unimplemented findings, not measured maintenance savings.
+
+### Seismic term maintenance experiment (2026-09-17)
+
+The isolated CLI now implements term-addressable nomination packs, explicit
+bounded term maintenance and copy-only pack merging. It reuses upstream
+Seismic's existing single-list clustering/summary builder, Hermes BMP forward
+values and cold output writers. Ordinary merge and untouched-term maintenance
+share sequential range copying with row-directory remapping; adjacent payload
+extents are coalesced without decoding. Directory parsing buffers reads; term
+payload reads remain bounded to their own extents. No production dispatch,
+scheduler, schema or public format was added.
+
+On the same 1M M4 fixture, consolidating sixteen 512-posting source fragments
+toward 4096 retained postings/term reduced nominations from 61,779,257 to
+42,657,454. Nomination bytes fell from 4.076 to 1.917 GB; including unchanged
+forward storage, total bytes fell from 4.713 to 2.554 GB (45.8%). It rebuilt
+27,586 terms, with no remaining eligible terms or memory-admission skips.
+Full maintenance took 209.05 seconds on one worker and peaked at 0.837 GB RSS,
+including mapped forward pages. This full pass preceded the copy/parser
+refinements; the term selection and clustering algorithms are unchanged.
+
+Three alternating process runs per layout, one warm-up and two timed passes,
+give these medians of warm mean latencies. The maintained layout uses larger
+query budgets to meet or exceed the original layout's recall:
+
+| Top-k | Before ms / recall | Maintained ms / recall | Query peak RSS before / after GB |
+| ----: | -----------------: | ---------------------: | -------------------------------: |
+|    10 |    1.107 / 99.440% |        0.422 / 99.610% |                    3.994 / 2.777 |
+|   100 |    2.601 / 99.402% |        1.275 / 99.504% |                    4.550 / 2.778 |
+
+Recall is against shared quantized exhaustive truth. Source-capacity shortages
+and upstream tie policy prevent a fresh-global-top-L equivalence claim. Exact
+candidate scores are unchanged; approximate candidate sets/results can change.
+The query adapter still heap-loads summaries, so this does not implement
+file-backed query summary access.
+
+A 64-term pass required 1.17 seconds of term work. Sequential range copying and
+buffered directory parsing reduced its wall time from 16.42 to 6.32 seconds,
+with byte-identical payloads. Whole-pack rewriting remains significant: small
+CPU budgets do not imply small output I/O. Copying the maintained 1.917 GB
+nomination pack alone took 2.69 seconds including fsync; it copied no forward
+file and excludes production segment publication. Another maintenance pass on
+the converged layout rebuilt zero terms and retained byte-identical pack bytes.
+
+Limits include terms/pass, a soft time window between non-preemptible term
+builder calls, a conservative scratch admission estimate and a separate hard
+output-byte cap. Skipped work/remaining debt are reported; scratch estimates are
+not allocator-enforced RSS caps. Production must still integrate the shared
+optimizer permits, cooldown, independent debt eligibility and SegmentManager
+publication, and address repeated whole-file I/O. Deleted-candidate backfill,
+filters, multi-value, prototype WASM and x86 remain unimplemented/untested.
+
+Native checks cover exact small-fixture results, missing IDs, duplicate term
+nominations, ties, partial progress, continuation, idempotence, untouched payload
+bytes, row rebasing, scale incompatibility, overflow, short writes, cancellation,
+panic cleanup and output ownership. Format conversion preserves all 110,000
+result IDs/scores/positions on the 1M query set. Full ignored evidence and
+commands are in `.context/seismic-experiment/maintenance/RESULTS.md` and
+`README.md`. Benchmark artifacts remain uncommitted.
+
+Final validation: `python3 scripts/check_search.py check` passes all four stages
+at `.context/search-harness/20260917T185414.002295Z-check/`; native prototype
+checks pass separately. Documentation links, snapshot formatting and whitespace
+checks pass. No prototype WASM or x86 run is claimed.
+
+## Seismic production integration — September 17–18
+
+Seismic now owns all sparse build/read/search paths. Removed sparse BMP and sparse
+MaxScore formats, writers, scorers, tuning flags and reorder kernels have no
+compatibility dispatch. Text MaxScore/BP and dense ANN retain their owning code.
+The shared weight codec preserves Float32, Float16, UInt8 and UInt4 forward
+values, with signed scoring, empty/missing values and logical ordinals.
+
+Normal merges copy encoded runs through the existing directory range-copy
+operation and remap small metadata. They never cluster. Bounded maintenance and
+explicit deletion compaction reuse SegmentManager ownership, immutable
+publication, cancellation and deferred retirement. A new regression exposed and
+fixed a deletion-generation lifetime race: maintenance now pins its exact source
+deletion mask while concurrent visibility changes publish independently.
+
+The broad tests also caught a distinction between complete ordinal aggregation
+and matched positions. Zero contributions remain part of document scoring, while
+fusion receives only genuinely matching ordinals, including cancelling matches.
+Infinite cluster-summary proxies no longer reject valid finite document scores;
+actual score overflow still returns an error. Sparse `reorder` is rejected as a
+meaningless option; indexed plain/chunked text retains BP, while Seismic and binary
+ANN maintenance follows actual persisted debt.
+
+A final multi-value regression found native/WASM vector queries using temperature
+0.7 while sparse-term queries and RPC used 1.5. Constructors and the RPC unset
+case now reuse `MultiValueCombiner::default()` (1.5); explicit temperatures are
+preserved. This intentionally changes omitted-combiner native/WASM multi-value
+scores to match the shared default. Single-value benchmark scores are unchanged.
+
+### Remaining production costs
+
+- Maintenance currently rewrites the entire sparse file, even for a small term
+  batch. It rebuilds at most 64 terms per pass, with shared scratch/time/cancel
+  admission. The optimizer's finite follow-up limit can leave visible debt; it
+  does not promise immediate convergence of a large copied vocabulary.
+- Selection favors fragment count, then dimension ID. Emission order also sets
+  rebuild order. This does not model query frequency or saved payload bytes.
+- Format open visits forward directories and cluster headers. Payloads remain
+  evictable mappings, but this traversal can fault pages containing cluster
+  payloads. Process RSS therefore includes mapped residency as well as heap.
+- Required sparse scoring clauses use two complete forward passes to accommodate
+  the existing infallible scorer-advance interface. Selective bitmap filters use
+  exact scoring of eligible IDs; predicate/deletion underfill can trigger a
+  forward scan. These paths preserve membership but can cost more than nomination.
+- Geometric build retains decoded rows and an inverted candidate map while
+  clustering. Compaction charges 384 bytes per coordinate plus per-vector scratch;
+  selected-term maintenance charges 192. These admission estimates are not a
+  guarantee of an identical operating-system RSS ceiling.
+
+### Production benchmark method
+
+The final matrix uses the original Float32 SPLADE CSR fixtures (100,000 and
+1,000,000 documents), Apple M4, macOS, Rust nightly 1.100.0
+(`215a8af4b`, September 15), release thin LTO, one codegen unit and
+`target-cpu=native`. Search/Rayon/Tokio have four workers; ingestion has one
+builder and two compression workers. Runs are sequential, without overlapping
+compilation. Input pages are warmed before building. Query means exclude one
+warm-up pass and include two timed passes over the same first 1,000 eligible
+queries (at most 64 dimensions). These workloads are unfiltered and each
+document has one vector. Timers surround Hermes's public search call;
+stored-ID hydration is outside the latency timer. Merge and maintenance timers
+start after writer opening; their process peaks include opening. The 1M merge
+input runs are hashed outside the timer, warming those input pages. Peak RSS includes
+opening, mappings and hydration. These are warm-query measurements, not a
+controlled cold-storage benchmark.
+
+Reference Seismic is upstream `3c267137e202748e69ada8cd093f4c0b7c04479c`
+with vectorium `39e016caed0ed030b56ab0532d4dcf0c71556b6e`, built with the same
+compiler/flags and four threads. Its standalone kernel has no Hermes document,
+filter, multi-value or lifecycle layer. It uses U16 dimensions and an owned
+serialized index; Hermes uses U32 forward dimensions and mmap plus stored IDs.
+Both use 4,096 postings, strongest 15 coordinates for assignment, target cluster
+size 64, summary energy 0.4, and query cut/factor 10/0.85. Sampling and minimum
+cluster policies differ. Reference builds posting lists in parallel with Rayon;
+Hermes currently clusters terms serially within the single indexing builder.
+The build comparison therefore measures complete implementations with different
+active clustering concurrency, not equal-core kernel throughput. Reference is
+a useful cost/quality comparison, not an identical implementation or
+merge-capable replacement.
+
+Previous Hermes MaxScore provides the unquantized exact-result oracle. Previous
+BMP requires UInt8 quantization (fixed global maximum weight 5.0), so its recall
+also includes quantization effects. Recall below is strict document-ID recall;
+no relevance judgments or tie credit are applied. Removed engines exist only in
+ignored benchmark snapshots, not production dispatch.
+
+### Format-preserving optimizations: 100,000 vectors
+
+| Operation                            |   Before |    After |              Change |
+| ------------------------------------ | -------: | -------: | ------------------: |
+| Build                                | 40.214 s | 28.137 s |     30.0% less time |
+| Top-10 mean                          | 3.316 ms | 2.223 ms |     33.0% less time |
+| Top-100 mean                         | 5.546 ms | 3.558 ms |     35.8% less time |
+| Exhaustive top-100 mean, 100 queries |  43.4 ms |  19.7 ms | about 55% less time |
+| Peak build RSS                       | 595.7 MB | 644.1 MB |   +48.4 MB observed |
+
+Build caches each row's strongest 15 coordinates once and uses partial top-L
+selection before sorting retained nominees. Search reuses a bounded weight
+lookup across summary and exact row scoring. The 888,326,149-byte `.sparse` file
+is byte-identical before/after (SHA-256
+`0f9c86f3cc6f37ace4a0e34b8167d3cc239e39b14729887ed3a4cbaa17acf443`).
+All 330,000 top-10/top-100 result IDs and scores across fresh, copied-merge and
+maintained layouts are identical to their corresponding pre-optimization
+results. The cache's fixed allocation is 12 MB for this corpus; allocator and
+other working-set differences mean that is not the full observed RSS delta.
+
+The fresh optimized index gets 99.580% top-10 and 99.484% top-100 recall.
+Reference Seismic gets 99.770% / 99.744% at 0.920 / 1.552 ms: Hermes remains
+about 2.4× / 2.3× slower on this fixture. Old BMP takes 1.757 / 2.990 ms at
+99.080% / 99.271%; old exact MaxScore takes 4.269 / 6.085 ms. This is not a
+claim of parity or a uniform speedup over the removed backends.
+
+### Production matrix: one million vectors
+
+All sizes below are decimal GB. Build wall times include construction and commit;
+query times are warm means over the common 1,000-query fixture.
+
+| Engine                  | Build s | Index GB | Peak build RSS GB |
+| ----------------------- | ------: | -------: | ----------------: |
+| Previous exact MaxScore |   1.575 |    0.763 |             3.235 |
+| Previous BMP (UInt8)    |  27.082 |    1.552 |             3.902 |
+| Reference Seismic       |  51.883 |    1.865 |             3.888 |
+| Hermes Seismic          | 122.856 |    3.702 |             5.437 |
+
+| Engine                  | Top-10 ms / recall | Top-100 ms / recall | Peak query RSS GB |
+| ----------------------- | -----------------: | ------------------: | ----------------: |
+| Previous exact MaxScore |  33.424 / 100.000% |   46.143 / 100.000% |             0.690 |
+| Previous BMP (UInt8)    |   10.544 / 98.760% |    16.559 / 99.175% |             0.852 |
+| Reference Seismic       |    1.156 / 99.610% |     2.137 / 99.086% |             2.206 |
+| Hermes Seismic          |    2.911 / 99.370% |     5.152 / 98.947% |             3.743 |
+
+Fresh Hermes reduces warm top-10/top-100 time by 3.62× / 3.21× versus previous
+BMP, with +0.610 / −0.228 percentage points of recall respectively. This is not
+an equal-recall comparison. Reference remains 2.52× / 2.41× faster with slightly
+higher recall and about half the disk size. Hermes p95 is 5.269 / 7.826 ms;
+reference p95 is 2.125 / 3.278 ms. The index-open and first-query measurements
+vary substantially with cache state: the first fresh Hermes run opened in
+2.719 s and its first query took 514 ms; the following top-100 process opened
+in 150 ms. These uncontrolled observations are not cold-start benchmarks.
+
+Exhaustive Seismic top-10/top-100 took 194.3 / 195.8 ms on 20 sampled queries.
+Those samples, merged exhaustive top-100 and maintained exhaustive top-100 all
+matched the exact oracle's document IDs (maximum shared Float32 score difference
+8e-6). The 100,000-vector exhaustive samples also matched. The old exact engine
+is substantially faster for exhaustive requests; removing its sparse path is
+an explicit architecture choice, not an exact-search performance improvement.
+
+#### Four-segment build, copy merge and maintenance
+
+Four sequential 250,000-document commits built in 216.910 s with 2.734 GB peak
+RSS and 6.592 GB of index bytes. Copy merge took 16.965 s, peaked at 6.610 GB
+process RSS (including admitted mapped input), and retained 6.592 GB. All four
+encoded run lengths and SHA-256 hashes match before/after merge. No nomination
+rebuild occurred. The peak process RSS is not the bounded copy-buffer size.
+
+| Layout                        | Top-10 ms / recall | Top-100 ms / recall | Index GB |
+| ----------------------------- | -----------------: | ------------------: | -------: |
+| Four segments                 |    6.071 / 99.930% |    10.330 / 99.790% |    6.592 |
+| One copied segment            |    8.331 / 99.830% |    14.775 / 99.671% |    6.592 |
+| After four maintenance passes |    8.032 / 99.830% |    13.367 / 99.638% |    6.412 |
+
+Segment topology changes approximate pruning and available segment parallelism;
+copying encoded runs does not promise identical approximate top-k membership.
+The 20-query exhaustive result JSON is byte-identical before merge, after merge
+and after maintenance. Peak query RSS was 6.636,
+6.639 and 6.459 GB for those layouts.
+
+Each maintenance pass rebuilt 64 terms. The four passes took 14.441, 21.850,
+15.701 and 20.697 s, peaking at 6.647 GB RSS, and produced about 25.95 GB of
+replacement output cumulatively. Remaining debt fell from 27,575 to 27,319 terms:
+only 0.93% of fragmented terms were cleared. Index size fell 2.72%; warm top-10
+improved 3.59% and top-100 9.53%, with a 0.033 percentage-point top-100 recall
+change. Explicitly running four passes exceeds the optimizer's default finite
+follow-up allowance. Current bounded maintenance therefore does not quickly
+restore fresh-global layout or cost. Whole-file rewriting and selection order
+remain material production limitations.
+
+### Why the production index and query RSS remain large
+
+A byte census of the fresh 100,000-vector sparse file finds 101.84 MB of exact
+forward values, 735.99 MB of cropped Float32 summaries, 45.47 MB of row
+nominations and 5.03 MB of directories/headers. Summaries account for **82.9%**
+of sparse bytes. Reference Seismic's serialized index is 413.52 MB versus
+Hermes's complete 888.44 MB index. Query peak RSS is approximately 905–909 MB
+for Hermes and 479–496 MB for reference. Hermes does not heap-copy the whole
+index; format opening touches dispersed cluster headers and query traversal
+faults mapped payload pages. Compacting summaries and separating compact
+admission metadata from payload pages remain distinct follow-up work.
+
+On one million vectors, the fresh sparse file contains 1.011 GB of exact forward
+values, 2.488 GB of summaries, 171.75 MB of nominations and 30.56 MB of metadata:
+summaries are 67.2% of sparse bytes. Copy merging four inputs increases summary
+bytes to 5.201 GB while forward values stay at 1.011 GB; four maintenance passes
+reduce summaries to 5.032 GB. The growth comes from retained nomination/summary
+fragments, not duplicate exact forward values.
+
+The reference's `QuantizedSummary::from` quantizes each summary to UInt8 with
+per-summary Float32 minimum/scale, transposes coordinates, uses Elias–Fano
+dimension offsets, and bit-packs summary IDs (at most six bits for these build
+settings). Its forward dimensions cost two bytes versus Hermes's four; its
+packed forward-offset nominations cost eight bytes versus Hermes's four-byte
+row IDs. The [reference summary codec](https://github.com/TusKANNy/seismic/blob/3c267137e202748e69ada8cd093f4c0b7c04479c/src/quantized_summary.rs)
+therefore provides concrete compression work to evaluate. Summary counts also
+differ with clustering/sampling and energy accumulation; these structural
+observations do not attribute the entire disk gap to a single encoding choice.
+
+### Separate partition experiment: maintenance locality versus merge cost
+
+An isolated immutable-partition prototype was also evaluated with three
+alternating warm-source process runs per layout. It is **not the production
+layout** above. One 64-term maintenance pass over about 4 GB of nominations took
+median 3.001 s and wrote 4,058,424,582 bytes in one pack. With 128 partitions it
+took 1.148 s and wrote 10,796,262 bytes, reusing 126 of 128 packs: 2.61× faster
+and 99.73% less new output. Peak RSS was 775 / 720 MB. Logical rows, nomination
+payloads and all 110,000 top-10/top-100 result IDs/scores matched. The prototype
+uses the earlier capped nomination packs and quantized forward values; matching
+its outputs does not establish fresh full-corpus top-L coverage. Its query
+summaries remain heap-loaded, unlike the production borrowed-byte views.
+
+The same partition count made nomination-only copy merge 63.3% slower:
+2.507 s for one pack versus 4.094 s for 128; peak RSS 20.2 / 142.1 MB.
+Sixteen packs measured 2.300 s and 76.8 MB for copy merge, with overlapping timing
+ranges versus one pack. Merge here excludes forward values and production
+publication. This is evidence for further layout work, not a shipped
+maintenance-locality improvement or a selected partition default.
+
+A follow-up closed the 16-partition maintenance measurement gap using the same
+frozen prototype binary and three alternating warm-source pairs. Its first
+64-term pass took median 1.226 s, wrote 10,807,816 bytes, rewrote one pack and
+reused fifteen; the paired monolithic median was 7.461 s for 4,058,424,582 bytes.
+Peak RSS was 717 / 771 MB. Monolithic timings differed substantially from the
+earlier 128-partition session, so these timings do not rank 16 versus 128.
+
+Continuation exposed the first-pass bias: the next three 16-partition passes
+wrote 792,337,076, 760,695,964 and 740,022,823 bytes. Four-pass output totals
+**2.304 GB for 16 partitions versus 0.210 GB for 128**, or 10.97× more bytes.
+Both reduced pending terms from 27,586 to 27,330, with identical final payload
+fingerprints and all 110,000 top-10/top-100 result IDs/scores. Fewer partitions
+reduce merge file overhead but can materially increase continued maintenance
+writes. Held generations retain additional files; the measured converged
+128-partition pass wrote no payloads. Raw results and ownership/cancellation
+checks remain in ignored `.context/seismic-experiment/shards/RESULTS.md` and
+`16-maintenance-summary.md` beside it.
+
+### Final validation ledger
+
+`CARGO_BUILD_JOBS=3 python3 scripts/check_search.py full` passed all eight stages:
+formatting, strict Clippy, 1,755 native tests, native without sync, portable
+no-default-feature compilation, documentation, server build, and four additional
+real-server broker tests. The main test run reports 19 ignored cases; four of
+those are exercised explicitly by the broker stage, while manual performance,
+network-dependent tokenizer and ignored documentation fixtures remain excluded.
+Evidence: `.context/search-harness/20260917T205906.711675Z-full/`.
+
+The final WASM release build and all 33 WASM tests passed; Python passed 39 tests
+against the rebuilt server, and TypeScript passed all 15. Focused diagnostics
+feature tests additionally exercised lookup arithmetic, candidate backfill and
+fusion. Cache/order tests compare encoded cluster bytes to the original
+full-sort oracle, and large-fixture sparse bytes and query results were compared
+as described above. The multi-value default mismatch was reproduced before its
+fix and tested afterward. Documentation/link checks and `git diff --check` pass.
+
+All new performance evidence is from Apple M4. No new x86/AVX performance run,
+controlled cold-storage experiment, concurrent-ingestion workload or relevance
+judgment evaluation is claimed. The default backend change follows the explicit
+request to integrate Seismic unconditionally; these results do not establish
+universal superiority over the removed exact and BMP backends. Benchmark
+runners, snapshots, data, results and source fingerprints remain ignored under
+`.context/seismic-production/`. Raw benchmark artifacts are not part of the
+production change, and this work remains uncommitted.
+
+## Three sparse algorithms and Seismic optimization — September 18
+
+The user clarified that BMP stays the default; Seismic is a third backend beside
+BMP and sparse MaxScore. This supersedes the sole-backend decision recorded
+above. Restoration retains the shared query/lifecycle correctness fixes.
+
+### Implementation and correctness ledger
+
+- Restored BMP and sparse MaxScore in their existing builders, readers, query
+  executors and lifecycle writers. BMP is the default; each sparse field can
+  explicitly select BMP, MaxScore or Seismic. Mixed fields share the sparse-file
+  envelope and segment publication owner. BMP LSP, BP reorder, pinning, heatmaps
+  and dimension diagnostics remain available; Seismic diagnostics coexist.
+- Seismic version 2 uses coordinate-transposed UInt8 nomination summaries and
+  packed directories. Exact forward values remain one copy at the configured
+  precision. Build and maintenance share the term writer and sparse weight
+  codecs; MaxScore bulk weight decoding retains its SIMD implementation in the
+  shared codec owner. Cached centroid-assignment coordinates preserve the
+  previous assignment order; summary quantization requires new recall evidence.
+- Ordinary merges copy compatible encoded runs/blocks and rebase metadata.
+  Seismic term maintenance, text/BMP BP and binary ANN coalescing use the existing
+  claims, concurrency permits, cancellation cleanup and atomic replacement.
+  Persisted debt prevents fresh converged vector segments from being repeatedly
+  replaced. The captured deletion-file owner remains pinned until maintenance
+  publishes using the latest visibility mask. ANN single-copy storage is retained.
+- Regressions cover mixed-backend merge/maintenance/deletion compaction, retained
+  readers, cancellation and panic cleanup, Seismic encoded-copy identity, shared
+  codec bytes, signed Seismic scoring, empty ordinals, filters and native/async
+  equivalence. Empty-only Seismic fields retain their rows through public build
+  and merge; empty BMP/MaxScore fields retain their previous no-payload behavior.
+  BMP and Seismic pinning policies are tested separately. Exact MaxScore fixtures
+  now select that backend explicitly instead of depending on the former default.
+
+### Validation ledger
+
+The successful full harness is
+`.context/search-harness/20260918T052221.317312Z-full/`, run with
+`RUST_TEST_THREADS=4` and `CARGO_BUILD_JOBS=3` on the Apple M4 host.
+
+| Check                                                                                | Result                                    |
+| ------------------------------------------------------------------------------------ | ----------------------------------------- |
+| Full native core/server/broker/tool suite                                            | 1,945 passed, 24 ignored; no failures     |
+| Separate real-server broker integration                                              | All 4 passed                              |
+| Formatting, strict Clippy, native without sync, portable core, docs and server build | Passed in the full harness                |
+| WASM build and JavaScript tests                                                      | Passed; 36 tests across 7 files           |
+| TypeScript client tests                                                              | 16 passed                                 |
+| Python client/integration suite                                                      | All 43 passed; Ruff and formatting passed |
+
+The final `python3 scripts/check_search.py check` rerun also passed all four
+stages; evidence is `.context/search-harness/20260918T060434.075944Z-check/`.
+Documentation validation checked 120 Markdown files, 571 local links and
+20 benchmark targets. `git diff --check` passed.
+
+Earlier `full3` exposed two restoration regressions: BMP's implicit vocabulary
+bound was enforced but omitted from the error text, and a loader mismatch fixture
+still assumed MaxScore was the default. Both were fixed and pass in the full run.
+`full4` hit the broker test's 10-second timeout under concurrent test load; the
+bounded-parallelism `full5` run above passed that test and the complete harness.
+The Python fixture now waits for an actual gRPC handshake instead of sleeping
+for two seconds, captures output without undrained pipes, and always reaps its
+child on setup failure. Its complete rerun passed. These failures are recorded
+separately from benchmark outcomes.
+
+### Remaining costs and measurement gate
+
+Initial Seismic construction still holds decoded rows and inverted candidate
+lists and clusters terms sequentially. Its 120-byte-per-vector assignment cache
+is temporary; indexing input-memory limits do not impose a hard build RSS ceiling.
+Build parallelism remains a separate measured follow-up.
+
+Seismic maintenance bounds selected terms, clustering scratch and retries, but
+still copies the whole sparse file for a pass. The prototype's partition-local
+I/O reduction is not implemented in production. Insufficient scratch can leave
+nomination debt; partial passes preserve that debt and the finite follow-up
+count. These limits must be included in build/merge/maintenance comparisons.
+
+Required measurement: current Hermes BMP versus current Hermes Seismic on the
+same corpus, compiler, host, threads and ingestion batching. Report total live
+index bytes and sparse payload bytes, initial build time, copy-merge time, peak
+RSS, search latency and recall before/after merge, and maintenance separately.
+Quantized BMP and Float32 Seismic have different precision; report it alongside
+quality, rather than treating their scores as identical. Benchmark outputs stay
+in ignored `.context/seismic-three-algorithms/`. Measured results follow.
+
+### Current BMP versus Seismic: method
+
+The ignored evaluator builds both backends from the same SPLADE CSR rows with
+vocabulary 30,109, a stored numeric document ID, and identical writer settings:
+one indexing builder, two compression threads, four search/Rayon/Tokio workers,
+16 GiB indexing budget and no automatic merges. The release binary uses nightly
+1.100.0 (215a8af4b), thin LTO, one codegen unit and `target-cpu=native` on Apple M4.
+Validation uses the repository's pinned Rust 1.98.1. Input files, binary and
+source fingerprints are retained in `reproduction.json` and `source-sha256.json`.
+
+Each dataset has a fresh one-segment build and a four-segment build followed by
+ordinary merge. Build time includes create, ingestion and commit; merge time
+starts after writer open. Whole-process wall time and maximum RSS are recorded
+separately. Disk size is the sum of active-generation files, including stored IDs
+and metadata; sparse bytes and total directory bytes are also retained. RSS
+includes mapped pages and must not be interpreted as persistent heap allocation.
+
+The first 1,000 original query IDs with at most 64 coordinates are evaluated at
+k=10 and k=100. One warmup precedes two measured passes; query latency excludes
+stored-ID hydration, while process RSS includes it. The same binary's explicit
+Float32 MaxScore backend supplies exact truth. BMP uses intrinsic UInt8 impacts
+with scale 5; Seismic preserves Float32 forward values and quantizes nomination
+summaries. Approximate recall is measured rather than assuming equal precision.
+Exact Seismic samples compare all result IDs and scores with a 1e-4 absolute
+score tolerance and require byte-identical results through merge/maintenance.
+
+These are single lifecycle runs on a shared desktop, not isolated throughput
+claims. Other workspaces compiled concurrently; per-operation process snapshots
+record that load. The Python integration rerun also overlapped early 100K phases.
+Disk/encoded-byte comparisons are deterministic; timing and RSS ratios should be
+repeated on an otherwise idle host before making capacity commitments.
+
+### 100K lifecycle comparison
+
+Decimal MB (1,000,000 bytes); same corpus and four equal ingestion batches for
+fragmented builds.
+
+| Operation               | BMP seconds | Seismic seconds | BMP live MB | Seismic live MB | BMP peak RSS MB | Seismic peak RSS MB |
+| ----------------------- | ----------: | --------------: | ----------: | --------------: | --------------: | ------------------: |
+| Fresh one-segment build |      10.392 |          65.804 |      161.71 |          468.25 |          507.51 |              639.73 |
+| Four-segment build      |       9.838 |          55.772 |      178.03 |          567.52 |          371.85 |              329.94 |
+| Four-to-one copy merge  |       0.698 |           2.156 |      161.74 |          567.52 |          190.38 |              586.65 |
+
+All 30 benchmark checks passed. Seismic copy merge preserved every encoded run;
+100 exact queries retained identical serialized results through fresh build,
+merge and four maintenance passes, with all IDs matching MaxScore and maximum
+score difference 0.000007. The four maintenance passes took 17.267 seconds,
+reduced pending terms 26,411→26,155 and live size 567.52→550.09 MB. This is bounded
+progress, not convergence. Fresh Seismic sparse bytes fell from the prior v1
+888,326,149 to v2 468,140,480 (47.3%), while forward storage remained unchanged.
+
+### Remaining layout and build costs
+
+The fresh 100K Seismic v2 sparse file contains:
+
+| Component                                    |       Bytes | Share of sparse file |
+| -------------------------------------------- | ----------: | -------------------: |
+| Exact forward dimensions and Float32 weights | 101,839,632 |               21.75% |
+| Nomination row IDs                           |  45,467,812 |                9.71% |
+| Packed summary dimensions                    |  91,360,228 |               19.52% |
+| Packed summary posting ends                  |  76,950,558 |               16.44% |
+| Packed summary cluster IDs                   |  53,849,279 |               11.50% |
+| UInt8 summary weights                        |  91,998,306 |               19.65% |
+| Other directories, quantizers and envelopes  |   6,674,665 |                1.43% |
+
+Summaries still occupy 314,158,371 bytes (67.11%). Dimension IDs and cumulative
+posting ends alone occupy 168,310,786 bytes: they are packed to a fixed bit width
+within each term and repeated across term summaries, without the reference's
+Elias–Fano monotone encoding. The largest individual component is the unchanged
+single forward copy, with equal bytes for U32 dimensions and Float32 weights.
+The complete sparse file is 2.897 times BMP's 161,595,145 bytes; the comparison
+also includes BMP's lower weight precision and different search structures.
+
+The v1-to-v2 byte reduction is attributable exactly: summary payloads save
+421,828,077 bytes, offset by 1,642,408 additional bytes of cluster quantizers and
+term footers, for a net saving of 420,185,669 bytes. This is a storage comparison,
+not a claim that quantized nomination results are unchanged.
+
+Ordinary Seismic merge copies each source run, retaining its local top-L lists,
+clusters and summary directories. Thus four-segment sparse storage remains
+567,403,505 bytes after merge, 99,263,025 bytes above a fresh one-segment build;
+forward bytes remain 101,839,632 in both. Bounded maintenance consolidates only
+selected terms, explaining the modest four-pass size reduction and remaining
+debt. BMP can repack its grid metadata during its streaming block-copy merge;
+its sparse size falls from 177,913,899 to 161,626,801 bytes in this fixture.
+
+Seismic term clustering remains serial. Version 2 additionally quantizes and
+transposes summaries, sorts their occurrences and packs the integer arrays.
+Its measured fresh build took 65.804 seconds versus BMP's 10.392 seconds here.
+The earlier Seismic v1 28.1-second build was measured in a different shared-host
+session and is not a controlled before/after timing result. No parallel build
+or additional summary codec is claimed as implemented by these measurements.
+
+### 1M lifecycle comparison
+
+Decimal GB (1,000,000,000 bytes). These are the current backends from the same
+release binary, not substituted historical BMP results.
+
+| Operation               | BMP seconds | Seismic seconds | BMP live GB | Seismic live GB | BMP peak RSS GB | Seismic peak RSS GB |
+| ----------------------- | ----------: | --------------: | ----------: | --------------: | --------------: | ------------------: |
+| Fresh one-segment build |      27.440 |         129.677 |       1.543 |           2.213 |           3.910 |               5.299 |
+| Four-segment build      |      26.539 |         240.011 |       1.557 |           3.537 |           2.606 |               3.007 |
+| Four-to-one copy merge  |       3.850 |          11.971 |       1.543 |           3.537 |           1.566 |               3.557 |
+
+Fresh Seismic is 1.434× BMP's size and takes 4.73× its build time. Four-batch
+construction reduces build RSS but repeats clustering and summary construction:
+Seismic takes 9.04× BMP's fragmented build time. Copy merge is 3.11× slower and
+retains a 2.293× larger live index. Seismic's encoded-run fingerprints are
+unchanged by merge: the operation copies encoded runs and remaps metadata.
+
+### Query quality and memory
+
+The following are mean warm query times and recall against the same binary's
+Float32 MaxScore oracle. Peak RSS is the larger of the k=10/k=100 query processes.
+Approximate recall changes across segment layouts; exact Seismic result identity
+is checked separately below.
+
+| Dataset / layout | Backend | Top-10 ms / recall | Top-100 ms / recall | Peak query RSS GB |
+| ---------------- | ------- | -----------------: | ------------------: | ----------------: |
+| 100K / f1        | bmp     |    6.793 / 99.080% |     8.502 / 99.271% |             0.113 |
+| 100K / f1        | seismic |    4.260 / 99.580% |     4.613 / 99.484% |             0.478 |
+| 1M / f1          | bmp     |   10.593 / 98.760% |    16.316 / 99.175% |             0.851 |
+| 1M / f1          | seismic |    2.646 / 99.380% |     4.782 / 98.945% |             2.082 |
+| 1M / f4          | bmp     |    6.541 / 98.770% |    11.531 / 99.185% |             0.936 |
+| 1M / f4          | seismic |    5.122 / 99.960% |    10.771 / 99.857% |             3.389 |
+| 1M / merged      | bmp     |   11.312 / 98.640% |    16.518 / 98.586% |             0.849 |
+| 1M / merged      | seismic |    7.206 / 99.830% |    14.558 / 99.671% |             3.390 |
+| 1M / maintained  | seismic |    6.884 / 99.830% |    12.293 / 99.638% |             3.322 |
+
+At 1M, fresh Seismic top-10 is 4.00× faster than BMP; after copy merge its advantage
+is 1.57×. Fresh top-100 is 3.41× faster, with slightly lower recall than BMP
+(98.945% versus 99.175%). Four segments can execute in parallel; copying their
+runs into one segment does not reproduce a freshly clustered one-segment index.
+This is why the fresh-index result must not stand in for sustained merge behavior.
+
+### 1M maintenance and correctness
+
+Four bounded passes took 56.335 seconds and wrote
+13.971 GB of sparse output in total. Live size fell
+from 3.537 to 3.463 GB. Pending terms fell 27,575→27,319:
+256 terms, or 0.93% of the initial debt. Peak maintenance RSS reached
+3.589 GB. Full sparse-file copying dominates
+maintenance I/O even though only 64 terms are rebuilt per pass. These four passes
+do not establish convergence time or steady-state ingestion throughput.
+
+Both datasets passed all 60 report checks, including identical encoded Seismic
+runs through copy merge and byte-identical exact results across fresh, merged
+and maintained indexes. The 1M exact sample contains 20 queries; all result IDs
+match MaxScore, with maximum score difference 0.000008. The 100K sample contains
+100 queries. Supplementary exhaustive BMP checks on 100 queries per dataset
+returned identical IDs and scores before/after merge (maximum score error zero);
+its approximate recall change is attributable to pruning, not lost stored scores.
+Full 1,000-query approximate recall, latency percentiles, disk
+components, peak RSS and per-pass debt remain in the ignored report artifacts.
+
+The format improvement reduces the 1M fresh sparse payload from the saved v1
+3,700,455,985 bytes to 2,211,397,011 bytes (40.24% smaller).
+Its largest component is now exact forward data (1,010,560,752 bytes, 45.7%).
+Summary dimensions, offsets, cluster IDs and UInt8 values together occupy
+994,914,758 bytes (45.0%). Build scratch and mmap residency remain separate costs;
+smaller payloads do not imply a proportionate reduction in peak build heap.
+
+BMP remains the default. Seismic provides a measured query-latency tradeoff,
+with larger indexes, slower initial construction and more expensive fragmented
+maintenance. Serial clustering, repeated summary directories and whole-file
+maintenance output remain open performance findings. No x86/AVX timing,
+controlled cold-cache test, concurrent-ingestion benchmark or reference-Seismic
+rerun is claimed for this current comparison. Benchmark artifacts remain ignored;
+no commit was made.
+
+## Seismic merged queries and partitioned maintenance — September 18
+
+This supersedes the whole-file maintenance implementation measured above.
+BMP remains the default, with MaxScore and Seismic as explicit alternatives.
+
+Merged Seismic queries now order the first term's clusters across all copied
+runs and score independent run summaries on at most four workers in the existing
+search pool. One caller still owns candidate admission, filtering, exact scoring
+and the result heap. Portable/asynchronous execution follows the same order
+sequentially; exact query semantics are unchanged.
+
+The first 100K run found no query improvement from summary parallelism alone.
+A three-second sampling profile of maintained top-100 search attributed 1,859
+of 2,247 primary-worker samples to exact forward scoring, including 1,372 in an
+out-of-line coordinate iterator; summary orchestration accounted for 92 samples.
+Inlining `next` alone did not improve the isolated 100K measurement
+(4.410 versus 4.416 ms). The final iterator specializes its `fold` once per vector
+precision, retaining the shared precision decoder and scoring order. Release
+assembly confirms direct Float32 loads and multiply-adds without per-coordinate
+decoder calls. On the same maintained index, top-100 latency fell from 4.410 to
+3.614 ms (18.0%), with byte-identical hits across 1,000 queries, one warmup and two
+timed passes. No new weight codec, representation or score accumulator was
+introduced. Diagnostic sampling and assembly inspection ran separately from
+latency measurements; the paired lifecycle matrix below is the final comparison.
+
+Seismic version 3 retains exact forward values once in the sparse root and places
+nominations into sixteen immutable partitions shared across fields. Ordinary
+merges copy root and partition runs. Maintenance replaces one partition,
+hard-links unchanged files through the existing lifecycle, and prioritizes
+expensive fragmented terms before its continuation deadline. Its compact term
+directory remains sorted even when payloads are emitted in work-priority order.
+Earlier Seismic envelopes require rebuild; no legacy reader remains.
+
+The shared cold writer supports bounded partition buffers: 64 KiB each, or 1 MiB
+for all sixteen local writers. Maintenance and compaction charge these buffers
+and retained TOCs against scratch allowances. Diagnostics include every partition
+in sparse file/residency totals and distinguish forward-run count from term debt.
+
+Validation: the `full` harness at
+`.context/search-harness/20260918T083553.671224Z-full/` passed strict Clippy,
+formatting, 1,967 native tests (24 ignored), native asynchronous/portable checks,
+documentation, server build, and four additional real-server broker tests.
+The final WASM build and all 36 WASM tests passed.
+Python passed 43 tests and TypeScript passed 16. The no-feature core check retains
+unused-builder warnings; the final WASM build has no new Rust warnings.
+
+Cross-review also closed three boundary cases: nonempty term bases at the
+forward-row end now fail admission; surviving partitions require a declared,
+nonempty root; mixed BMP/MaxScore compaction reserves live Seismic writer scratch.
+Regressions preserve valid empty fields and empty terms at the row boundary.
+
+The paired benchmark and source/binary fingerprints are ignored under
+`.context/seismic-merge-repair/`. Its checks compare exact result bytes between
+versions, fresh forward/nomination payload bytes, and encoded-run identity through
+ordinary merge. Maintenance inventories distinguish new output from hard-linked
+files; output bytes are not a measurement of physical device traffic.
+
+### Partition-selection heuristic review
+
+Partition maintenance currently selects the largest fragmented-term count, then
+its encoded nomination bytes, with a stable partition-ID tie-break. Within the
+selected partition, terms with more runs and then more encoded bytes run first.
+This policy retires term debt predictably on the approximately uniform modulo-16
+benchmark partitions, but it is not an estimate of query frequency or guaranteed
+byte savings. On a skewed vocabulary, many small fragmented terms can outrank a
+partition containing fewer, much larger terms. A bytes-first partition policy is
+a follow-up candidate and should be compared by bytes retired, maintenance time,
+query latency, and recall before changing this first measured implementation.
+
+Memory admission can also leave the selected terms unchanged. Existing bounded
+maintenance follow-up counts limit repeated work; changing partition priority
+alone does not resolve this case. The regression suite now exercises a partially
+maintained generation merged with another segment: consolidated and untouched
+nomination partitions coexist with multiple forward runs, while signed weights,
+multi-value sums, missing rows, deletion visibility, and held readers remain
+correct.
+
+### Final paired v2/v3 measurements
+
+The final matrix uses the same CSR corpus, Apple M4, nightly Rust
+`1.100.0-nightly (215a8af4b)`, `-C target-cpu=native`, thin LTO and one codegen
+unit for both versions. Seismic forward precision is Float32; four search
+threads, one indexing builder and two compression threads are unchanged. Query
+means cover the same 1,000-query sample, one warmup and two timed passes, excluding
+hydration. No builds or test suites ran alongside timing. These are warm-process
+measurements on a shared desktop, not controlled cold-cache or steady-state
+concurrent-ingestion measurements.
+
+| Measurement                      | 100K before → after | 1M before → after   |
+| -------------------------------- | ------------------- | ------------------- |
+| Fresh build                      | 30.151 → 30.994 s   | 130.401 → 130.769 s |
+| Four-segment build               | 34.453 → 34.149 s   | 229.115 → 231.147 s |
+| Copy merge                       | 2.064 → 2.480 s     | 11.590 → 13.672 s   |
+| Fresh top-10                     | 1.879 → 1.684 ms    | 2.617 → 2.349 ms    |
+| Fresh top-100                    | 3.266 → 2.731 ms    | 4.782 → 4.275 ms    |
+| Merged top-10                    | 2.828 → 2.428 ms    | 7.322 → 6.277 ms    |
+| Merged top-100                   | 4.718 → 3.938 ms    | 13.704 → 12.248 ms  |
+| Maintained top-10                | 2.538 → 2.293 ms    | 6.677 → 6.095 ms    |
+| Maintained top-100               | 4.207 → 3.749 ms    | 12.497 → 11.958 ms  |
+| Four maintenance passes          | 11.252 → 7.160 s    | 58.851 → 15.757 s   |
+| Sparse output across four passes | 2.227 → 0.101 GB    | 13.971 → 0.522 GB   |
+| Maximum maintenance process RSS  | 0.624 → 0.603 GB    | 3.588 → 3.122 GB    |
+
+GB means decimal bytes. Each pass retires 64 fragmented terms in both versions;
+remaining debt after four passes is 26,155 terms at 100K and 27,319 at 1M. Every
+v3 pass creates exactly one nomination partition, reuses fifteen partitions and
+the exact-forward root, and emits roughly 2 KB of other metadata. The 1M passes
+are 3.7× faster in aggregate and emit 26.8× less sparse payload. The slowest v2
+pass took 23.376 s; single-run lifecycle timings include desktop/filesystem
+variation and should not be treated as a tight throughput guarantee.
+
+Fresh live index size changes only by 2,704 bytes per segment. At 1M, fresh live
+size is 2.2125 GB, four independent segments total 3.5375 GB and their merged
+index totals 3.5374 GB. Copy merge itself does not inflate the index: it retains
+the separately selected nomination lists already present in those segments.
+After four passes live size is 3.4460 GB, versus 3.4627 GB before this change.
+Query-process RSS is essentially unchanged: about 2.08 GB fresh and 3.39 GB
+merged. Lower maintenance RSS reflects a smaller working set, not a claim that
+corpus-sized mmap payloads became resident heap.
+
+Copy merge is 18–20% slower in this matrix despite identical copied run bytes.
+The partitioned layout adds file/directory work; this measurement does not
+isolate filesystem, cache and per-file costs. Reducing that overhead remains an
+open optimization. It is still a streaming copy/remap operation with no
+reclustering. Faster maintenance does not restore the fresh layout after four
+passes: 1M maintained top-10 remains 6.095 ms versus 2.349 ms fresh. The bounded
+sample does not establish convergence time or sustained maintenance capacity.
+
+All 98 benchmark correctness/representation checks passed. Fresh forward and
+nomination payloads are byte-identical across versions, ordinary merge preserves
+encoded runs, and exact hit files are byte-identical across versions and across
+fresh/merged/maintained states. Exact comparison against MaxScore covers 100
+queries at 100K and 20 at 1M (absolute score tolerance 1e-4). Approximate recall
+is measured over all 1,000 queries: 1M merged top-10 changes from 99.830% to
+99.820%, merged top-100 from 99.671% to 99.661%, and maintained top-100 from
+99.638% to 99.669%. At 100K the largest absolute recall change is 0.05 percentage
+points. Fresh recall is unchanged. Exhaustive 1M top-100 also improves from
+195.301 to 115.164 ms; no exhaustive correctness tradeoff is introduced.
+
+The report, latency percentiles, run hashes, inode inventories and source/binary
+fingerprints remain ignored under `.context/seismic-merge-repair/`. Final binary
+SHA-256 is `de535e7893d63fd94b1e72c4e8466584500ee7366fe758058ca4dca3d7d8092e`.
+No x86/AVX benchmark or reference-Seismic rerun is claimed. BMP remains the
+default; earlier Seismic formats require rebuilding. No commit was made.
+
+### Full Seismic consolidation endpoint — September 18
+
+Continued an isolated, immutable-file-linked copy of the measured 1M index from
+pass four until persisted nomination debt reached zero. The public explicit
+`IndexWriter::reorder` operation and final measured binary/settings are unchanged:
+64 terms maximum per pass, one partition per pass, four search threads, Float32
+forward values. Each pass ran in a new process without optimizer cooldown.
+The original four-pass index remains unchanged. This is manual completion;
+the server's default three-pass replacement-lineage follow-up limit was bypassed
+by explicit calls, not changed or tested as an automatic completion policy.
+
+**Full consolidation does recover the fresh index's size on this fixture.**
+
+| State                          |    Live bytes | Decimal GB | Pending terms |
+| ------------------------------ | ------------: | ---------: | ------------: |
+| Fresh single-segment build     | 2,212,514,503 |   2.212515 |             0 |
+| Copy-merged four segments      | 3,537,446,009 |   3.537446 |        27,575 |
+| After four passes              | 3,445,997,567 |   3.445998 |        27,319 |
+| Fully consolidated, 433 passes | 2,212,434,943 |   2.212435 |             0 |
+
+The final index is 79,560 bytes (0.0036%) smaller than fresh. Both layouts have
+1,010,560,752 bytes of forward coordinates/weights, 24,000,000 bytes of row
+directories, 171,750,264 bytes of nomination IDs, and 681,713 clusters. The
+remaining size difference is predominantly encoded summaries: maintenance seeds
+clustering with local row numbers, so rebuilt summaries need not be identical
+to fresh-build summaries. Retaining the four forward-run envelopes adds only
+192 bytes. A zero-debt layout is not a promise of byte-identical clustering.
+
+Cumulative maintenance cost, including the first four measured passes:
+
+- 433 successful passes, retiring all 27,575 fragmented terms; no stalled pass.
+- 866.339 s (14.44 min) inside maintenance operations, or 869.510 s summed
+  process wall time. The additional Python inventory/census work is excluded.
+- 34,639,381,775 bytes (34.639 GB) of new sparse output; unchanged hard links
+  are excluded. This is emitted file payload, not physical device traffic.
+- Maximum per-process maintenance RSS: 3,121,823,744 bytes (3.122 GB).
+- Four-segment build + copy merge + full maintenance: 1,111.158 s (18.52 min),
+  versus 130.769 s (2.18 min) for the original fresh single-segment build.
+
+Size converges well before all term debt is retired: pass 97 reached 2.314 GB
+in 331.023 s, pass 188 reached 2.235 GB in 526.358 s, and pass 271 reached
+2.214 GB in 660.639 s. Final consolidation continues rewriting mostly unchanged
+partition bytes while handling smaller lists. These measurements identify
+partition rewrite amplification and bounded-pass scheduling as remaining costs;
+they do not justify changing defaults from this single corpus/architecture.
+Individual term reclustering can increase summary size slightly, so live size
+is not strictly monotonic between passes.
+
+Search uses the same 1,000-query sample, one warmup and two measured passes,
+excluding hydration. Fresh search was rerun after the consolidated search in
+the same session, with no concurrent builds/tests. Original merged timings are
+retained from the paired matrix, not rerun in this continuation.
+
+| State                         | Top-10 mean | Top-10 recall | Top-100 mean | Top-100 recall |
+| ----------------------------- | ----------: | ------------: | -----------: | -------------: |
+| Fresh, same-session rerun     |    2.269 ms |       99.380% |     4.217 ms |        98.945% |
+| Copy-merged, prior paired run |    6.277 ms |       99.820% |    12.248 ms |        99.661% |
+| Fully consolidated            |    2.441 ms |       99.610% |     4.339 ms |        99.143% |
+
+Final query RSS is about 2.08 GB, matching fresh and below the merged 3.39 GB.
+Consolidated latency is 7.6% above fresh for top-10 and 2.9% above fresh for
+top-100, with higher recall on this sample. Relative to the larger merged
+nomination lists, consolidation lowers recall by 0.210 and 0.518 percentage
+points respectively; that is the measured cost of returning to one global
+nomination budget. No equal-recall latency comparison is claimed.
+
+Every continuation pass checked nonincreasing term debt, at most 64 retired terms,
+unchanged exact-forward root ownership and at most one new partition with at
+least fifteen reused partitions. Final root bytes match the starting root by
+SHA-256. Exact top-100 hit files for the same 20-query sample are byte-identical
+to fresh; approximate recall is measured against Float32 MaxScore over all
+1,000 queries. The source snapshot remained unchanged. No engine code changed,
+so native/WASM suites were not rerun for this measurement; the final binary is
+the same one covered by the validation above.
+
+Per-pass results, memory, inode checks, component sizes, query output and the
+report are ignored under `.context/seismic-full-consolidation/`. This establishes
+full completion for this one 1M corpus, not automatic scheduler completion,
+concurrent-ingestion capacity, cold-cache performance, or a general guarantee
+that all corpora converge to the same fresh-build size. No commit was made.
+
+## Seismic maintenance throughput and reuse follow-up (2026-09-18)
+
+This follow-up implements requested items 1, 2, 4 and 5 from the full-consolidation
+review. It leaves the existing run-count/byte priority order unchanged. BMP
+remains the default sparse backend; merge still copies encoded Seismic runs.
+
+### Changes and ownership
+
+- Segment metadata now separates successful maintenance passes from consecutive
+  no-progress passes. Productive published work resets the stall count and stays
+  eligible beyond three passes. Three consecutive successful no-progress passes
+  stop automatic follow-up under the existing default policy; failures retain
+  their existing backoff and do not publish counter changes. Cooldown, shared
+  concurrency, and per-pass admission remain in force.
+- One selected nomination partition consumes the available time and scratch
+  budget instead of stopping after 64 terms. An admitted term can finish beyond
+  the deadline; remaining terms copy unchanged. Directory scratch is charged,
+  and decoded term/assignment scratch is retained for one term at a time. A term that
+  cannot fit is retained while later affordable terms may still progress.
+- Automatic maintenance derives whether text/BMP reordering is still due under
+  the claimed source metadata lock. Completed or retry-capped BP work reuses
+  its existing files and counters during Seismic follow-up. Explicit manual
+  reorder retains its meaning. Both operations share the same writer,
+  cancellation, publication and retirement lifecycle.
+- A cold-writer coalescing candidate was evaluated and rejected: the isolated
+  copy loop improved, but paired whole merges were slower. The existing shared
+  cold-writer implementation and buffer capacities remain unchanged.
+
+### Reuse findings
+
+RGB/BMP already warm-start from the published document/per-field ordering;
+ordinary merge preserves compatible encoded ordered blocks. A new BP pass rebuilds its
+temporary graph but begins from that existing order. The mixed-backend fix above
+also avoids repeating completed BP work for unrelated Seismic debt.
+
+Seismic reuses completed term payloads and untouched partitions. Its clustering
+is sampled one-pass assignment, so there is no iterative optimizer checkpoint
+to resume. Cropped quantized summaries cannot serve as complete centroid state.
+Reusing an existing term when global top-L selection is unchanged is a possible
+future optimization, subject to live-row coverage, deletion, ordinal, precision
+and address-remapping proofs. That shortcut is not implemented or measured here.
+
+### Copy-merge diagnosis and paired timing
+
+An Apple M4 profile of the frozen baseline sampled approximately 6,808 stacks
+under nomination copying (6,796 in writes), 1,678 under forward copying (1,616
+in writes), and 188 across fsync sites out of 10,407 samples. The 12-second
+sample covers part of a slower diagnostic run; it is not a complete attribution
+of every merge. Output partition admission also appeared in about 859 samples.
+The isolated copy probe reproduces actual ragged run sizes with `F_NOCACHE`
+and fsync: old buffering took 5.462/4.074 s, coalesced buffering 2.455/2.678 s.
+It does not include source/output admission or retain all seventeen writers
+simultaneously, so those numbers are not end-to-end merge latency.
+
+Whole-merge timing used disposable hard-link clones of the same unchanged four-
+segment 1M input. No builds or other agent benchmarks ran concurrently. Each
+run verified canonical encoded run hashes before/after merge. The original
+baseline runs were 14.644, 16.518 and 13.559 s; initial changed-code runs were
+28.164, 15.803 and 13.335 s. Follow-up interleaving of frozen/current binaries
+produced 9.767/11.532 s and 10.622/10.901 s. Peak RSS remained approximately
+3.44 GB. Thus the measurements do **not establish a whole-merge improvement**;
+the interleaved current median is about 10% slower. The first post-build run is
+retained in the evidence rather than discarded as an assumed cache effect.
+
+The rejected candidate passed regression tests for exact bytes, retained scratch,
+byte counts and an unchanged source offset on unsupported range copying. They
+do not explain all elapsed-time variation. Seismic admission still scans each
+term's cluster and summary directories when opening source/output readers;
+those accesses live within evictable payload mappings. The candidate was reverted after these timings. No removal of admission checks
+or change to cache policy is justified by this experiment.
+
+After reverting the writer candidate, the retained release binary's repeated
+copy merges took **27.258, 15.219 and 15.358 s**, with identical encoded runs and
+maximum RSS **3,440,279,552 bytes**. The writer source matches the frozen baseline
+byte-for-byte. User CPU time stayed near two seconds across baseline/current
+runs, while recorded page faults ranged from about 125K in the interleaved
+controls to 338K in the first post-build runs. This is consistent with a large
+I/O/cache contribution, not proof of a controlled cold-cache comparison. The
+copy-merge speed gap remains unresolved; no end-to-end gain is claimed.
+
+### Repeated ingestion, merge and maintenance: paired 100K
+
+One shared ignored runner was compiled against the frozen and retained sources
+with identical nightly compiler, native CPU flags, thin LTO and four search
+workers. Each run appended four 25K batches, merged after each append, performed
+two maintenance passes between early cycles, then drained final debt. Maintenance
+used a two-second term-admission budget. One concurrent top-10 query task used a
+10 ms think time and held each phase's original reader snapshot. Writer shutdown,
+reopen, exact checks and the final independent MaxScore oracle ran outside timing.
+
+| Measurement                                    |        Frozen baseline |        Retained code |
+| ---------------------------------------------- | ---------------------: | -------------------: |
+| Append/commit time, all four cycles            |               34.783 s |             36.868 s |
+| Copy-merge time, all four cycles               |                6.227 s |              6.814 s |
+| Maintenance time, all cycles                   |              279.000 s |             85.185 s |
+| Maintenance passes, all cycles                 |                    422 |                   37 |
+| Cumulative sparse maintenance output           |        9,901,714,204 B |        836,149,783 B |
+| Final-cycle drain                              | 273.695 s / 418 passes | 74.478 s / 33 passes |
+| Whole-process wall time, including correctness |              329.350 s |            139.350 s |
+| Whole-process peak RSS                         |        1,469,661,184 B |      1,429,946,368 B |
+| Sampled peak unique-inode directory bytes      |        1,126,388,141 B |      1,120,869,073 B |
+| Final live bytes                               |          468,378,078 B |        468,378,077 B |
+| Final fragmented-term debt                     |                      0 |                    0 |
+
+Maintenance is 3.28x faster overall and emits 91.6% fewer sparse bytes in this
+workload. Build/merge timings do not show an improvement; total RSS and sampled
+peak disk remain similar. The final one-byte size difference is metadata, not
+a material storage reduction versus the old fully consolidated endpoint.
+
+Final-drain queries: mean 2.874 -> 2.984 ms; p50 2.678 -> 2.761 ms;
+p95 4.991 -> 5.002 ms; p99 7.153 -> 8.422 ms. Query count differs because the
+maintenance interval is shorter (18,609 vs 5,017); percentiles use a bounded
+1,024-sample reservoir. Earlier maintenance phases also have higher query tails
+when more clustering is admitted per pass (cycle-two p95 3.045 -> 5.310 ms).
+Thus this demonstrates a shorter maintenance interval, not universally lower
+concurrent query latency. A smaller time budget trades completion rate for
+shorter CPU bursts; defaults were not retuned from this one experiment.
+
+Term debt after the two early passes was 24,486 -> 22,730 at cycle two and
+25,818 -> 24,417 at cycle three (baseline -> retained). Later ingestion recreates
+fragmentation, so debt is measured again after each merge rather than assumed
+monotone across the full workload. The counter measures fragmented terms, not
+all additional run multiplicity on already fragmented terms.
+
+All four cross-version exact checkpoint files are byte-identical. Each run also
+checks old held snapshots, post-merge/maintenance/reopen results, and final
+20-query top-100 external IDs plus scores within absolute 1e-4 of MaxScore.
+Approximate recall is not measured by this load test. Disk peaks are 100 ms
+sampled lower bounds, deduplicated by inode; cumulative output excludes reused
+hard links and is not physical SSD traffic. This is serial append/merge/
+maintenance with overlapping queries, not continuous ingestion alongside
+maintenance, saturation throughput, or automatic-scheduler wall time. The
+automatic completion/cooldown policy is tested separately in native/server tests.
+
+### Full 1M consolidation from the same checkpoint
+
+Both versions start from the identical four-pass snapshot: 3,445,997,567 live
+bytes and 27,319 fragmented terms. The comparison below excludes those four
+common passes. Explicit manual maintenance has no deadline, admits one partition
+per pass, and keeps the same scratch policy. This does not include automatic
+scheduler cooldown. Final retained runner SHA-256:
+`5926a766273100567c96982be2730e2e821dd302d67824b8eb3cb085a9ffaacf`.
+
+| Remaining consolidation    |  Frozen baseline |   Retained code |
+| -------------------------- | ---------------: | --------------: |
+| Passes                     |              429 |              16 |
+| Operation time             |        850.582 s |       245.242 s |
+| Summed process wall time   |        853.721 s |       245.376 s |
+| New sparse output          | 34,117,382,398 B | 1,176,758,848 B |
+| Maximum per-process RSS    |  3,063,414,784 B | 3,064,119,296 B |
+| Final live bytes           |  2,212,434,943 B | 2,212,434,942 B |
+| Remaining fragmented terms |                0 |               0 |
+
+This is **3.47x faster**, with **96.6% less emitted sparse output**, and essentially
+unchanged peak RSS. Every retained pass produced one new partition, reused the
+other fifteen, and wrote zero exact-forward bytes. Canonical hashes of **every
+forward and nomination payload** match the old fully consolidated endpoint.
+The one-byte final live-size difference is metadata: the generation counter is
+21 instead of 434. Including the four common passes gives 20 total passes for
+this continuation, versus the previously measured 433; this is not a fresh
+merge-to-consolidated 16-pass timing.
+
+Exact top-100 hits for 20 queries and approximate top-10/top-100 hits for 1,000
+queries are byte-identical to the old consolidated endpoint. Thus the prior
+measured recall remains 99.610% / 99.143%. Endpoint search was also compared with
+the same retained binary in the same session:
+
+| Endpoint                      | Top-10 mean | Top-100 mean | Query RSS range |
+| ----------------------------- | ----------: | -----------: | --------------: |
+| Old fully consolidated layout |    2.460 ms |     4.520 ms |  2.076–2.083 GB |
+| New fully consolidated layout |    2.511 ms |     4.506 ms |  2.080–2.083 GB |
+
+No query-speed improvement is claimed. Top-100 p95 was 6.891 -> 6.881 ms and
+p99 8.043 -> 7.898 ms in that paired endpoint check. The same nominal nomination
+budget and identical hits are retained; these changes primarily remove repeated
+maintenance output and scheduling overhead.
+
+An unrelated workspace compilation interrupted the first consolidation attempt
+after four normal passes and inflated subsequent timings. That partial run is
+preserved as `interfered-consolidation`; the final measurement restarted from
+the original checkpoint after compilation ended. No compiler appeared in the
+clean maintenance boundary snapshots. Another short compilation overlapped the
+initial top-100/exact-query phase: its 10.501 ms top-100 result is retained as
+contaminated evidence and excluded from the comparison above. The follow-up
+endpoint runs had no compiler overlap in their boundary snapshots and verified
+identical hit files. No other workspace process was stopped or modified.
+
+All harness code, binary/source fingerprints, raw timing, phase distributions,
+file inventories, payload checks and interrupted attempts remain ignored under
+`.context/seismic-next/`. `retained-evaluation-summary.json` records the completed
+comparisons. The initial `retained-matrix.log` ends with the intentional harness
+interruption; the separately restarted consolidation completed successfully.
+
+### Validation of the retained code
+
+`python3 scripts/check_search.py full` passed after reverting the writer
+candidate: **1,974 native tests**, 24 intentionally ignored, plus **4 real-server
+broker tests**. Formatting, strict Clippy, native-without-sync and portable
+compilation, API docs and server build passed. Evidence:
+`.context/search-harness/20260918T103709.099807Z-full/`.
+
+The WASM build and **36 WASM tests** passed for the scheduler/batching changes;
+the subsequent revert only restores native cold I/O, outside the WASM build.
+`uv run scripts/check_docs.py` checked 120 Markdown files, 571 local links and
+20 benchmark targets. Direct system-Python invocation initially lacked
+`markdown_it`; the documented `uv run` command succeeded. Nightly release builds
+retain the pre-existing `fetch_update` deprecation warnings; pinned-toolchain
+strict Clippy passes. Python/TypeScript suites were not rerun for these internal
+metadata/lifecycle changes; their preceding 43/16-test results remain recorded
+above. No wire/schema/default change is introduced here.
+
+Behavior regressions cover more than three productive passes; persisted stalled
+work and reset after progress; merge/replacement accounting; cancellation,
+panic and failed publication; deadline, memory refusal and untouched payload
+bytes; and automatic completion of all sixteen nomination partitions. Mixed
+schemas test completed, capped and still-eligible BP, inode/byte reuse and held
+reader results. Execution was on macOS/aarch64; no Linux/x86 rerun is claimed.
+
+## 2026-09-18: copy-merge admission and bounded local copying
+
+The isolated Linux four-to-one Seismic copy-merge is **2.25x faster**, including
+source admission, output writing, output admission and publication. This keeps every
+encoded run unchanged and preserves structural corruption checks. BMP remains
+the default; no format, schema or query-budget setting changes.
+
+### Paired whole-merge measurement
+
+The fixture contains 1M documents in four source segments, with approximately
+3.537 GB of live files. Both versions use the same source, Rust 1.98.1, release
+thin LTO, one codegen unit and `-C target-cpu=native`, on a dedicated GCP
+`n2-highmem-8` Linux/x86-64 VM with a 1 TB SSD persistent disk. Each mode has
+three before and three after trials, alternating in the order before, after,
+after, before, before, after. Inputs are warmed identically; outputs use the
+unchanged cold writer. No compiler runs overlap timing. The fallback mode forces
+`copy_file_range` to return unsupported before any output using an ignored
+benchmark shim; the production binary handles the actual fallback.
+
+| Whole merge                                      |          Before |           After |
+| ------------------------------------------------ | --------------: | --------------: |
+| Kernel-copy median                               |        25.928 s |        11.500 s |
+| Kernel-copy maximum process RSS                  | 2,538,156,032 B | 2,538,037,248 B |
+| Major page faults, each timed run in either mode |          13,112 |             126 |
+| Fallback-copy median                             |        25.312 s |        11.548 s |
+| Fallback-copy maximum process RSS                | 3,556,642,816 B | 2,549,891,072 B |
+
+Times above measure `force_merge`; whole-process medians, including writer
+opening and teardown, are 25.934 -> 11.506 seconds for kernel copying and
+25.318 -> 11.556 seconds for fallback copying.
+
+The kernel path takes **55.6% less time**. The fallback path is **2.19x faster**
+and uses **28.3% less peak process RSS**. RSS includes resident mmap pages; it is
+not a measurement of total system page cache or heap alone. The local-file
+fallback uses at most 4 MiB of staging scratch instead of faulting the mapped
+source as it writes. Kernel copying stays preferred. One shared helper serves
+encoded ranges and temporary sparse sections, including BMP callers.
+
+### Where the time went
+
+A phase trace of the original code spent about 4.4 seconds writing output and
+7.4 seconds through source admission plus merging, but 26.8 seconds through the
+whole operation. The completed cold output must then be reopened for structural
+admission and lifecycle statistics. That last scan accounted for about 19
+seconds. Fsync itself took only about 0.03 seconds in the trace.
+
+Seismic admission now checks extents first and visits terms in physical order,
+reusing its existing extent scratch. Linux mmap admission hints the current
+4 MiB window plus one lookahead, split into requests of at most 128 KiB. Other
+platforms and heap-backed readers receive no new advice. All term checks remain;
+no live metadata is repaired and no output admission is skipped.
+
+Request size matters: an earlier candidate hinted whole 4 MiB windows and only
+reduced kernel-copy median from 25.688 to 24.749 seconds. Linux 7.0
+[`force_page_cache_ra`](https://github.com/torvalds/linux/blob/v7.0/mm/readahead.c#L325-L340)
+caps an individual request using device read-ahead/I/O limits. This disk reports
+128 KiB read-ahead and 256 KiB maximum I/O. Smaller requests cover the selected
+window instead of assuming a successful large hint fetched its entire range.
+A diagnostic screen reduced major faults from about 12,600 to 126 and output
+admission to about 4.2 seconds; the table above measures the final implementation
+without that diagnostic wrapper.
+
+Staging alone did not improve whole-merge speed: its paired kernel medians were
+26.288 -> 26.031 seconds, and fallback medians 25.948 -> 26.038 seconds. It did
+remove about 1 GB of fallback process RSS. The final speedup comes from fixing
+the admission read pattern, rather than attributing it to the copy buffer.
+
+### Correctness, validation and limits
+
+Every timed merge checks hashes of every copied encoded run against the same
+canonical input. Output remains 3,537,446,009 bytes, including 3,536,330,892 sparse
+bytes. Exact top-100 IDs and scores for 20 queries and approximate top-100
+IDs and scores for 200 queries are byte-identical before/after in both copy
+modes. The change copies and remaps metadata; it does not recluster or recompute
+vectors. Copy regressions cover partial and interrupted I/O, truncation,
+cancellation, abstract directories and scratch cleanup. Admission regressions
+cover shuffled physical term order, unchanged scoring/debt, malformed term
+metadata and bounded read-ahead, including overflow edges.
+
+`python3 scripts/check_search.py check` passed: **1,988 native tests**, zero
+failures and 24 intentionally ignored, plus formatting, strict Clippy and portable
+compilation. Evidence is in `20260918T122848.743110Z-check`. The final WASM release
+build and **36 WASM tests** passed. The first cloud harness attempt failed before
+checks because the uploaded snapshot lacked Git metadata; a remote snapshot Git
+index fixed the harness environment without creating a commit. That failed
+attempt is retained alongside successful evidence. The full RPC/broker lifecycle
+suite was not rerun for these internal copy/admission changes; the preceding full
+run is recorded above. Local documentation/link and whitespace checks passed.
+
+These are Linux cloud-disk results, not a macOS throughput claim or a comparison
+with the reference Seismic engine. Local timings were excluded because competing
+workspace compilers and low disk space prevented a clean measurement. No other
+workspace jobs were stopped. This work does not claim improved query latency.
+Raw binaries, source fingerprints, timing, phase logs, payload hashes and query
+outputs remain ignored under `.context/seismic-copy-merge/`; no benchmark
+artifacts were staged or committed.
+
+### Memory-pressure investigation
+
+The following measurements and gaps describe the control before the residency
+and query-I/O changes recorded in the next section.
+
+Seismic's local server/tool reader uses `MmapDirectory`: bulk encoded values are
+file-backed and evictable, while only compact run objects/settings remain on the
+heap. This is not a promise for every directory backend: `FsDirectory`, RAM and
+HTTP return heap-backed whole-component buffers on this path. The control's pin
+policy does not include Seismic's term or row directories. Admission read-ahead
+warms pages but does not lock them.
+
+A census of the exact 1M/four-source fixture measured these encoded byte sizes:
+
+| Section                                          |         Bytes |
+| ------------------------------------------------ | ------------: |
+| Document/ordinal/forward-offset directory        |    24,000,000 |
+| Term directory                                   |     4,394,800 |
+| Cluster headers and term footers                 |    20,071,856 |
+| Summary dimension/offset/occurrence/value arrays | 2,138,175,719 |
+| Exact forward values                             | 1,010,560,752 |
+| Nomination IDs                                   |   339,121,628 |
+
+The first two total only 28.4 MB; all summaries total 2.14 GB. Integrating the
+existing pin budget with compact directories is the first residency opportunity.
+Summary caching should be selective and independently bounded, rather than
+pinning entire nomination files. Copy-mode pinning must redirect reader views
+to the retained copy; an unused duplicate allocation would not help. Scattered
+header ranges may require more locked pages than their encoded byte count.
+These were the opportunities identified before the implementation below.
+
+Approximate query scratch is bounded by 262,144 nominated documents and aggregate
+clusters per segment execution, a lookup table of at most 256 KiB, and at most
+four summary tasks sharing a score buffer. Concurrent segment queries multiply
+those bounds. Exhaustive queries scan without allocating corpus-sized score
+arrays. Maintenance admits directory/per-term scratch against its allowance and
+leaves debt when a term cannot fit. Initial construction still holds decoded
+rows, inverted candidates and assignment scratch; a successful low-memory
+merge/search does not establish a comparable initial-build memory bound.
+
+The control also lacks query-time random-access advice and selected-range prefetch.
+BMP and clustered ANN mark random-access payloads accordingly and prefetch bounded
+selected extents; Seismic's scattered summary and forward-vector reads currently
+use default mapping advice. Read-around amplification is therefore a candidate
+cause of pressure-induced I/O, not a proven attribution. A follow-up should
+compare faults and read bytes with random-access advice after admission, then
+add bounded selected-range prefetch in the owning reader. Preserve scoring order,
+avoid broad min-to-max spans and per-query policy toggles, and provide explicit
+read-ahead for exhaustive/background scans before adopting a persistent policy.
+
+#### Enforced memory limits on the merged fixture
+
+A separate probe uses Linux cgroup v2 `MemoryMax` with swap disabled. This limit
+covers process allocations and charged file cache, not just RSS. Each case
+starts from the same four source segments after file-specific cache eviction,
+merges into a new output, closes it, evicts that output's cached pages, and then
+opens it for search. Approximate search uses the same 200 queries/top-100 over
+three passes; reported mean/p95 exclude the first pass. Exact search uses three
+queries/top-100 over three passes, with a separate cold start. Each cap has one
+probe, so these are pressure diagnostics, not repeated throughput medians. They
+must not be compared directly with the warm-source merge timings above.
+
+| Memory cap | Cold-source merge | Approximate mean | Approximate p95 | Exact mean |
+| ---------- | ----------------: | ---------------: | --------------: | ---------: |
+| 4 GiB      |          20.635 s |        23.661 ms |       38.370 ms | 241.592 ms |
+| 1 GiB      |          26.662 s |       916.083 ms |    1,654.452 ms | 253.017 ms |
+
+Both completed cases reach their cache-inclusive cap with zero cgroup OOM events
+or kills, preserve all copied-run hashes, and return identical approximate and
+exact IDs/scores. At 1 GiB, approximate search is about 38.7x slower than at 4 GiB.
+The three-query exhaustive result is a small functional/scan probe, not evidence
+that exhaustive search generally outperforms nomination. Query mix and repeated
+working set matter. Initial build and constrained-memory maintenance are not
+measured here.
+
+At 512 MiB, copy merge completed in 29.294 s with identical run hashes. The
+200-query approximate probe exceeded its 1,200 s guard; no completed latency or
+hit comparison is available, and exact search was not run for that case. The
+last captured cgroup snapshot showed no OOM events, but it was taken before the
+timeout and is not a final event count.
+
+### Budgeted Seismic directories and query-I/O experiments
+
+The initial candidate below preserved the encoded format, nomination order and
+scoring. Its query-I/O policy was later removed after warm-query regressions;
+only compact directory pinning and shared copy-pin read-ahead are retained:
+
+- The existing per-segment pin policy now admits term directories before row
+  directories, redirecting copy-mode lookups to the retained bytes. Original
+  encoded owners remain available for streaming merge. Disabled-policy reports
+  now retain intended/skipped sparse metadata bytes.
+- Linux readers set random-access advice after admission and prefetch selected
+  summary coordinates and forward rows with bounded requests. Full scans and
+  maintenance retain rolling forward read-ahead across documents and ordinals.
+  Cancellation is checked before I/O batches and ordinal expansion.
+- The shared Linux copy-pin helper uses bounded rolling read-ahead when copying
+  admitted metadata. The fixture has 28,394,800 bytes of term/row directories
+  (27.08 MiB); summaries, nominations and exact vectors stay mapped and evictable.
+  An additional 10,014,624-byte summary-routing table was tested and removed;
+  its measured trade-offs are recorded below.
+- Rust sparse-vector and sparse-term constructors now reuse the shared query
+  defaults instead of repeating Seismic constants. No schema, query or pin
+  default changed.
+
+Initial construction is a separate remaining memory issue: the indexing memory
+limit currently triggers flushing based on incoming sparse coordinates, rather
+than establishing a hard bound on decoded rows, inverted nomination candidates,
+assignment cache and encoder workspace. A hard construction cap needs a
+calibrated peak estimate and pre-admission handling of an oversized document.
+The reader changes do not claim to provide that cap.
+
+The residency review also identified a preexisting limitation in generic ANN
+heap locking: independently owned malloc allocations may share an OS page, and
+`munlock` does not preserve another owner's lock on that page. The experimental routing
+table used page-exclusive anonymous allocations with rounded budget admission;
+that entire table implementation was subsequently removed after measurement. The
+generic ANN heap-lock ownership issue remains a separate follow-up; it affects
+residency guarantees rather than decoded values or search correctness.
+
+#### Intermediate routing evaluation (not the retained performance claim)
+
+The first 1 GiB / 64 MiB copy-pin probe preserved all copied-run hashes and
+all 200 approximate plus three exact query outputs. Approximate mean fell from
+916.083 to 719.062 ms, but cold open increased to 108.549 s and the merge operation
+to 129.286 s. The query process read 28,689,376 filesystem input blocks (14.69 GB
+at 512 bytes/block), versus the control's 62,096,224 blocks (31.79 GB). Its
+360,263 major faults were lower than the control's 1,080,087, but that reduction
+did not translate proportionally to latency.
+
+The three-query exact probe regressed from 253.017 ms to 3,740.896 ms. The
+forward payload alone is 1.011 GB, close to the enforced 1 GiB cap; additional
+resident metadata can change whether repeated exhaustive scans fit. This is a
+working-set hypothesis to distinguish with the directory-only and disabled-pin
+cases, not an assertion that exact scoring became computationally slower.
+
+These results exposed serial page faults during routing construction and
+metadata copying under `MADV_RANDOM`. The next candidate batches eight footer
+requests, bounds dimension-prefix advice to 256 KiB, and maintains rolling
+256 KiB read-ahead while sampling. The shared copy-pin helper copies in 128 KiB
+chunks with one-chunk lookahead on Linux. No mapping policy is toggled during
+queries, and no extra corpus-sized buffer is allocated. These changes require
+separate validation and measurements before accepting a performance claim.
+
+The 1 GiB directory-only comparison completed with 703.581 ms approximate mean,
+1,194.026 ms p95, 7.361 s cold open and 27.624 s merge. It preserved all run
+hashes and both query output sets. Routing was slightly slower on the measured
+query mix and much slower to initialize, so its arrays, lookup branch, allocator
+and construction code were removed. That intermediate candidate retained compact directory pinning, bounded query
+I/O and the shared copy-pin read-ahead fix. The subsequent warm-query screen
+rejected query-time advice too; its code and batching helpers were removed.
+The retained implementation keeps the original query traversal and OS mapping
+policy, compact directory pinning, and the shared copy-pin read-ahead fix.
+Directory-only exact mean was still 3,535.785 ms at the 1 GiB cap; the scan
+regression therefore is not specific to routing.
+
+#### Retained directory pinning: final validation and paired lifecycle checks
+
+The final implementation removes the query-time random-access policy, explicit
+summary/forward prefetch, routing arrays and associated batching helpers. It
+retains compact term/row directory views, existing budgeted copy/mlock admission,
+disabled-policy accounting, shared Linux copy-pin read-ahead and shared Rust
+query defaults. Normal query traversal is restored to the copy-merge control.
+Encoded formats, schema defaults, scoring and nomination budgets are unchanged.
+
+The rejected query-I/O screen used six alternating warm trials and identical
+outputs: median top-100 mean increased from 23.632 to 37.929 ms. An unmeasured
+coalescing follow-up was removed as well. The earlier low-memory improvements
+from that candidate are therefore not claims about the retained implementation.
+
+Final measurements use the same 1M/four-source fixture, dedicated Linux/x86-64
+VM, Rust 1.98.1, release settings and four search workers as above. The control
+already includes the 2.25x copy-merge fix. Warm query and merge trials alternate
+before/after three times each, with identical warming and no compiler overlap.
+
+| Final comparison                              |      Control |     Retained |
+| --------------------------------------------- | -----------: | -----------: |
+| Warm top-100 median mean, 200 queries         |    23.499 ms |    23.712 ms |
+| Maximum warm-query process RSS                | 3,406.20 MiB | 3,434.28 MiB |
+| Whole-merge median                            |     11.462 s |     11.499 s |
+| Maximum merge process RSS                     | 2,419.84 MiB | 2,420.42 MiB |
+| 100K fresh build, single trial                |     64.944 s |     64.027 s |
+| One bounded 1M maintenance pass, single trial |     28.593 s |     28.347 s |
+
+Warm search uses a 64 MiB copy-pin budget. The control has no Seismic directory
+pinning; the retained version copies 27.08 MiB. This is a 0.9% warm-latency cost,
+not a query-speed win. Lifecycle comparisons use the unchanged zero pin budget;
+the small single-run build/maintenance differences do not establish speedups.
+Every merged run matches the canonical encoded input hashes. Build and
+maintenance outputs, and their approximate/exact result files, match between
+versions. All 200 warm approximate query outputs also match exactly.
+
+The final Linux `full` harness passed **1,995 native tests**, with 24 intentionally
+ignored, plus **4 real-server broker tests**, strict lint, native-without-sync,
+portable compilation and API docs. The final WASM build and **36 tests** passed.
+The local macOS/aarch64 `check` also passed **1,994 tests**. The Linux run validated
+a frozen final source snapshot; the local run began during experiment cleanup.
+Evidence: cloud `20260918T155554.081439Z-full` and local
+`20260918T154949.155655Z-check`. Python/TypeScript suites were not rerun for these
+internal reader/copy changes; no protocol or client schema changed in this step.
+
+##### Final enforced-memory probes
+
+Each row below is one fresh Linux cgroup-v2 probe with `MemoryMax` set to the
+stated cap and swap disabled. Files are evicted before opening approximate
+search, and again before exact search. Approximate results use three passes over
+50 queries at 1/4 GiB and 10 queries at 512 MiB; means exclude the first pass.
+Exact results use the same three-query sample over three passes. These are
+capacity diagnostics, not repeated throughput medians. The 512 MiB sample must
+not be compared directly with the 50-query rows or the 200-query warm table.
+
+| Version  |     Cap | Copy-pin budget | Approximate mean |   Exact mean |
+| -------- | ------: | --------------: | ---------------: | -----------: |
+| Control  |   1 GiB |               0 |       862.130 ms |   249.947 ms |
+| Retained |   1 GiB |               0 |       840.497 ms |   250.013 ms |
+| Retained |   1 GiB |           8 MiB |       848.047 ms |   254.494 ms |
+| Retained |   1 GiB |          64 MiB |       849.197 ms |   251.541 ms |
+| Retained |   4 GiB |          64 MiB |        24.278 ms |   246.389 ms |
+| Control  | 512 MiB |               0 |     8,630.722 ms | 3,435.391 ms |
+| Retained | 512 MiB |          64 MiB |     7,213.452 ms | 2,945.760 ms |
+
+The 8 MiB budget admits term directories; the 64 MiB budget admits term and row
+directories (27.08 MiB total). Pinning provides no meaningful speed improvement
+in this 1 GiB sample. At 512 MiB the retained implementation measured 16.4% lower
+approximate latency than the control, but both are very slow and this single
+probe does not establish a general speedup. At an identical 64 MiB pin budget,
+the same 50-query sample is about 35x slower at 1 GiB than at 4 GiB. Compact
+metadata cannot compensate for the 2.138 GB of evictable summary arrays and
+1.011 GB of forward values. No pin, schema or query default is changed.
+
+Restoring the original query I/O policy also restores roughly 250 ms exhaustive
+scans at 1 GiB with full directory pinning. Thus the earlier multi-second scan
+regression is not an inherent cost of retaining those directory copies; the
+removed query-I/O experiment was responsible for that observed tradeoff. The
+small exhaustive sample remains a scan/functional check, not evidence that exact
+search is generally faster than approximate search.
+
+The final 512 MiB / 64 MiB-pin case additionally performs a cold-source merge:
+**30.833 s**, with all copied-run hashes preserved and the same 3,537,446,009-byte
+live output. This is separate from the warm merge medians above. The benchmark
+records process RSS, major faults, filesystem input blocks and cache-inclusive
+cgroup memory. Process I/O counters include cold opening and all three query
+passes, not only the reported warmed query means.
+
+All approximate/exact query probes completed and match the control. Every
+cgroup phase recorded zero OOM events and kills. The 1 GiB and 512 MiB cases
+reached their enforced cache-inclusive caps; the final 4 GiB search probe peaked
+at 3,614,760,960 bytes (3.37 GiB). Tested cloud Rust sources match the local
+workspace, and the downloaded evidence archive SHA-256 was verified.
+Construction still has no hard peak-memory cap; these results establish behavior for existing
+index reading, merging and search, not constrained-memory initial ingestion.
+All scripts, source/binary fingerprints, payload hashes, logs and complete query
+outputs are retained locally under `.context/seismic-copy-merge/pinning-evidence/`.
+Clean `npm ci` and a second **36-test WASM run** passed after benchmarking.
+
+##### Compact-summary implementation and measurements
+
+The lossless directory codec is implemented in the working tree. It encodes
+128-entry monotone blocks using local bit packing or Elias–Fano, with an
+array-level fallback to the previous packing when smaller. UInt8 weights,
+quantizers, clustering, nomination order and query defaults are unchanged.
+The [compact-summary design and measurements](seismic-compact-summaries.md)
+describe the wire format and complete benchmark methodology. Seismic format 4
+is incompatible with format 3: existing indexes require rebuilding. Both reader
+versions explicitly reject the other's format; no live migration is provided.
+
+The matched 1M/four-source Linux fixture uses Rust 1.98.1, release settings,
+four workers and a 64 MiB copy-pin allowance. Warm measurements are medians of
+three alternating runs per version, each with 200 queries/top-100 and three
+passes, excluding the first pass. Memory-cap rows are single capacity probes
+with swap disabled, using 50 queries at 1 GiB and ten at 512 MiB.
+
+| Final comparison                      |        Before |       Compact |
+| ------------------------------------- | ------------: | ------------: |
+| Summary-array bytes                   | 2,138,175,719 | 1,414,544,853 |
+| Complete live-index bytes             | 3,537,446,009 | 2,814,694,103 |
+| Linux warm mean                       |     22.419 ms |     20.201 ms |
+| Linux warm p95                        |     36.538 ms |     32.489 ms |
+| Linux warm process RSS                |     3.353 GiB |     2.681 GiB |
+| Linux index open                      |       2.892 s |       3.273 s |
+| 1 GiB approximate mean                |    695.558 ms |    650.968 ms |
+| 512 MiB approximate mean              |  7,063.370 ms |  6,524.871 ms |
+| Copy-merge median, two trials/version |      11.776 s |      10.707 s |
+| Maximum copy-merge RSS                | 2,509,152 KiB | 1,806,620 KiB |
+
+Directory bytes fall 67.7%, summary arrays 33.8%, and the complete index 20.4%.
+All 300,453,433 decoded directory entries match; hashes preserve 2,459,230,762
+bytes across 219,744 untouched payload sections. Encoded source runs remain
+byte-identical through copy merge. One fresh 100K build per version has similar
+time and peak RSS, with a 23.8% smaller index and identical untouched payloads,
+50 approximate query outputs and five exact query outputs. Construction still
+has no hard memory cap.
+
+The latency tradeoff is mixed. Linux warm means improve 9.9%, but open takes
+13.2% longer. An initial 33.3-second open regression was fixed by sequential
+block admission instead of repeated random Elias–Fano selection. The 1 GiB
+mean improves 6.4%, with p95 slightly higher; at 512 MiB the mean improves 7.6%
+but filesystem input drops only 2.6%. The separate 4 GiB probe is 3.2% slower.
+All query probes preserve results and record zero OOM events/kills. I/O counters
+include cold opening and all passes, rather than only warmed-query timing.
+Compression does not eliminate the cache-thrashing cliff.
+
+On the Apple M4 shared workstation, the same paired warm procedure gives
+11.789 → 12.107 ms (+2.7%), RSS 3.016 → 2.343 GiB, and open 1.117 → 1.786 s.
+One compact run has a large scheduling tail; it remains in the reported median.
+Do not claim an ARM or architecture-independent speedup. The fixture has one
+vector/document: 150M documents with 2–3B vectors, concurrent production QPS,
+64/256-entry alternatives, payload colocation and UInt4 remain unmeasured or
+unimplemented. No production RAM minimum follows from these file sizes.
+
+Final validation passes **1,997 native tests** (24 intentionally ignored), strict
+lint, native-without-sync, the WASM build and **36 WASM tests**. Evidence is
+`.context/search-harness/20260918T173418.407024Z-check/` and
+`.context/seismic-compact/`. The `full` lifecycle/RPC harness was not repeated
+for this codec-only change; its previous pass is recorded above. No clients or
+wire RPC schema changed. All 285 cloud source hashes match the local core
+sources. Downloaded cloud logs, results, scripts, payload audits, compatibility
+checks and executable/source fingerprints are retained in
+`.context/seismic-compact/cloud-evidence/`. The verified evidence archive SHA-256
+is `e27ba8433b1de8743461bcc8cd158f7b75ea22fec740397fcf82a9258719f91d`.
+The benchmark VM was stopped after download and independently verified as
+`TERMINATED`; a connection reset interrupted the stop command's status polling,
+not the completed shutdown. Final documentation, ownership contracts and
+`git diff --check` pass.
+
+##### Cluster-ID compression and locality follow-up
+
+The version-5 experiment preserves decoded summary cluster IDs, codes,
+quantizers, nomination rows and forward vectors. Per-coordinate sorted ID sets
+use combinatorial ranks when their complete encoded size beats fixed-width
+packing. Every 128 coordinates has one U32 byte checkpoint. Terms with more
+than 64 clusters or no size saving retain fixed-width IDs. Ordinary block delta
+packing was screened out: it saved no complete terms after restart overhead on
+this fixture. See the [codec design](seismic-compact-summaries.md) for wire layout,
+writer bounds and benchmark evidence.
+
+The 1M/four-source fixture has 650,174,079 occurrences. ID bytes shrink
+418,818,287 → 332,618,612 (20.6%), summary arrays
+1,414,544,853 → 1,328,345,178 (6.1%), and the complete index
+2,814,694,103 → 2,728,494,428 (3.1%). Compression is selected for 54,648 terms.
+The offline converter uses the production encoder and compares every decoded
+ID/code; dimensions, ends, quantizers, nominations and forward bytes are copied.
+The locality variant places each group's weight codes next to its ranks, with
+exactly the same size as the separate-stream variant. It does not colocate the
+dimension/end directories, quantizers or exact vectors.
+
+At the user's request, normal summary reading now trusts immutable writer
+output: no eager payload scans, term format/length checks or per-query ID/rank
+validation. Writer/codec tests establish the invariant. The previous eager
+prototype's timings are superseded and retained under `eager/`. A version-4
+control was rebuilt with the identical no-scan/read policy, separating its
+benefit from compression/locality. Existing outer-envelope compatibility and
+directory ownership stay separate from summary contents. Version 5 requires
+rebuilding older indexes; no live migration is provided.
+
+Final warm runs use the same fixture, compiler, flags and four workers within
+each architecture, a 64 MiB copy-pin allowance, 200 queries/top-100, three passes
+with the first excluded, and three alternating trials per variant. Values are
+medians of per-run statistics; no compiler overlap occurred.
+
+| Warm query mean | Fixed IDs, no scans | Compressed, separate codes | Compressed, colocated codes |
+| --------------- | ------------------: | -------------------------: | --------------------------: |
+| Linux/x86-64    |           24.877 ms |                  25.186 ms |                   22.303 ms |
+| Apple M4        |           12.200 ms |                  11.968 ms |                   12.085 ms |
+| Linux open      |           26.362 ms |                  25.774 ms |                   25.438 ms |
+| Apple M4 open   |           14.026 ms |                  12.814 ms |                   12.504 ms |
+
+Removing eager scans lowers opening from seconds to milliseconds. Compression
+alone has approximately neutral warm latency on these fixtures. Colocation
+improves the Linux warm mean by 10.3% versus fixed IDs and 11.4% versus separated
+compressed IDs; it has no meaningful warm advantage on Apple M4. Linux median
+process RSS is 2,014,220 / 2,001,976 / 2,725,620 KiB for the three layouts:
+colocation touches more resident mapped pages despite identical encoded size.
+Apple M4 RSS is 1,453,293,568 / 1,438,220,288 / 1,436,860,416 bytes. These are
+process residency observations, not minimum-memory requirements.
+
+The single 50-query warm top-10 probes are 13.326 / 13.676 / 12.015 ms on Linux
+and 6.360 / 6.466 / 6.917 ms on M4. They use a smaller query sample than the
+200-query table and do not establish concurrent production QPS. All sampled
+approximate and exact results match across layouts.
+
+At a 1 GiB cgroup-v2 cap with swap disabled, the matched 50-query top-100
+means are 667.399 / 642.730 / 628.797 ms (fixed/separate/colocated); p95 is
+1,514.200 / 1,291.499 / 1,286.291 ms. Filesystem input is
+11,451,456 / 11,111,880 / 11,119,832 blocks of 512 bytes, including cold opening,
+all three passes and result collection. Colocation therefore does not
+materially reduce measured disk volume versus separated compressed IDs, despite
+its warm Linux latency improvement. File refaults are
+1,116,176 / 1,075,761 / 1,076,610. These are single capacity probes, not repeated
+throughput medians or per-component I/O attribution.
+
+With the same cap and 50-query sample, requesting top-10 gives
+492.745 / 468.405 / 462.614 ms. Returning fewer results helps, but still requires
+summary discovery and candidate scoring; it does not make the read workload ten
+small summary fetches. Compression/locality do not establish a low-memory
+production configuration for 150M documents with 2–3B vectors. The fixture
+has one vector per document and no concurrent production QPS is measured.
+
+At 512 MiB, the ten-query top-100 probes average
+6,093.037 / 6,469.505 / 6,506.735 ms; p95 is
+10,523.400 / 11,520.801 / 11,307.942 ms. Filesystem input is
+61,112,800 / 60,943,920 / 61,028,480 blocks, and file refaults are
+7,367,733 / 7,347,504 / 7,358,068. Compression is 6.2% slower in this single
+probe, while disk volume changes by less than 0.3%; colocation adds no useful
+reduction. Do not present compression as a universal latency win. Every final
+memory-cap case completed with zero OOM events and kills.
+
+The retained writer uses separated compressed IDs/codes. Colocation remains an
+experimental encoded layout: its Linux warm improvement does not establish a
+broad memory-pressure or cross-architecture advantage. Summary format/length
+checks and eager payload scans remain removed, as requested.
+
+Two copy-merge trials per layout on the four-source 1M fixture give median
+3.899 / 3.859 / 3.503 seconds, with maximum process RSS
+47,840 / 64,816 / 64,896 KiB. Every encoded source run remains byte-identical
+through merge. The separate-layout trials vary 3.490–4.228 seconds, so their
+small median advantage is not a throughput claim. These low-residency results
+use zero pin budget and the writer-trusting reader, unlike the earlier eager
+admission measurements; the improvement is not solely ID compression.
+
+A single fresh 100K build per version takes 64.960 → 66.103 seconds, with peak
+RSS 648,420 → 652,628 KiB and index bytes 356,739,945 → 346,370,859 (2.9% smaller).
+The candidate records 184 bounded queue retries versus zero for the control.
+Converting the control through the production occurrence encoder yields exactly
+the candidate's encoded sparse component bytes. All 50 approximate and five
+exact fresh-build query outputs match. Construction still has no hard
+peak-memory guarantee.
+
+Final checks pass **1,997 native tests** (24 intentionally ignored), strict
+lint/format, native-without-sync, the WASM build and **36 WASM tests**. Evidence:
+`.context/search-harness/20260918T184035.497915Z-check/` and
+`.context/seismic-occurrences/`. The `full` lifecycle/RPC harness was not repeated;
+no RPC/client schema or publication protocol changed. Existing native lifecycle
+tests and the measured build/copy-merge paths cover this reader/codec change.
+
+Cloud evidence was downloaded and extracted under
+`.context/seismic-occurrences/cloud-evidence/`. The archive SHA-256 is
+`f4d7916e8ec4b180c5e623c58d161cea484c26ba7a2d6fa2d673a3a3ce9a31af`;
+all 287 recorded source hashes match the local tested core sources.
+The benchmark VM `hermes-validation-moroni` was stopped and independently
+confirmed `TERMINATED` after the download.
+
+## Release review: module ownership and shared implementations
+
+The release review covers the complete branch: text scoring and formats,
+RGB reordering, sparse backends and Seismic lifecycle, binary ANN exact-vector
+ownership, copy I/O, schema/RPC/client adapters, diagnostics and benchmark tools.
+The refactoring invariant is unchanged encoded bytes, scoring arithmetic,
+query budgets and publication behavior. No summary-reader validation is added.
+
+Seismic query preparation/exact scoring and complete-membership scoring move
+into private modules; nomination remains in the executor. Unit and integration
+tests keep their existing module paths. Sparse term decomposition and in-memory
+backend dispatch share one implementation across entry points. Bloom hashing
+and filesystem streaming-writer construction also have one owner. These
+extractions do not add corpus-sized allocations or change the cost model.
+Raw benchmark archives remain local evidence, outside the source release.
+
+The benchmark adapter still accepted the removed posting-validation-cache option
+and silently ignored its value. A regression test reproduced that behavior;
+the obsolete option and help entry were removed, so ordinary unknown-option
+handling reports it. Historical measurements remain labeled as historical.
+
+Changing the sparse constructor default exposed a persisted-schema compatibility
+bug: older MaxScore metadata omitted `format`, so it was reinterpreted as BMP
+and failed opening its existing payload. The serialized field retains the
+historical MaxScore omission default, while new writes emit the backend
+explicitly. New SDL/programmatic schemas still default to BMP. The regression
+opens format-6/7/8 metadata, appends, copy-merges, reopens, and compares results;
+no payload migration or new reader validation is introduced.
+
+Current-main integration keeps bounded segment opening and deletion-only reader
+refreshes. The shared posting reader now clones its file handles and immutable
+integrity state; it does not reopen or scan payloads. Seismic regressions cover
+old/new visibility in native and async search, shared copied directory addresses,
+and query/merge correctness after the original reader drops. Upstream ANN pin
+ownership and singleton-upsert regressions are retained.
+
+Final integrated validation passes `python3 scripts/check_search.py full`:
+2,007 native tests (25 intentionally ignored in the ordinary run), five separately
+run real-server broker tests, strict Clippy/format, native-without-sync and
+portable builds, and API docs. A fresh WASM release build passes all 36 tests.
+Python passes all 28 client tests, including real-server BMP/Seismic maintenance,
+plus 16 stress-helper tests; TypeScript passes 17 tests. Regenerated Python and
+TypeScript bindings match byte-for-byte. Python lint/format, shell checks,
+documentation links/benchmark inventory and their checker tests also pass.
+
+The first local fully parallel broker suite timed out in three mock-index
+registration waits. All 13 tests passed serially; the full harness then passed
+with `RUST_TEST_THREADS=4`. Normal Linux CI concurrency remains unchanged. This
+local contention limitation is retained in the evidence rather than hidden by a
+timeout increase. Final local evidence is under
+`.context/search-harness/20260918T200126.221893Z-full/` and
+`.context/release-review/`. No new throughput claim is made for the module cleanup.
+
+Linux CI exposed a missing feature boundary: the standalone broker disables core
+writers, but Seismic encoding helpers were still compiled and failed the strict
+unused-code check. Writer-only modules, imports, and functions now use the same
+native/WASM/test gates as their callers. No writer bytes or reader behavior
+change. The local harness now checks the broker independently and treats compiler
+warnings as errors, matching CI rather than relying on workspace feature unification.
+
+Remaining repository dependency alerts are recorded in PR #191. Existing `lru`
+and frontend/test/build-tooling advisories are outside this search-feature review;
+the critical GitPython alert references a removed training lockfile. A passing
+Cargo Audit job is not a claim that all repository dependency alerts are resolved.

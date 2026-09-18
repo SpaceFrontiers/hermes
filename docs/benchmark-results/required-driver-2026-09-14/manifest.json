@@ -1,0 +1,21 @@
+{
+  "archive": "results.zip",
+  "bytes": 2964007,
+  "sha256": "77e49a1926688988dc5701966ff0a06d33a613cac9b5b80b7b30762a4977dc5e",
+  "files": 122,
+  "full_archives": [
+    {
+      "path": ".context/required-driver-cloud-evidence.tar.gz",
+      "bytes": 43857020,
+      "sha256": "6983eca9abd3dd1206596834ed59a40ea8d9b92ebd0ea4f72f07230bf6748653"
+    }
+  ],
+  "notes": [
+    "Every full cloud archive was verified against its external SHA256 and every manifest entry before packaging.",
+    "Binaries and perf data are omitted from this compact bundle; exact hashes, frozen source, locks, run scripts, raw latency samples and gates are included.",
+    "Both required-driver builds include strict position admission and bounded score collection. The only production difference is required-clause intersection alignment; no persisted format changes.",
+    "CPU software sampling and smaps_rollup are diagnostic, separate from uninstrumented latency measurements.",
+    "All engine latency comparisons use identical complete query workloads, compiler/CPU flags and immutable indexes on the same host.",
+    "ARM results cover the same first 100,000 documents with canonical and normally merged position streams; they are not the full 5,032,104-document corpus."
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "archive": "results.zip",
+  "bytes": 1600415,
+  "sha256": "f3cdd57a40fc2f4d14f6b3ae07866f0b97cb66e338e975f724b0203f981b7e87",
+  "files": 46,
+  "stored_files": 39,
+  "aliases": 7,
+  "full_archives": [
+    {
+      "phase": "essential-upstream",
+      "bytes": 17100564,
+      "sha256": "c72a159c21729a33e14f3057b2509e0d43aab61267f0525a15da5951d046953c",
+      "verified_files": 43
+    }
+  ],
+  "notes": [
+    "Unchanged upstream make bench/src/client.py at a7c75473e91746280c5f01e69bf594ece5fca560, all 962 official and 714 supplemental queries, four commands, seven samples after ten-second warmup, CPU 2 for driver and engines. Source files are byte-checked against the pinned revision.",
+    "Selected and sparse-essential candidates are unchanged binaries from the preceding verified essential-runs capture, with the same immutable index, Rust compiler and native CPU/LTO flags. Tantivy is likewise unchanged. No source build, index preparation, profiling or heavy transfer overlaps latency.",
+    "Every returned COUNT and TOP_100_COUNT matches the preceding verified exact-count oracle; all rows contain seven positive samples. Prior full candidate score-bit/count/exhaustive gates are reused only after verifying complete binary/index/proof file identity. Engines drain before final manifests.",
+    "Separate software profiles and process residency are in the preceding verified essential-runs archive, whose complete manifest and external archive SHA are retained here. This upstream run records fresh per-process GNU time memory measurements for every operation.",
+    "Source archives and immutable index manifests are included. Exact duplicate files retain original logical paths through aliases and restoration verification. Binaries remain in the separately hashed full archive.",
+    "Warm single-query evidence does not establish cold-cache, concurrent-ingest, sparse-index or overall search-engine superiority."
+  ]
+}

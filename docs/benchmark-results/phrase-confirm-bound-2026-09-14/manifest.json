@@ -1,0 +1,25 @@
+{
+  "archive": "results.zip",
+  "bytes": 21563066,
+  "sha256": "7af86f0dfc098745cfdd4c3f2d573bcc3bf05a56996a15c24f9a9276e374072f",
+  "files": 231,
+  "stored_files": 161,
+  "aliases": 70,
+  "full_archives": [
+    {
+      "phase": "phrase-confirm-bound",
+      "bytes": 112863062,
+      "sha256": "44782d7bb285970ac91a09f9dcadc990680526b4786250ee1316859efba5ca1f",
+      "verified_files": 172
+    }
+  ],
+  "notes": [
+    "Same full corpus, all 962 official and 714 supplemental queries, four commands, seven rotated complete-pass samples after ten-second warmup per engine/command; driver and engines CPU 2. This additional runner is distinct from the original upstream client.",
+    "Control is the retained sparse-essential OR binary, verified from its preceding full manifest. The candidate overlays collector/traits/phrase and a regression test on the same selected source plus retained OR scoring. No index, format, scoring model or cache default changes.",
+    "Only the top-level ranked collector consumes a conservative optional final-score bound before confirming phrase positions. Original-first term frequency bounds phrase multiplicity; the existing BM25 owner supplies the conservative envelope. Complete counts, nested/filter/chunk fallbacks and score bits remain exact.",
+    "Fresh rounded/grouped-impact gates check all 1676 queries against Tantivy counts and exhaustive top-10/100/1000, with cross-source ordered top-1000 IDs/raw score bits/counts against verified V4. Both canonical and merged ARM fixtures pass the same cross-source and exhaustive gates.",
+    "No WASM build for this native prototype per user instruction. Query unit tests, integration suites, Clippy, ARM raw samples, process memory, immutable-index manifests and separate software profiles are retained.",
+    "Compilation, correctness gates, profiling, transfers and index hashing occur outside latency measurements. Software samples are not hardware cycles. Binaries and raw perf records remain in the hashed full archive; exact duplicate files are represented by verified aliases.",
+    "This experiment remains isolated until reviewed against complete performance and correctness evidence. Warm single-query timings do not establish cold-cache, concurrent-ingest or sparse-index superiority."
+  ]
+}

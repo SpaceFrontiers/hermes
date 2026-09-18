@@ -179,10 +179,84 @@ fn bench_byte_aligned_decode(c: &mut Criterion) {
     group.finish();
 }
 
+/// Exercise sparse ID windows separately from dense posting traversal. Setup
+/// and the independent exact-score oracle stay outside the timed loop.
+fn bench_windowed_text_unions(c: &mut Criterion) {
+    bench_windowed_text(c, "windowed_text_unions", 4);
+    bench_windowed_text(c, "windowed_text_terms", 1);
+}
+
+fn bench_windowed_text(c: &mut Criterion, name: &str, term_count: u32) {
+    use hermes_core::directories::OwnedBytes;
+    use hermes_core::query::{Bm25Params, MaxScoreExecutor};
+    use hermes_core::segment::chunk_map::{DocLengthsColumn, read_chunk_maps, write_chunk_maps};
+    use hermes_core::structures::{BlockPostingList, PostingList};
+    const DOCS: u32 = 262_144;
+    let norms = vec![100u16; DOCS as usize];
+    let mut encoded_norms = Vec::new();
+    write_chunk_maps(
+        &mut encoded_norms,
+        &[],
+        &[DocLengthsColumn {
+            field_id: 0,
+            lengths: &norms,
+            total_tokens: u64::from(DOCS) * 100,
+        }],
+    )
+    .unwrap();
+    let lengths = read_chunk_maps(OwnedBytes::new(encoded_norms))
+        .unwrap()
+        .doc_lengths
+        .remove(&0)
+        .unwrap();
+    let params = Bm25Params::default();
+    let mut group = c.benchmark_group(name);
+    for (name, stride) in [("dense", 4u32), ("sparse", 1024)] {
+        let mut lists = Vec::new();
+        let mut expected = Vec::new();
+        let mut postings_count = 0u64;
+        for term in 0..term_count {
+            let mut postings = PostingList::new();
+            for doc in 0..DOCS {
+                // Rotate terms over repeated window slots to catch stale scores.
+                if doc % stride == (doc / 4096 + term) % 4 {
+                    let tf = doc % 11 + 1;
+                    postings.push(doc, tf);
+                    expected.push((doc, params.score(tf as f32, 9.3, 100.0, 100.0)));
+                    postings_count += 1;
+                }
+            }
+            let list = BlockPostingList::from_posting_list_with(
+                &postings,
+                false,
+                Some(&|doc| lengths.length(doc)),
+            )
+            .unwrap();
+            lists.push((list, 9.3));
+        }
+        expected.sort_unstable_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+        expected.truncate(10);
+        let execute = || {
+            MaxScoreExecutor::text(lists.clone(), 100.0, 10, Some(&lengths), params, 1.0)
+                .execute_sync()
+                .unwrap()
+        };
+        let actual: Vec<_> = execute()
+            .into_iter()
+            .map(|hit| (hit.doc_id, hit.score))
+            .collect();
+        assert_eq!(actual, expected, "{name} ranking oracle");
+        group.throughput(Throughput::Elements(postings_count));
+        group.bench_function(name, |b| b.iter(|| black_box(execute())));
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_range,
     bench_dispatch,
-    bench_byte_aligned_decode
+    bench_byte_aligned_decode,
+    bench_windowed_text_unions
 );
 criterion_main!(benches);

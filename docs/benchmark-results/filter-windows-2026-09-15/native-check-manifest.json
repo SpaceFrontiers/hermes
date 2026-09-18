@@ -1,0 +1,41 @@
+{
+  "archive_sha256": "4406c1b47d90a87618fb4a6d32e8ed43dd836af0dc279b03b2fc7ce159bf047d",
+  "files": {
+    "01-fmt.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "02-clippy.log": {
+      "bytes": 464,
+      "sha256": "075268d8e2139d146e472586e05c257c24fe8145f1f573b419f6158b809e8518"
+    },
+    "04-check.log": {
+      "bytes": 168,
+      "sha256": "ea662daf26c398c67123aaf121c3e9ade013a5fc4c84ad836302a7514dbc1fb2"
+    },
+    "03-test.log": {
+      "bytes": 184771,
+      "sha256": "100881b5176556555582eb0beabc0b08e42305993e86a27dbc730dbf9d8d1a05"
+    },
+    "run.json": {
+      "bytes": 6794,
+      "sha256": "beb53fe255d1b238ff5dd7c303f751c14ea508a3573f124c777d5c6c27a34b0e"
+    },
+    "portable.log": {
+      "bytes": 168,
+      "sha256": "9dc9e6087ca3a862200bd7fbe1e1313d88ce6683c803140dd8ab6d973ec9876d"
+    },
+    "final-source-manifest.json": {
+      "bytes": 37459,
+      "sha256": "864e1229b0336718ba2f3bd22ee1960a7a9142ea79bc37966458eddca7e99517"
+    },
+    "final-harness.json": {
+      "bytes": 118,
+      "sha256": "0dceb98ca8ce3c16b42cca8711fb7393fd705f1c838bb0c0cc21785482714891"
+    },
+    "binary-hashes.json": {
+      "bytes": 421,
+      "sha256": "48d322ccb998120710960887570742b89a93a0edda009941c3b1b9e79ef38e16"
+    }
+  }
+}

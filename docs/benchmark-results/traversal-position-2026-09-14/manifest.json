@@ -1,0 +1,26 @@
+{
+  "archive": "results.zip",
+  "bytes": 5495548,
+  "sha256": "7b0702e5ce359051a28909a3d6af188c7a0ca8a16ea67dd074ebac07ec6a4589",
+  "files": 199,
+  "full_archives": [
+    {
+      "path": ".context/traversal-cloud-evidence.tar.gz",
+      "bytes": 31148823,
+      "sha256": "a50fb8ff1772a98d37db13c8826972a500937df2aa18a728cc24a52a47790f01"
+    },
+    {
+      "path": ".context/position-cursor-cloud-evidence.tar.gz",
+      "bytes": 32873091,
+      "sha256": "6b1e26108d82c4ce27010b1bd06f53b2beca5ae940d12cdc46c48c2e3c98e962"
+    }
+  ],
+  "notes": [
+    "Every full cloud archive member was verified locally before packaging.",
+    "Binaries and perf data are excluded from this compact bundle; frozen source overlays and raw latency samples are included.",
+    "Both cloud runs use the same immutable full-corpus indexes and compiler/CPU flags.",
+    "ARM uses 100,000 documents; the position phase includes both canonical and normally merged streams.",
+    "A 1.9-second cargo fmt overlapped the position ARM merged supplemental TOP_1000 run; its tiny differences are inconclusive.",
+    "The alternating traversal regression audit is included under the position cloud capture."
+  ]
+}

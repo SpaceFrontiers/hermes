@@ -1,0 +1,9 @@
+{
+  "archive": "native-check.zip",
+  "bytes": 122192,
+  "sha256": "ed335c9d3c9c60c495587260b9f1f304f187e8bfd9eae8536006dd4b6a95f47a",
+  "files": 11,
+  "native_stages": 4,
+  "tests_passed": 1749,
+  "wasm_rerun": false
+}

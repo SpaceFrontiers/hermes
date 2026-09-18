@@ -2599,11 +2599,3 @@ mod tests {
         assert_eq!(order.len(), reference_sb_order(&values).len());
     }
 }
-
-#[cfg(all(test, feature = "native"))]
-#[path = "bmp_forward_experiment.rs"]
-mod forward_experiment;
-
-#[cfg(all(test, feature = "native"))]
-#[path = "bmp_forward_lookup_experiment.rs"]
-mod forward_lookup_experiment;

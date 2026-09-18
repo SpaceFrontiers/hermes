@@ -50,3 +50,6 @@ hermes-python/target/
 # Environment
 .env
 .env.local
+
+# Local raw benchmark evidence; reports and hash manifests remain versioned
+/docs/benchmark-results/**/*.zip

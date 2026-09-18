@@ -1,0 +1,29 @@
+{
+  "archive": "results.zip",
+  "bytes": 6627530,
+  "sha256": "7db2fba0abe89ebd416a79f39cd9e478997af2214c4d34461b52c516259ca232",
+  "files": 383,
+  "full_archives": [
+    {
+      "path": ".context/short-wand-cloud-evidence.tar.gz",
+      "bytes": 145380231,
+      "sha256": "a2fb8e82ada7c9cccc9ce01672020c558e645864b283b37c544096b9aae8e8f5",
+      "verified_files": 251
+    }
+  ],
+  "notes": [
+    "Two-text-clause unions use block-WAND after the existing low-density compact-union choice. Wider unions retain score windows. Selection uses public query shape and valid score bounds; no query text, answers or corpus-specific branches are used.",
+    "Pivot bounds, safe intervals and canonical two-term score reduction reuse the existing ranked cursor and BM25 owner. The shared kernel has a one-document gather case. No encoded representation changes.",
+    "Independent exhaustive ordered-ID/score-bit tests cover all codecs, disjoint and overlapping clauses, duplicates, gaps, late winners, missing norms, zero-k1, positive statistics, seeded ties, high document IDs, predicates, deadlines and sync/async routing.",
+    "Unchanged control correctness gates are reused only after checking prior manifest entries, byte-identical binaries and index manifests, and comparing exact counts with freshly checked candidate gates. Every new candidate runs every gate. All controls are timed afresh. The source mapping is retained in verify-reuse.json.",
+    "Every full cloud archive was downloaded and verified against its external SHA256 and every manifest entry before packaging. This ZIP is also verified entry by entry.",
+    "Binaries and raw perf data are omitted from the compact ZIP; full archive hashes, frozen source, locks, adapters, gates, raw latency samples, profiles and memory evidence are retained.",
+    "Official timings cover all 962 queries on all 5,032,104 documents. The separate 714-term workload is derived from those queries; it does not change the official query mix.",
+    "Every gate compares exact COUNT with Tantivy and pruned Hermes top-10/100/1000 ordered IDs and score bits with Hermes exhaustive collection. Cross-engine score or ranking identity is not claimed.",
+    "Cloud timings use the same Cascade Lake VM, Rust 1.98.1, native CPU optimization, LTO and one query CPU, seven samples after ten-second warmup. ARM timings use the first 100,000 documents, two fixtures, eleven rotated samples and fifteen-second warmup.",
+    "Published latency aggregates are geometric means of per-query median microseconds, not pooled-request percentiles.",
+    "CPU software sampling, query diagnostics, builds, index audits, hashing and artifact transfers are separate from latency measurements. These results do not establish cold-cache or concurrent-ingest performance.",
+    "Document-order binary arrays remain on the VM; archives retain their hashes, lengths and regeneration code. Index files are represented by per-file manifests.",
+    "Indexing memory budget is a writer buffer budget, not a limit on process RSS. Heap, mapped file pages and process peak RSS are distinct measurements."
+  ]
+}
