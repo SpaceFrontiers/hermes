@@ -10236,8 +10236,6 @@ and filesystem streaming-writer construction also have one owner. These
 extractions do not add corpus-sized allocations or change the cost model.
 Raw benchmark archives remain local evidence, outside the source release.
 
-Final checks and integration findings are recorded below before publication.
-
 The benchmark adapter still accepted the removed posting-validation-cache option
 and silently ignored its value. A regression test reproduced that behavior;
 the obsolete option and help entry were removed, so ordinary unknown-option
@@ -10250,3 +10248,27 @@ historical MaxScore omission default, while new writes emit the backend
 explicitly. New SDL/programmatic schemas still default to BMP. The regression
 opens format-6/7/8 metadata, appends, copy-merges, reopens, and compares results;
 no payload migration or new reader validation is introduced.
+
+Current-main integration keeps bounded segment opening and deletion-only reader
+refreshes. The shared posting reader now clones its file handles and immutable
+integrity state; it does not reopen or scan payloads. Seismic regressions cover
+old/new visibility in native and async search, shared copied directory addresses,
+and query/merge correctness after the original reader drops. Upstream ANN pin
+ownership and singleton-upsert regressions are retained.
+
+Final integrated validation passes `python3 scripts/check_search.py full`:
+2,007 native tests (25 intentionally ignored in the ordinary run), five separately
+run real-server broker tests, strict Clippy/format, native-without-sync and
+portable builds, and API docs. A fresh WASM release build passes all 36 tests.
+Python passes all 28 client tests, including real-server BMP/Seismic maintenance,
+plus 16 stress-helper tests; TypeScript passes 17 tests. Regenerated Python and
+TypeScript bindings match byte-for-byte. Python lint/format, shell checks,
+documentation links/benchmark inventory and their checker tests also pass.
+
+The first local fully parallel broker suite timed out in three mock-index
+registration waits. All 13 tests passed serially; the full harness then passed
+with `RUST_TEST_THREADS=4`. Normal Linux CI concurrency remains unchanged. This
+local contention limitation is retained in the evidence rather than hidden by a
+timeout increase. Final local evidence is under
+`.context/search-harness/20260918T200126.221893Z-full/` and
+`.context/release-review/`. No new throughput claim is made for the module cleanup.
