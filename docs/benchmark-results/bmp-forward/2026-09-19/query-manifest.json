@@ -1,0 +1,175 @@
+{
+  "read_bytes": 748564708,
+  "documents": 42596,
+  "windows": [
+    {
+      "root": "/data/hermes-server/documents_20260912",
+      "segment": "01a09b34a52cbac71c7f298b9c12a88a",
+      "start_row": 30838829,
+      "rows": 100000,
+      "documents": 4522
+    },
+    {
+      "root": "/data/hermes-server/documents_20260912",
+      "segment": "01a0abb18d7331a5694cd1f0ee84976a",
+      "start_row": 44219965,
+      "rows": 100000,
+      "documents": 4942
+    },
+    {
+      "root": "/data/hermes-server/documents_20260912",
+      "segment": "01a0ad0356926afbdbb34be2f1e3f7ea",
+      "start_row": 62353601,
+      "rows": 100000,
+      "documents": 5201
+    },
+    {
+      "root": "/data2/hermes-server-4/documents_20260912",
+      "segment": "01a09b0a0dc330709be60b14e9418578",
+      "start_row": 30980831,
+      "rows": 100000,
+      "documents": 4966
+    },
+    {
+      "root": "/data2/hermes-server-4/documents_20260912",
+      "segment": "01a0abe82e7f5263f65ac32ea3854914",
+      "start_row": 37102432,
+      "rows": 100000,
+      "documents": 5420
+    },
+    {
+      "root": "/data2/hermes-server-4/documents_20260912",
+      "segment": "01a0b28eb537dbae4eac41dd563a2c82",
+      "start_row": 60915805,
+      "rows": 100000,
+      "documents": 4384
+    },
+    {
+      "root": "/data3/hermes-server/documents_20260912",
+      "segment": "01a09b273243125a6bbb4894a3237713",
+      "start_row": 30960696,
+      "rows": 100000,
+      "documents": 4899
+    },
+    {
+      "root": "/data3/hermes-server/documents_20260912",
+      "segment": "01a0b25433fef4174d99ef9dc39a0a25",
+      "start_row": 55298678,
+      "rows": 100000,
+      "documents": 3753
+    },
+    {
+      "root": "/data3/hermes-server/documents_20260912",
+      "segment": "01a0b0067518e00046cd7b0324c69ccc",
+      "start_row": 58274905,
+      "rows": 100000,
+      "documents": 4509
+    }
+  ],
+  "fixture_sha256": "e803d448c67aba51cb71dadcd5ebbd7be58984ae9ce9d7b8a260e6d292b0f1cd",
+  "source_sha256": "54613086a31d17ded033b08f8880460e66af332fc50280589d2034486e756598",
+  "raw_baseline_sha256": "3d8520b8dbf87e1192dcced47e00358f8df087223ef325f1580d289171d25c6e",
+  "query_order": "round-robin by source window, then template position",
+  "queries_sha256": "c62e9dd7a01d6fafa07eb7ed2c27e311f468f1a86501ff6ff6d33ec1d4693dde",
+  "baseline_commit": "782227808a54c560b231d19e0a4d46662ecca334",
+  "baseline_query_adjustment": "vector(target)? -> vector_for_scoring(target)? to match writer-trusted scoring",
+  "timed_runs": 52,
+  "paired_result_matches": 26,
+  "timed_requests": 9856,
+  "fixture_check": {
+    "rows_exactly_match_source": 900000,
+    "coordinates": 146460740,
+    "inverted_prefix_identical_bytes": 900363945
+  },
+  "measured_files": {
+    "corpus.bin.gz": {
+      "bytes": 429246884,
+      "sha256": "e803d448c67aba51cb71dadcd5ebbd7be58984ae9ce9d7b8a260e6d292b0f1cd"
+    },
+    "queries.json": {
+      "bytes": 97870,
+      "sha256": "c62e9dd7a01d6fafa07eb7ed2c27e311f468f1a86501ff6ff6d33ec1d4693dde"
+    },
+    "source.tar.gz": {
+      "bytes": 2015326,
+      "sha256": "54613086a31d17ded033b08f8880460e66af332fc50280589d2034486e756598"
+    },
+    "raw-baseline.tar.gz": {
+      "bytes": 62412,
+      "sha256": "3d8520b8dbf87e1192dcced47e00358f8df087223ef325f1580d289171d25c6e"
+    },
+    "gap-bin": {
+      "bytes": 14452368,
+      "sha256": "963f2fdb5462508a4d694bc13871c2e9ec084cbd8780e68879081e4a90b9a832"
+    },
+    "raw-bin": {
+      "bytes": 14430824,
+      "sha256": "ff13fbf6facf05d5a0f9899b87d3e8a2a9c8af943804a34fcc863056a67620d1"
+    },
+    "raw-fixture-bin": {
+      "bytes": 532056,
+      "sha256": "e3c5ab20bf8e62af273eb5b6430e4fc16f452da552312748ed93862532ff63b9"
+    },
+    "query_matrix.py": {
+      "bytes": 2978,
+      "sha256": "ab8b77901246d03f73598173fa8da94c38d92521265ef75e6187c4bc06998f30"
+    },
+    "query-results.json": {
+      "bytes": 1463738,
+      "sha256": "710b64f589c2e29014b678818c22d29ff94295f355acc9ce4deab2852e236b98"
+    }
+  },
+  "index_files": {
+    "raw": {
+      "seg_01a0b8cf0c21b23c61522d759a78396c.rowstats": 57531,
+      "metadata.json": 1432,
+      "seg_01a0b8cf0c21b23c61522d759a78396c.terms": 90,
+      "seg_01a0b8cf0c21b23c61522d759a78396c.sparse": 1647067806,
+      "seg_01a0b8cf0c21b23c61522d759a78396c.store": 981,
+      "seg_01a0b8cf0c21b23c61522d759a78396c.meta": 24,
+      ".hermes_writer.lock": 0,
+      "seg_01a0b8cf0c21b23c61522d759a78396c.post": 0
+    },
+    "gap": {
+      "seg_01a0b8cf0c21b23c61522d759a78396c.rowstats": 57531,
+      "metadata.json": 1432,
+      "seg_01a0b8cf0c21b23c61522d759a78396c.terms": 90,
+      "seg_01a0b8cf0c21b23c61522d759a78396c.sparse": 1317163549,
+      "seg_01a0b8cf0c21b23c61522d759a78396c.store": 981,
+      "seg_01a0b8cf0c21b23c61522d759a78396c.meta": 24,
+      ".hermes_writer.lock": 0,
+      "seg_01a0b8cf0c21b23c61522d759a78396c.post": 0
+    }
+  },
+  "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-unknown-linux-gnu\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+  "kernel": "Linux [benchmark-host] 7.0.0-1011-gcp #11~24.04.1-Ubuntu SMP PREEMPT Tue Aug 11 20:14:48 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux\n",
+  "cpu": "Architecture:                            x86_64\nCPU op-mode(s):                          32-bit, 64-bit\nAddress sizes:                           46 bits physical, 48 bits virtual\nByte Order:                              Little Endian\nCPU(s):                                  8\nOn-line CPU(s) list:                     0-7\nVendor ID:                               GenuineIntel\nModel name:                              Intel(R) Xeon(R) CPU @ 2.80GHz\nCPU family:                              6\nModel:                                   85\nThread(s) per core:                      2\nCore(s) per socket:                      4\nSocket(s):                               1\nStepping:                                7\nBogoMIPS:                                5600.57\nFlags:                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ss ht syscall nx pdpe1gb rdtscp lm constant_tsc rep_good nopl xtopology nonstop_tsc cpuid tsc_known_freq pni pclmulqdq ssse3 fma cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt aes xsave avx f16c rdrand hypervisor lahf_lm abm 3dnowprefetch ssbd ibrs ibpb stibp ibrs_enhanced fsgsbase tsc_adjust bmi1 hle avx2 smep bmi2 erms invpcid rtm avx512f avx512dq rdseed adx smap clflushopt clwb avx512cd avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves arat avx512_vnni md_clear arch_capabilities\nHypervisor vendor:                       KVM\nVirtualization type:                     full\nL1d cache:                               128 KiB (4 instances)\nL1i cache:                               128 KiB (4 instances)\nL2 cache:                                4 MiB (4 instances)\nL3 cache:                                33 MiB (1 instance)\nNUMA node(s):                            1\nNUMA node0 CPU(s):                       0-7\nVulnerability Gather data sampling:      Not affected\nVulnerability Ghostwrite:                Not affected\nVulnerability Indirect target selection: Mitigation; Aligned branch/return thunks\nVulnerability Itlb multihit:             Not affected\nVulnerability L1tf:                      Not affected\nVulnerability Mds:                       Not affected\nVulnerability Meltdown:                  Not affected\nVulnerability Mmio stale data:           Vulnerable: Clear CPU buffers attempted, no microcode; SMT Host state unknown\nVulnerability Old microcode:             Not affected\nVulnerability Reg file data sampling:    Not affected\nVulnerability Retbleed:                  Mitigation; Enhanced IBRS\nVulnerability Spec rstack overflow:      Not affected\nVulnerability Spec store bypass:         Mitigation; Speculative Store Bypass disabled via prctl\nVulnerability Spectre v1:                Mitigation; usercopy/swapgs barriers and __user pointer sanitization\nVulnerability Spectre v2:                Mitigation; Enhanced / Automatic IBRS; IBPB conditional; PBRSB-eIBRS SW sequence; BHI SW loop, KVM SW loop\nVulnerability Srbds:                     Not affected\nVulnerability Tsa:                       Not affected\nVulnerability Tsx async abort:           Vulnerable: Clear CPU buffers attempted, no microcode; SMT Host state unknown\nVulnerability Vmscape:                   Not affected\n",
+  "vm_memory_total_kib": 65839332,
+  "disk": {
+    "type": "pd-ssd",
+    "bytes": 1073741824000
+  },
+  "flags": {
+    "RUSTFLAGS": "-C target-cpu=native",
+    "release_lto": "thin",
+    "codegen_units": 1,
+    "metadata_pin_mode": "copy",
+    "metadata_pin_budget_mib": 64
+  },
+  "raw_evidence": {
+    "private_path": ".context/bmp-query/query-evidence.zip",
+    "bytes": 31005843,
+    "sha256": "059e0a7cbf16bdc0e100f23325901421e26ddb22044f5369cb6b1b1028a48944"
+  },
+  "vm_final_status": "TERMINATED",
+  "measured_runner_sha256": {
+    "measured-runner/Cargo.toml": "4beacd7dcd85c99bc6b94a790af9dcfdf731a4f14b456203db04c660fd003988",
+    "measured-runner/Cargo.lock": "401015a489b2774f03fd6674066172fb2707efcc98a59b7e4a134c00e77d3a56",
+    "measured-runner/src/main.rs": "0db395fa72b9519906eee1e4cf4dc3ea21a4e86b015b79f417bed1b0fa1a6885",
+    "measured-runner/src/bin/raw_fixture.rs": "527a10bf882ceede3a2999f45e2592167fbf01731f6a063e63bcdc46243fc0e7"
+  },
+  "checked_in_matrix_sha256": "24484ed50f6275151367ba82a3662d7b2b3b4f63fa110a27da54d858a4286fd6",
+  "matrix_change_after_measurement": "Enable IOAccounting=yes for future pressure runs; formatting/import cleanup and explicit file read.",
+  "oom_events": 0,
+  "hostname_redacted": true
+}

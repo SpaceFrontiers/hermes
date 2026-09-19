@@ -1,0 +1,28 @@
+{
+  "platform": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+  "machine": "Apple M4",
+  "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8",
+  "command": "rustc --edition=2024 -O --cfg feature=\"native\" measure.rs -o measure; ./measure rows.raw rows.gap",
+  "query_dimensions": 16,
+  "passes_per_sample": 50,
+  "samples": 7,
+  "layout_order": "alternates by sample",
+  "source_sha256": {
+    "hermes-core/src/structures/postings/sparse/dimensions.rs": "7edd07c08cb4b872ab90c0d31d3e0997d1cb75b51486ac79968df99aa4f32310",
+    "hermes-core/src/segment/bmp_forward/codec.rs": "b842fe282678ce36b0f03dddd88ced57a10b647dfe54b69330bf792c0f18a9b7",
+    "hermes-core/src/query/bmp.rs": "3450bc8b98b15eee5503c7173f1796ba3df02aaac322edb9a2d71dbe40a32784",
+    "docs/benchmark-results/bmp-forward/2026-09-19/measure.rs": "0129a3553a58db77cc1a7412a3543417af096d56a7bb6ded621ee8d8afa7df0b"
+  },
+  "fixture_sha256": "8c90f19e28008608640612be4817a56fbeabcc4c7ab12cd9a57a20b851f55ff2",
+  "encoded_rows_sha256": "ed0447adabc0cab2b5c687ad89753e2dd1ef5612dab24e07eb824e9a10f2a304",
+  "raw_sample_gzip_sha256": "4260a96b743932f45be6d6023a5ab3b6d9bb1d09e761973f1a6ab5be4a891ea8",
+  "private_fixture_bytes": 7317078,
+  "raw_sample_location": "private workspace .context/bmp-gap; not committed",
+  "sampling_seed": 260919,
+  "resident_median_ns_per_row": {
+    "raw": 164.658,
+    "gap": 263.841
+  },
+  "seismic_encoder_before_extraction_sha256": "83d855d3d4952b4f6b9fa7b9edc85b599c5f0ba6214e3c34e1e8b9761f65703e",
+  "seismic_extraction_comparison_sha256": "b7aad7cc2d667372e2918d885e4ac9acfe44cfba7d52265426a29f4281ca01e2"
+}

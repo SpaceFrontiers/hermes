@@ -1,0 +1,19 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 254  of event 'cpu-clock'
+# Event count (approx.): 1276381750
+#
+# Overhead  Symbol                                                                                                                                                                                                                                                                        IPC   [IPC Coverage]
+# ........  ............................................................................................................................................................................................................................................................................  ....................
+#
+    87.80%  [.] <hermes_core::query::bmp::CandidateBmpPreparation>::score                                                                                                                                                                                                                 -      -
+     3.15%  [.] <core::iter::sources::from_fn::FromFn<<hermes_core::segment::bmp_forward::codec::ForwardVector>::packets::{closure#0}> as core::iter::traits::iterator::Iterator>::next                                                                                                   -      -
+     1.18%  [k] next_uptodate_folio                                                                                                                                                                                                                                                       -      -
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

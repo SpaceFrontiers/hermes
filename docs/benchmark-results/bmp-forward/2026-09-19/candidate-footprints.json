@@ -1,0 +1,170 @@
+[
+  {
+    "mode": "pipeline",
+    "depth": 100,
+    "queries": 64,
+    "mean": {
+      "documents": 49.34375,
+      "vectors": 9969.375,
+      "raw_payload_bytes": 8649187.8125,
+      "gap_payload_bytes": 4715507.15625,
+      "raw_payload_pages": 2161.078125,
+      "gap_payload_pages": 1200.234375
+    },
+    "p95": {
+      "documents": 99,
+      "vectors": 19106,
+      "raw_payload_bytes": 17206520,
+      "gap_payload_bytes": 9278563,
+      "raw_payload_pages": 4272,
+      "gap_payload_pages": 2336
+    }
+  },
+  {
+    "mode": "pipeline",
+    "depth": 100,
+    "queries": 96,
+    "mean": {
+      "documents": 52.625,
+      "vectors": 9993.895833333334,
+      "raw_payload_bytes": 8698884.114583334,
+      "gap_payload_bytes": 4747646.9375,
+      "raw_payload_pages": 2176.53125,
+      "gap_payload_pages": 1211.625
+    },
+    "p95": {
+      "documents": 100,
+      "vectors": 19325,
+      "raw_payload_bytes": 17206520,
+      "gap_payload_bytes": 9386275,
+      "raw_payload_pages": 4302,
+      "gap_payload_pages": 2390
+    }
+  },
+  {
+    "mode": "pipeline",
+    "depth": 1000,
+    "queries": 64,
+    "mean": {
+      "documents": 476.09375,
+      "vectors": 64653.359375,
+      "raw_payload_bytes": 53073415.9375,
+      "gap_payload_bytes": 29092114.984375,
+      "raw_payload_pages": 13421.796875,
+      "gap_payload_pages": 7570.109375
+    },
+    "p95": {
+      "documents": 711,
+      "vectors": 104366,
+      "raw_payload_bytes": 85057590,
+      "gap_payload_bytes": 46518163,
+      "raw_payload_pages": 21332,
+      "gap_payload_pages": 11949
+    }
+  },
+  {
+    "mode": "pipeline",
+    "depth": 1000,
+    "queries": 96,
+    "mean": {
+      "documents": 497.625,
+      "vectors": 64776.375,
+      "raw_payload_bytes": 53263087.03125,
+      "gap_payload_bytes": 29213469.260416668,
+      "raw_payload_pages": 13488.604166666666,
+      "gap_payload_pages": 7620.09375
+    },
+    "p95": {
+      "documents": 781,
+      "vectors": 104366,
+      "raw_payload_bytes": 84102145,
+      "gap_payload_bytes": 45969731,
+      "raw_payload_pages": 21087,
+      "gap_payload_pages": 11805
+    }
+  },
+  {
+    "mode": "scattered",
+    "depth": 1000,
+    "queries": 64,
+    "mean": {
+      "documents": 1000,
+      "vectors": 20840.765625,
+      "raw_payload_bytes": 16976862.5,
+      "gap_payload_bytes": 9327884.109375,
+      "raw_payload_pages": 5144.890625,
+      "gap_payload_pages": 3274.421875
+    },
+    "p95": {
+      "documents": 1000,
+      "vectors": 24385,
+      "raw_payload_bytes": 19489485,
+      "gap_payload_bytes": 10720218,
+      "raw_payload_pages": 5751,
+      "gap_payload_pages": 3625
+    }
+  },
+  {
+    "mode": "scattered",
+    "depth": 1000,
+    "queries": 96,
+    "mean": {
+      "documents": 1000,
+      "vectors": 20940.645833333332,
+      "raw_payload_bytes": 17020398.4375,
+      "gap_payload_bytes": 9352190.239583334,
+      "raw_payload_pages": 5155.833333333333,
+      "gap_payload_pages": 3281.40625
+    },
+    "p95": {
+      "documents": 1000,
+      "vectors": 24915,
+      "raw_payload_bytes": 20019720,
+      "gap_payload_bytes": 10935482,
+      "raw_payload_pages": 5903,
+      "gap_payload_pages": 3674
+    }
+  },
+  {
+    "mode": "local",
+    "depth": 1000,
+    "queries": 64,
+    "mean": {
+      "documents": 1000,
+      "vectors": 21173.3125,
+      "raw_payload_bytes": 17272318.671875,
+      "gap_payload_bytes": 9487348.53125,
+      "raw_payload_pages": 4217.90625,
+      "gap_payload_pages": 2317.234375
+    },
+    "p95": {
+      "documents": 1000,
+      "vectors": 25568,
+      "raw_payload_bytes": 20451940,
+      "gap_payload_bytes": 11253815,
+      "raw_payload_pages": 4994,
+      "gap_payload_pages": 2748
+    }
+  },
+  {
+    "mode": "local",
+    "depth": 1000,
+    "queries": 96,
+    "mean": {
+      "documents": 1000,
+      "vectors": 21149,
+      "raw_payload_bytes": 17241376.145833332,
+      "gap_payload_bytes": 9472410.520833334,
+      "raw_payload_pages": 4210.34375,
+      "gap_payload_pages": 2313.5833333333335
+    },
+    "p95": {
+      "documents": 1000,
+      "vectors": 25989,
+      "raw_payload_bytes": 21449320,
+      "gap_payload_bytes": 11809206,
+      "raw_payload_pages": 5237,
+      "gap_payload_pages": 2884
+    }
+  }
+]

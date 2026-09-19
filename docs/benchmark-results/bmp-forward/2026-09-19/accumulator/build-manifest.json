@@ -1,0 +1,9 @@
+{
+  "before-bin": "963f2fdb5462508a4d694bc13871c2e9ec084cbd8780e68879081e4a90b9a832",
+  "after-bin": "30623a4ec64724bb244ffb7a6847b08e5dc033cb8492f6f560dd23c1bd11fb0f",
+  "bmp-before.rs": "3450bc8b98b15eee5503c7173f1796ba3df02aaac322edb9a2d71dbe40a32784",
+  "bmp-after.rs": "dd914ad409360e386f0e155832473e142ff8370332befab91abc72c9b8a4f02a",
+  "docs/benchmark-results/bmp-forward/2026-09-19/query-runner/Cargo.toml": "4beacd7dcd85c99bc6b94a790af9dcfdf731a4f14b456203db04c660fd003988",
+  "docs/benchmark-results/bmp-forward/2026-09-19/query-runner/Cargo.lock": "401015a489b2774f03fd6674066172fb2707efcc98a59b7e4a134c00e77d3a56",
+  "docs/benchmark-results/bmp-forward/2026-09-19/query-runner/src/main.rs": "0db395fa72b9519906eee1e4cf4dc3ea21a4e86b015b79f417bed1b0fa1a6885"
+}

@@ -1,0 +1,31 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 74  of event 'cpu-clock'
+# Event count (approx.): 371859250
+#
+# Overhead  Symbol                                                                                                                                                                                                                                                                      IPC   [IPC Coverage]
+# ........  ..........................................................................................................................................................................................................................................................................  ....................
+#
+    75.68%  [.] <hermes_core::query::bmp::CandidateBmpPreparation>::score                                                                                                                                                                                                               -      -
+     4.05%  [.] <hermes_core::segment::bmp_forward::BmpForward>::for_document                                                                                                                                                                                                           -      -
+     2.70%  [k] folio_add_file_rmap_ptes                                                                                                                                                                                                                                                -      -
+     2.70%  [k] next_uptodate_folio                                                                                                                                                                                                                                                     -      -
+     1.35%  [.] <hermes_core::index::searcher::Searcher<hermes_core::directories::mmap::MmapDirectory>>::score_candidate_features::{closure#0}                                                                                                                                          -      -
+     1.35%  [.] <serde_json::value::Value as serde_core::ser::Serialize>::serialize::<&mut serde_json::ser::Serializer<&mut std::io::buffered::bufwriter::BufWriter<std::fs::File>>>                                                                                                    -      -
+     1.35%  [k] _raw_spin_unlock_irqrestore                                                                                                                                                                                                                                             -      -
+     1.35%  [.] core::ptr::drop_glue::<alloc::collections::btree::set::BTreeSet<(u128, u32)>>                                                                                                                                                                                           -      -
+     1.35%  [.] core::ptr::drop_glue::<serde_json::value::Value>                                                                                                                                                                                                                        -      -
+     1.35%  [k] do_user_addr_fault                                                                                                                                                                                                                                                      -      -
+     1.35%  [k] folio_add_new_anon_rmap                                                                                                                                                                                                                                                 -      -
+     1.35%  [k] folios_put_refs                                                                                                                                                                                                                                                         -      -
+     1.35%  [.] hermes_core::segment::logical_address::logically_ordered::<core::iter::adapters::map::Map<core::iter::adapters::zip::Zip<core::slice::iter::ChunksExact<u8>, core::slice::iter::ChunksExact<u8>>, <hermes_core::segment::reader::bmp::BmpIndex>::parse::{closure#13}>>  -      -
+     1.35%  [k] kernel_init_pages                                                                                                                                                                                                                                                       -      -
+     1.35%  [k] zap_present_ptes.constprop.0                                                                                                                                                                                                                                            -      -
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#
