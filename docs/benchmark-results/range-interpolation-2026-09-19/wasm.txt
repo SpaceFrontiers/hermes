@@ -1,0 +1,36 @@
+[INFO]: 🎯  Checking for the Wasm target...
+[INFO]: 🌀  Compiling to Wasm...
+   Compiling hermes-core v1.8.146 (/Users/pasha/conductor/workspaces/hermes/jerusalem/hermes-core)
+   Compiling hermes-wasm v1.8.146 (/Users/pasha/conductor/workspaces/hermes/jerusalem/hermes-wasm)
+    Finished `release` profile [optimized] target(s) in 28.49s
+[INFO]: ⬇️  Installing wasm-bindgen...
+[INFO]: Optimizing wasm binaries with `wasm-opt`...
+[INFO]: License key is set in Cargo.toml but no LICENSE file(s) were found; Please add the LICENSE file(s) to your project directory
+[INFO]: ✨   Done in 46.65s
+[INFO]: 📦   Your wasm pkg is ready to publish at /Users/pasha/conductor/workspaces/hermes/jerusalem/hermes-wasm/pkg.
+[WARN]: ⚠️   There's a newer version of wasm-pack available, the new version is: 0.15.0, you are using: 0.13.1. To update, navigate to: https://rustwasm.github.io/wasm-pack/installer/
+patching file 'pkg/hermes_wasm.js'
+
+added 75 packages, and audited 76 packages in 2s
+
+28 packages are looking for funding
+  run `npm fund` for details
+
+4 vulnerabilities (3 moderate, 1 high)
+
+To address all issues, run:
+  npm audit fix
+
+Run `npm audit` for details.
+
+> test
+> vitest --run
+
+
+ RUN  v4.1.0 /Users/pasha/conductor/workspaces/hermes/jerusalem/hermes-wasm
+
+
+ Test Files  7 passed (7)
+      Tests  38 passed (38)
+   Start at  17:13:15
+   Duration  622ms (transform 356ms, setup 0ms, import 508ms, tests 1.46s, environment 0ms)

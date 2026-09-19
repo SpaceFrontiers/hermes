@@ -1,0 +1,48 @@
+Gnuplot not found, using plotters backend
+bucketed/65536/1: 110217 encoded column bytes; 8192 output bytes
+Testing rust_hot_paths/range_scan_layouts/bucketed/65536/1_blocks
+Success
+bucketed/65536/16: 98464 encoded column bytes; 8192 output bytes
+Testing rust_hot_paths/range_scan_layouts/bucketed/65536/16_blocks
+Success
+ordered/65536/1: 28297 encoded column bytes; 8192 output bytes
+Testing rust_hot_paths/range_scan_layouts/ordered/65536/1_blocks
+Success
+ordered/65536/16: 28432 encoded column bytes; 8192 output bytes
+Testing rust_hot_paths/range_scan_layouts/ordered/65536/16_blocks
+Success
+missing/65536/16: 14288 encoded column bytes; 8192 output bytes
+Testing rust_hot_paths/range_scan_layouts/missing/65536/16_blocks
+Success
+all_match/65536/16: 28432 encoded column bytes; 8192 output bytes
+Testing rust_hot_paths/range_scan_layouts/all_match/65536/16_blocks
+Success
+piecewise/1024/1: 451 encoded column bytes; 128 output bytes
+Testing rust_hot_paths/range_scan_layouts/piecewise/1024/1_blocks
+Success
+piecewise/65536/1: 28297 encoded column bytes; 8192 output bytes
+Testing rust_hot_paths/range_scan_layouts/piecewise/65536/1_blocks
+Success
+piecewise/1048576/1: 452617 encoded column bytes; 131072 output bytes
+Testing rust_hot_paths/range_scan_layouts/piecewise/1048576/1_blocks
+Success
+
+layout bytes: HeapEntry=12, DocBitset=24, SharedThreshold=40, ColumnBlock=208, FastFieldReader=136
+        0.16 real         0.11 user         0.09 sys
+            41336832  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                3074  page reclaims
+                 325  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                  75  voluntary context switches
+               17032  involuntary context switches
+          3266647047  instructions retired
+           775364444  cycles elapsed
+            27820560  peak memory footprint

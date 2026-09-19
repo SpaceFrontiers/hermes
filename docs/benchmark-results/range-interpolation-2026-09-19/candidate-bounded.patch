@@ -1,0 +1,177 @@
+diff --git a/hermes-core/src/query/traits.rs b/hermes-core/src/query/traits.rs
+index 5876594d..f94bb473 100644
+--- a/hermes-core/src/query/traits.rs
++++ b/hermes-core/src/query/traits.rs
+@@ -216,6 +216,7 @@ impl DocBitset {
+ 
+     /// Add matches from consecutive values without a bitset read/modify/write
+     /// per hit. The caller supplies a range inside the document universe.
++    #[inline]
+     pub(super) fn insert_matching_values(
+         &mut self,
+         start: u32,
+diff --git a/hermes-core/src/structures/fast_field/codec.rs b/hermes-core/src/structures/fast_field/codec.rs
+index d307006b..314cca0a 100644
+--- a/hermes-core/src/structures/fast_field/codec.rs
++++ b/hermes-core/src/structures/fast_field/codec.rs
+@@ -799,6 +799,64 @@ impl Default for BlockwiseLinearCursor {
+     }
+ }
+ 
++/// Exact interpolation within one bounded codec record. The scalar i128
++/// formula and writer remain independent; descending slopes truncate toward
++/// zero by subtracting the same unsigned quotient sequence.
++struct LinearProgression {
++    value: u64,
++    step: u64,
++    remainder: u64,
++    remainder_step: u64,
++    denominator: u64,
++    direction: u64,
++}
++
++impl LinearProgression {
++    fn new(first: u64, last: u64, len: usize, start: usize) -> Self {
++        debug_assert!(len > 0 && len <= BLOCKWISE_LINEAR_BLOCK_SIZE && start < len);
++        let denominator = len.saturating_sub(1).max(1) as u64;
++        let delta = first.abs_diff(last);
++        let quotient = delta / denominator;
++        let remainder_step = delta % denominator;
++        // start and remainder_step are bounded by the 512-value record size;
++        // quotient * start cannot exceed delta at a valid starting position.
++        let remainder_product = remainder_step * start as u64;
++        let magnitude = quotient * start as u64 + remainder_product / denominator;
++        let direction = if last >= first { 1u64 } else { u64::MAX };
++        let signed = |value: u64| {
++            if last >= first {
++                value
++            } else {
++                value.wrapping_neg()
++            }
++        };
++        Self {
++            value: first.wrapping_add(signed(magnitude)),
++            step: signed(quotient),
++            remainder: remainder_product % denominator,
++            remainder_step,
++            denominator,
++            direction,
++        }
++    }
++
++    #[inline]
++    fn next(&mut self) -> u64 {
++        let value = self.value;
++        self.remainder += self.remainder_step;
++        let carry = u64::from(self.remainder >= self.denominator);
++        self.remainder -= carry * self.denominator;
++        // Advancing beyond the last output may wrap; no extra value is exposed.
++        self.value = self
++            .value
++            .wrapping_add(self.step)
++            .wrapping_add(carry * self.direction);
++        value
++    }
++}
++
++// Isolate codec-specific arithmetic from generic scan dispatch and bitset packing.
++#[inline(never)]
+ fn blockwise_linear_read_batch_with_cursor(
+     data: &[u8],
+     start_index: usize,
+@@ -846,9 +904,10 @@ fn blockwise_linear_read_batch_with_cursor(
+         };
+         let take = (block_len - index_in_block).min(valid_len - written);
+ 
++        let mut prediction = LinearProgression::new(first, last, block_len, index_in_block);
+         for (i, value) in out[written..written + take].iter_mut().enumerate() {
+             let block_index = index_in_block + i;
+-            let predicted = interpolate(first, last, block_len, block_index);
++            let predicted = prediction.next();
+             let residual = if bpv == 0 {
+                 0
+             } else {
+@@ -996,6 +1055,7 @@ pub fn auto_read_batch(data: &[u8], start_index: usize, out: &mut [u64]) {
+ 
+ /// Batch decode with an optional sequential advantage for BlockwiseLinear.
+ /// The caller must reset the cursor when switching column payloads.
++#[inline]
+ pub(super) fn auto_read_batch_with_cursor(
+     data: &[u8],
+     start_index: usize,
+@@ -1054,6 +1114,75 @@ pub fn auto_read(data: &[u8], index: usize) -> u64 {
+ mod tests {
+     use super::*;
+ 
++    #[test]
++    fn incremental_predictions_match_signed_interpolation_at_extremes_and_offsets() {
++        let endpoints = [0, 1, 17, (1 << 63) - 1, 1 << 63, u64::MAX - 1, u64::MAX];
++        for first in endpoints {
++            for last in endpoints {
++                for len in [1, 2, 3, 7, 31, 255, 256, 257, 511, 512] {
++                    for start in [0, len / 2, len - 1] {
++                        let mut values = LinearProgression::new(first, last, len, start);
++                        for i in start..len {
++                            assert_eq!(
++                                values.next(),
++                                interpolate(first, last, len, i),
++                                "first={first} last={last} len={len} index={i}"
++                            );
++                        }
++                    }
++                }
++            }
++        }
++        let mut seed = 17u64;
++        for len in 1..=512 {
++            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
++            let first = seed;
++            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
++            let last = seed;
++            let start = seed as usize % len;
++            let mut values = LinearProgression::new(first, last, len, start);
++            for i in start..len {
++                assert_eq!(values.next(), interpolate(first, last, len, i));
++            }
++        }
++    }
++
++    #[test]
++    fn blockwise_batches_preserve_extreme_predictions_and_wrapping_residuals() {
++        for len in [1usize, 2, 255, 256, 257, 511, 512] {
++            for (first, last) in [(0u64, u64::MAX), (u64::MAX, 0), (u64::MAX, u64::MAX)] {
++                for offset in [i64::MIN, -17, 0, 17, i64::MAX] {
++                    for width in [0u8, 1, 7, 32, 64] {
++                        let mask = u64::MAX.checked_shr(u32::from(64 - width)).unwrap_or(0);
++                        let residuals: Vec<_> = (0..len)
++                            .map(|i| if i % 2 == 0 { mask } else { 0 })
++                            .collect();
++                        let mut packed = Vec::new();
++                        bitpack_write(&residuals, width, &mut packed);
++                        let mut data = vec![CodecType::BlockwiseLinear as u8];
++                        data.extend_from_slice(&(len as u32).to_le_bytes());
++                        data.extend_from_slice(&1u32.to_le_bytes());
++                        data.extend_from_slice(&first.to_le_bytes());
++                        data.extend_from_slice(&last.to_le_bytes());
++                        data.extend_from_slice(&offset.to_le_bytes());
++                        data.push(width);
++                        data.extend_from_slice(&(packed.len() as u32).to_le_bytes());
++                        data.extend_from_slice(&packed);
++                        validate_auto(&data, len).unwrap();
++                        for start in [0, len / 2, len - 1] {
++                            let mut actual = vec![0; len - start + 3];
++                            auto_read_batch(&data, start, &mut actual);
++                            let expected: Vec<_> =
++                                (start..len).map(|i| auto_read(&data, i)).collect();
++                            assert_eq!(&actual[..len - start], expected);
++                            assert_eq!(&actual[len - start..], &[0; 3]);
++                        }
++                    }
++                }
++            }
++        }
++    }
++
+     #[test]
+     fn cursor_batches_preserve_all_codecs_boundaries_and_backward_reads() {
+         let values = blockwise_values(2053);

@@ -10568,3 +10568,20 @@ public benchmark metadata now redacts the internal host name while the private
 archive retains exact provenance. The latest main cleanup changes comments and
 benchmark labels only. The passing 2,023-test native harness, 38 WASM tests and
 paired score/byte measurements above cover the unchanged runtime implementation.
+
+## Range interpolation experiment (2026-09-19; rejected)
+
+An exact quotient/remainder recurrence speeds warm BlockwiseLinear bitset scans
+by about 2× on Apple M4 and 3.7× on Cascade Lake, but changes compiler decisions
+in shared scan code. On a dedicated x86 VM, all four ordinary shuffled bitpacked
+controls regress 8.1–8.3% in alternating runs. A final explicit kernel boundary
+still regresses them 9.4–9.6%. No runtime change or new default is retained.
+
+The [report and evidence](range-block-scans.md#incremental-interpolation-experiment-not-integrated)
+record exact candidate patches, same-version/compiler/fixture comparisons,
+confidence intervals, correctness and process-memory measurements. The main
+prototype passed 2,031 native tests, three async-only range tests, and the WASM
+build with 38 tests. Remote evidence was downloaded and hash-verified; the
+isolated VM and boot disk were deleted. The remaining candidates are bounded
+batching inside the lazy range scorer and accepting fully covered block spans
+through the shared reader scan protocol. Neither is implemented or measured.
