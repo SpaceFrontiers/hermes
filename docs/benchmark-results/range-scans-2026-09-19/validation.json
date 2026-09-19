@@ -1,0 +1,27 @@
+{
+  "native_check": {
+    "success": true,
+    "passed": 2029,
+    "ignored": 25,
+    "evidence": "20260919T132628.489807Z-check"
+  },
+  "focused_codec_tests": 29,
+  "async_only_range_tests": 3,
+  "wasm": {
+    "build": true,
+    "tests": 38,
+    "npm_ci": true,
+    "npm_audit_report": "3 moderate and 1 high dependency advisories; dependencies unchanged"
+  },
+  "docs": {
+    "markdown_files": 130,
+    "local_links": 653,
+    "benchmark_targets": 20
+  },
+  "not_run": [
+    "full real-server RPC harness: no lifecycle/RPC changes",
+    "x86 measurements",
+    "cold-storage/concurrent/full-query measurements",
+    "GPU checks"
+  ]
+}

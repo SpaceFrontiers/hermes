@@ -15,6 +15,21 @@ range regressions and all 38 WASM tests. A background-merge test timed out in
 the initial run, then passed in isolation and in the complete two-thread rerun;
 the linked report retains the failure and retry evidence.
 
+September 19 follow-up: [range block scans](range-block-scans.md) retain two
+format-preserving optimizations. Existing codec headers reject disjoint copied
+blocks, and a constant-size decoder cursor removes repeated BlockwiseLinear
+header walks. On the same M4, clustered 65K/sixteen-block filtering falls from
+63.219 to 4.083 µs; million-document piecewise filtering falls from 5.172 to
+2.863 ms. Pruning alone does not help BlockwiseLinear ordered columns. The
+shuffled controls do not regress. Encoded sizes and output/metadata allocations
+are unchanged; the cursor adds two `usize` fields, with no retained payload.
+Process RSS includes setup and does not establish a residency reduction.
+The linked report records isolated contributions, confidence intervals, noisy
+and unsuccessful controls, and remaining cold/full-query/x86 measurements.
+The native `check` harness passes 2,029 tests (25 normally ignored), strict
+Clippy, native-without-sync and standalone broker compilation. All three
+async-only range regressions and the WASM build plus 38 tests also pass.
+
 Current release review: [module ownership and shared implementations](#release-review-module-ownership-and-shared-implementations).
 The newest sparse storage results are in [compact Seismic summaries](seismic-compact-summaries.md);
 [binary vector storage](binary-vector-storage.md) describes the single-copy layout.

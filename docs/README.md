@@ -64,6 +64,7 @@ status and fixture before treating a result as current behavior or performance.
 - [Full-text comparison](search-benchmark-current.md)
 - [Search review ledger](search-performance-review.md)
 - [Range bitset word materialization](range-word-materialization.md): source comparison and measured filter-construction gains.
+- [Range block scan experiments](range-block-scans.md): header-based pruning and sequential decoding.
 - [Merge review](search-merge-review.md), [reorder review](reordering-performance-review.md), and [Rust hot paths](rust-hot-path-review.md)
 - [Search Benchmark Game](search-benchmark-game.md) and [Wikipedia results](search-benchmark-results.md)
 - [Score bounds](search-benchmark-ratio-results.md), [bulk scoring](search-benchmark-bulk-results.md), and [dictionary experiments](search-benchmark-dictionary-results.md)

@@ -1,0 +1,105 @@
+   Compiling hermes-core v1.8.145 (/Users/pasha/conductor/workspaces/hermes/jerusalem/hermes-core)
+    Finished `bench` profile [optimized] target(s) in 34.80s
+     Running benches/rust_hot_paths.rs (target/release/deps/rust_hot_paths-f8638787a5ef0721)
+Gnuplot not found, using plotters backend
+ordered/65536/1: 28297 encoded column bytes; 8192 output bytes
+Benchmarking rust_hot_paths/range_scan_layouts/ordered/65536/1_blocks
+Benchmarking rust_hot_paths/range_scan_layouts/ordered/65536/1_blocks: Warming up for 3.0000 s
+Benchmarking rust_hot_paths/range_scan_layouts/ordered/65536/1_blocks: Collecting 20 samples in estimated 5.0382 s (26k iterations)
+Benchmarking rust_hot_paths/range_scan_layouts/ordered/65536/1_blocks: Analyzing
+rust_hot_paths/range_scan_layouts/ordered/65536/1_blocks
+                        time:   [191.32 µs 192.95 µs 194.45 µs]
+                        thrpt:  [337.03 Melem/s 339.65 Melem/s 342.55 Melem/s]
+                 change:
+                        time:   [−2.1684% −0.8772% +0.1206%] (p = 0.17 > 0.05)
+                        thrpt:  [−0.1205% +0.8850% +2.2165%]
+                        No change in performance detected.
+Found 3 outliers among 20 measurements (15.00%)
+  3 (15.00%) high severe
+ordered/65536/16: 28432 encoded column bytes; 8192 output bytes
+Benchmarking rust_hot_paths/range_scan_layouts/ordered/65536/16_blocks
+Benchmarking rust_hot_paths/range_scan_layouts/ordered/65536/16_blocks: Warming up for 3.0000 s
+Benchmarking rust_hot_paths/range_scan_layouts/ordered/65536/16_blocks: Collecting 20 samples in estimated 5.0024 s (27k iterations)
+Benchmarking rust_hot_paths/range_scan_layouts/ordered/65536/16_blocks: Analyzing
+rust_hot_paths/range_scan_layouts/ordered/65536/16_blocks
+                        time:   [182.96 µs 184.04 µs 185.93 µs]
+                        thrpt:  [352.47 Melem/s 356.10 Melem/s 358.20 Melem/s]
+                 change:
+                        time:   [−16.245% −5.9410% +0.6747%] (p = 0.42 > 0.05)
+                        thrpt:  [−0.6702% +6.3163% +19.396%]
+                        No change in performance detected.
+Found 4 outliers among 20 measurements (20.00%)
+  1 (5.00%) high mild
+  3 (15.00%) high severe
+missing/65536/16: 14288 encoded column bytes; 8192 output bytes
+Benchmarking rust_hot_paths/range_scan_layouts/missing/65536/16_blocks
+Benchmarking rust_hot_paths/range_scan_layouts/missing/65536/16_blocks: Warming up for 3.0000 s
+Benchmarking rust_hot_paths/range_scan_layouts/missing/65536/16_blocks: Collecting 20 samples in estimated 5.0049 s (54k iterations)
+Benchmarking rust_hot_paths/range_scan_layouts/missing/65536/16_blocks: Analyzing
+rust_hot_paths/range_scan_layouts/missing/65536/16_blocks
+                        time:   [91.532 µs 91.921 µs 92.377 µs]
+                        thrpt:  [709.44 Melem/s 712.96 Melem/s 715.99 Melem/s]
+                 change:
+                        time:   [−11.497% −10.785% −10.206%] (p = 0.00 < 0.05)
+                        thrpt:  [+11.366% +12.089% +12.991%]
+                        Performance has improved.
+Found 5 outliers among 20 measurements (25.00%)
+  1 (5.00%) low mild
+  4 (20.00%) high severe
+all_match/65536/16: 28432 encoded column bytes; 8192 output bytes
+Benchmarking rust_hot_paths/range_scan_layouts/all_match/65536/16_blocks
+Benchmarking rust_hot_paths/range_scan_layouts/all_match/65536/16_blocks: Warming up for 3.0000 s
+Benchmarking rust_hot_paths/range_scan_layouts/all_match/65536/16_blocks: Collecting 20 samples in estimated 5.0084 s (27k iterations)
+Benchmarking rust_hot_paths/range_scan_layouts/all_match/65536/16_blocks: Analyzing
+rust_hot_paths/range_scan_layouts/all_match/65536/16_blocks
+                        time:   [183.01 µs 184.51 µs 186.20 µs]
+                        thrpt:  [351.96 Melem/s 355.18 Melem/s 358.10 Melem/s]
+                 change:
+                        time:   [−1.8524% −0.8458% +0.1572%] (p = 0.10 > 0.05)
+                        thrpt:  [−0.1569% +0.8530% +1.8874%]
+                        No change in performance detected.
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) high mild
+piecewise/1024/1: 451 encoded column bytes; 128 output bytes
+Benchmarking rust_hot_paths/range_scan_layouts/piecewise/1024/1_blocks
+Benchmarking rust_hot_paths/range_scan_layouts/piecewise/1024/1_blocks: Warming up for 3.0000 s
+Benchmarking rust_hot_paths/range_scan_layouts/piecewise/1024/1_blocks: Collecting 20 samples in estimated 5.0004 s (1.7M iterations)
+Benchmarking rust_hot_paths/range_scan_layouts/piecewise/1024/1_blocks: Analyzing
+rust_hot_paths/range_scan_layouts/piecewise/1024/1_blocks
+                        time:   [2.8790 µs 2.9048 µs 2.9577 µs]
+                        thrpt:  [346.22 Melem/s 352.52 Melem/s 355.67 Melem/s]
+                 change:
+                        time:   [−2.5539% −0.1945% +2.1389%] (p = 0.87 > 0.05)
+                        thrpt:  [−2.0941% +0.1948% +2.6209%]
+                        No change in performance detected.
+Found 4 outliers among 20 measurements (20.00%)
+  1 (5.00%) high mild
+  3 (15.00%) high severe
+piecewise/65536/1: 28297 encoded column bytes; 8192 output bytes
+Benchmarking rust_hot_paths/range_scan_layouts/piecewise/65536/1_blocks
+Benchmarking rust_hot_paths/range_scan_layouts/piecewise/65536/1_blocks: Warming up for 3.0000 s
+Benchmarking rust_hot_paths/range_scan_layouts/piecewise/65536/1_blocks: Collecting 20 samples in estimated 5.0252 s (26k iterations)
+Benchmarking rust_hot_paths/range_scan_layouts/piecewise/65536/1_blocks: Analyzing
+rust_hot_paths/range_scan_layouts/piecewise/65536/1_blocks
+                        time:   [190.94 µs 191.72 µs 192.75 µs]
+                        thrpt:  [340.01 Melem/s 341.83 Melem/s 343.23 Melem/s]
+                 change:
+                        time:   [−2.3297% −0.9931% −0.0818%] (p = 0.10 > 0.05)
+                        thrpt:  [+0.0819% +1.0031% +2.3853%]
+                        No change in performance detected.
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) high severe
+piecewise/1048576/1: 452617 encoded column bytes; 131072 output bytes
+Benchmarking rust_hot_paths/range_scan_layouts/piecewise/1048576/1_blocks
+Benchmarking rust_hot_paths/range_scan_layouts/piecewise/1048576/1_blocks: Warming up for 3.0000 s
+Benchmarking rust_hot_paths/range_scan_layouts/piecewise/1048576/1_blocks: Collecting 20 samples in estimated 5.4044 s (1050 iterations)
+Benchmarking rust_hot_paths/range_scan_layouts/piecewise/1048576/1_blocks: Analyzing
+rust_hot_paths/range_scan_layouts/piecewise/1048576/1_blocks
+                        time:   [5.1974 ms 5.2357 ms 5.2751 ms]
+                        thrpt:  [198.78 Melem/s 200.28 Melem/s 201.75 Melem/s]
+                 change:
+                        time:   [−1.1839% +0.5072% +2.0334%] (p = 0.57 > 0.05)
+                        thrpt:  [−1.9929% −0.5046% +1.1980%]
+                        No change in performance detected.
+
+layout bytes: HeapEntry=12, DocBitset=24, SharedThreshold=40, ColumnBlock=208, FastFieldReader=136
