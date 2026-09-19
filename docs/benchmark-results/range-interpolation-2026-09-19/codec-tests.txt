@@ -1,0 +1,43 @@
+   Compiling hermes-core v1.8.146 (/Users/pasha/conductor/workspaces/hermes/jerusalem/hermes-core)
+warning: linker stderr: ld: __eh_frame section too large (max 16MB) to encode dwarf unwind offsets in compact unwind table, performance of exception handling might be affected
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `hermes-core` (lib test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 52.00s
+     Running unittests src/lib.rs (target/debug/deps/hermes_core-46a82152915afa24)
+
+running 31 tests
+test structures::fast_field::codec::tests::byte_aligned_batches_preserve_offsets_tails_and_wrapping_values ... ok
+test structures::fast_field::codec::tests::byte_aligned_batches_reject_truncated_input_instead_of_short_decoding ... ok
+test structures::fast_field::codec::tests::cursor_batches_preserve_all_codecs_boundaries_and_backward_reads ... ok
+test structures::fast_field::codec::tests::header_bounds_contain_every_bitpacked_value_including_wrapping_payloads ... ok
+test structures::fast_field::codec::tests::incremental_predictions_match_signed_interpolation_at_extremes_and_offsets ... ok
+test structures::fast_field::codec::tests::linear_header_bounds_preserve_descending_extreme_and_wrapping_values ... ok
+test structures::fast_field::codec::tests::test_batch_read_bitpacked_16bit ... ok
+test structures::fast_field::codec::tests::test_batch_read_bitpacked_8bit ... ok
+test structures::fast_field::codec::tests::test_batch_read_bitpacked_arbitrary ... ok
+test structures::fast_field::codec::tests::test_batch_read_blockwise ... ok
+test structures::fast_field::codec::tests::test_batch_read_constant ... ok
+test structures::fast_field::codec::tests::test_batch_read_linear ... ok
+test structures::fast_field::codec::tests::test_bitpacked_codec ... ok
+test structures::fast_field::codec::tests::test_blockwise_batch_read_across_block_boundaries ... ok
+test structures::fast_field::codec::tests::test_blockwise_estimate_is_bounded_and_serialization_is_byte_compatible ... ok
+test structures::fast_field::codec::tests::test_blockwise_linear_codec ... ok
+test structures::fast_field::codec::tests::test_blockwise_linear_with_clustered_missing ... ok
+test structures::fast_field::codec::tests::test_codecs_individually_with_zigzag_and_missing ... ok
+test structures::fast_field::codec::tests::test_constant_codec ... ok
+test structures::fast_field::codec::tests::test_empty ... ok
+test structures::fast_field::codec::tests::test_forced_codecs_with_timestamps_and_missing ... ok
+test structures::fast_field::codec::tests::test_large_range ... ok
+test structures::fast_field::codec::tests::blockwise_batches_preserve_extreme_predictions_and_wrapping_residuals ... ok
+test structures::fast_field::codec::tests::test_linear_codec_sequential ... ok
+test structures::fast_field::codec::tests::test_single_value ... ok
+test structures::fast_field::codec::tests::test_specific_issued_at_roundtrip ... ok
+test structures::fast_field::codec::tests::test_timestamps_pick_linear_or_blockwise ... ok
+test structures::fast_field::codec::tests::test_two_values ... ok
+test structures::fast_field::codec::tests::test_validate_rejects_truncated_and_inconsistent_payloads ... ok
+test structures::fast_field::codec::tests::test_zigzag_timestamps_with_missing ... ok
+test structures::fast_field::codec::tests::test_large_scale_timestamp_roundtrip ... ok
+
+test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 1780 filtered out; finished in 0.06s

@@ -1,0 +1,1088 @@
+{
+  "units": "nanoseconds",
+  "effective_samples": 20,
+  "metadata": {
+    "lscpu": {
+      "lscpu": [
+        {
+          "field": "Architecture:",
+          "data": "x86_64"
+        },
+        {
+          "field": "CPU op-mode(s):",
+          "data": "32-bit, 64-bit"
+        },
+        {
+          "field": "Address sizes:",
+          "data": "46 bits physical, 48 bits virtual"
+        },
+        {
+          "field": "Byte Order:",
+          "data": "Little Endian"
+        },
+        {
+          "field": "CPU(s):",
+          "data": "8"
+        },
+        {
+          "field": "On-line CPU(s) list:",
+          "data": "0-7"
+        },
+        {
+          "field": "Vendor ID:",
+          "data": "GenuineIntel"
+        },
+        {
+          "field": "Model name:",
+          "data": "Intel(R) Xeon(R) CPU @ 2.80GHz"
+        },
+        {
+          "field": "CPU family:",
+          "data": "6"
+        },
+        {
+          "field": "Model:",
+          "data": "85"
+        },
+        {
+          "field": "Thread(s) per core:",
+          "data": "2"
+        },
+        {
+          "field": "Core(s) per socket:",
+          "data": "4"
+        },
+        {
+          "field": "Socket(s):",
+          "data": "1"
+        },
+        {
+          "field": "Stepping:",
+          "data": "7"
+        },
+        {
+          "field": "BogoMIPS:",
+          "data": "5600.48"
+        },
+        {
+          "field": "Flags:",
+          "data": "fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ss ht syscall nx pdpe1gb rdtscp lm constant_tsc rep_good nopl xtopology nonstop_tsc cpuid tsc_known_freq pni pclmulqdq ssse3 fma cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt aes xsave avx f16c rdrand hypervisor lahf_lm abm 3dnowprefetch ssbd ibrs ibpb stibp ibrs_enhanced fsgsbase tsc_adjust bmi1 hle avx2 smep bmi2 erms invpcid rtm avx512f avx512dq rdseed adx smap clflushopt clwb avx512cd avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves arat avx512_vnni md_clear arch_capabilities"
+        },
+        {
+          "field": "Hypervisor vendor:",
+          "data": "KVM"
+        },
+        {
+          "field": "Virtualization type:",
+          "data": "full"
+        },
+        {
+          "field": "L1d cache:",
+          "data": "128 KiB (4 instances)"
+        },
+        {
+          "field": "L1i cache:",
+          "data": "128 KiB (4 instances)"
+        },
+        {
+          "field": "L2 cache:",
+          "data": "4 MiB (4 instances)"
+        },
+        {
+          "field": "L3 cache:",
+          "data": "33 MiB (1 instance)"
+        },
+        {
+          "field": "NUMA node(s):",
+          "data": "1"
+        },
+        {
+          "field": "NUMA node0 CPU(s):",
+          "data": "0-7"
+        },
+        {
+          "field": "Vulnerability Gather data sampling:",
+          "data": "Not affected"
+        },
+        {
+          "field": "Vulnerability Ghostwrite:",
+          "data": "Not affected"
+        },
+        {
+          "field": "Vulnerability Indirect target selection:",
+          "data": "Mitigation; Aligned branch/return thunks"
+        },
+        {
+          "field": "Vulnerability Itlb multihit:",
+          "data": "Not affected"
+        },
+        {
+          "field": "Vulnerability L1tf:",
+          "data": "Not affected"
+        },
+        {
+          "field": "Vulnerability Mds:",
+          "data": "Not affected"
+        },
+        {
+          "field": "Vulnerability Meltdown:",
+          "data": "Not affected"
+        },
+        {
+          "field": "Vulnerability Mmio stale data:",
+          "data": "Vulnerable: Clear CPU buffers attempted, no microcode; SMT Host state unknown"
+        },
+        {
+          "field": "Vulnerability Old microcode:",
+          "data": "Not affected"
+        },
+        {
+          "field": "Vulnerability Reg file data sampling:",
+          "data": "Not affected"
+        },
+        {
+          "field": "Vulnerability Retbleed:",
+          "data": "Mitigation; Enhanced IBRS"
+        },
+        {
+          "field": "Vulnerability Spec rstack overflow:",
+          "data": "Not affected"
+        },
+        {
+          "field": "Vulnerability Spec store bypass:",
+          "data": "Mitigation; Speculative Store Bypass disabled via prctl"
+        },
+        {
+          "field": "Vulnerability Spectre v1:",
+          "data": "Mitigation; usercopy/swapgs barriers and __user pointer sanitization"
+        },
+        {
+          "field": "Vulnerability Spectre v2:",
+          "data": "Mitigation; Enhanced / Automatic IBRS; IBPB conditional; PBRSB-eIBRS SW sequence; BHI SW loop, KVM SW loop"
+        },
+        {
+          "field": "Vulnerability Srbds:",
+          "data": "Not affected"
+        },
+        {
+          "field": "Vulnerability Tsa:",
+          "data": "Not affected"
+        },
+        {
+          "field": "Vulnerability Tsx async abort:",
+          "data": "Vulnerable: Clear CPU buffers attempted, no microcode; SMT Host state unknown"
+        },
+        {
+          "field": "Vulnerability Vmscape:",
+          "data": "Not affected"
+        }
+      ]
+    },
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-unknown-linux-gnu\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+    "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)\n",
+    "affinity_cpu": 2,
+    "package_version": "1.8.146",
+    "RUSTFLAGS": "",
+    "RAYON_NUM_THREADS": "1",
+    "baseline_archive_sha256": "47c7acf2a2098b81d575febebafb502f51be6e858019fe1c77d336699d80c4ad",
+    "candidate_patch_sha256": "7ee33220837faab2f3c8395c794e9828e56f5e26a64d159989e65d38fc82c3fa",
+    "binaries": {
+      "before": "d90f9e13e29e1e72c13f834127a97759f9562e6b6d41e1cfa8d90e99dca66e51",
+      "after": "94ee3843b03278cdcbca313872d6437566858d2a105e9c3ab0c55ea0d3733466"
+    },
+    "commands": [
+      [
+        "taskset",
+        "-c",
+        "2",
+        "/home/pasha/hermes-range-trial/before-bench",
+        "--bench",
+        "--warm-up-time",
+        "2",
+        "--measurement-time",
+        "4",
+        "--sample-size",
+        "30",
+        "--save-baseline",
+        "cloud-before-0",
+        "range_scan_layouts|range_bitset/production"
+      ],
+      [
+        "taskset",
+        "-c",
+        "2",
+        "/home/pasha/hermes-range-trial/after-bench",
+        "--bench",
+        "--warm-up-time",
+        "2",
+        "--measurement-time",
+        "4",
+        "--sample-size",
+        "30",
+        "--save-baseline",
+        "cloud-after-0",
+        "range_scan_layouts|range_bitset/production"
+      ],
+      [
+        "taskset",
+        "-c",
+        "2",
+        "/home/pasha/hermes-range-trial/after-bench",
+        "--bench",
+        "--warm-up-time",
+        "2",
+        "--measurement-time",
+        "4",
+        "--sample-size",
+        "30",
+        "--save-baseline",
+        "cloud-after-1",
+        "range_scan_layouts|range_bitset/production"
+      ],
+      [
+        "taskset",
+        "-c",
+        "2",
+        "/home/pasha/hermes-range-trial/before-bench",
+        "--bench",
+        "--warm-up-time",
+        "2",
+        "--measurement-time",
+        "4",
+        "--sample-size",
+        "30",
+        "--save-baseline",
+        "cloud-before-1",
+        "range_scan_layouts|range_bitset/production"
+      ]
+    ],
+    "kernel": "Linux 7.0.0-1011-gcp\n",
+    "cpu_siblings": "2,6"
+  },
+  "matrices": {
+    "two_inline": {
+      "rust_hot_paths_range_scan_layouts/ordered_65536_16_blocks": {
+        "before-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 1104922.9861099494,
+            "upper_bound": 1106316.5278169464
+          },
+          "point_estimate": 1105606.1120983353,
+          "standard_error": 357.3813850963548
+        },
+        "before-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 1105814.0609960689,
+            "upper_bound": 1107426.571176568
+          },
+          "point_estimate": 1106600.7939992256,
+          "standard_error": 415.27969524904034
+        },
+        "after-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 300954.6873488948,
+            "upper_bound": 301301.85918272455
+          },
+          "point_estimate": 301127.58071101917,
+          "standard_error": 89.4822042569186
+        },
+        "after-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 300573.9892661027,
+            "upper_bound": 300959.0866119792
+          },
+          "point_estimate": 300760.9423889373,
+          "standard_error": 98.69887596058236
+        }
+      },
+      "rust_hot_paths_range_scan_layouts/missing_65536_16_blocks": {
+        "before-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 552805.5041631801,
+            "upper_bound": 553340.8683512332
+          },
+          "point_estimate": 553051.8203683425,
+          "standard_error": 137.17086823930183
+        },
+        "before-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 552826.5707389989,
+            "upper_bound": 554200.5925593349
+          },
+          "point_estimate": 553494.0957192633,
+          "standard_error": 350.3870743689285
+        },
+        "after-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 150243.8889666846,
+            "upper_bound": 150356.4009010477
+          },
+          "point_estimate": 150293.56522812697,
+          "standard_error": 28.654583387894572
+        },
+        "after-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 150394.3706616259,
+            "upper_bound": 150720.2765974384
+          },
+          "point_estimate": 150551.08614228098,
+          "standard_error": 85.76607153370932
+        }
+      },
+      "rust_hot_paths_range_scan_layouts/bucketed_65536_16_blocks": {
+        "before-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 15208.618221070437,
+            "upper_bound": 15231.3353960389
+          },
+          "point_estimate": 15220.750093359786,
+          "standard_error": 5.838710737253124
+        },
+        "before-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 15211.216669610074,
+            "upper_bound": 15243.30658783427
+          },
+          "point_estimate": 15225.491507871675,
+          "standard_error": 8.185803839812642
+        },
+        "after-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 15731.451350676367,
+            "upper_bound": 15753.254117436272
+          },
+          "point_estimate": 15741.270324194556,
+          "standard_error": 5.707974448238796
+        },
+        "after-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 15756.89735669033,
+            "upper_bound": 15770.633314736086
+          },
+          "point_estimate": 15763.615356660124,
+          "standard_error": 3.503408143781018
+        }
+      },
+      "rust_hot_paths_range_scan_layouts/piecewise_1048576_1_blocks": {
+        "before-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 17693659.936233383,
+            "upper_bound": 17716605.31289673
+          },
+          "point_estimate": 17706159.235365853,
+          "standard_error": 5836.419148796104
+        },
+        "before-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 17697745.032006457,
+            "upper_bound": 17734141.288678963
+          },
+          "point_estimate": 17715986.02195122,
+          "standard_error": 9246.595830970558
+        },
+        "after-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 4809432.48803415,
+            "upper_bound": 4815928.450237138
+          },
+          "point_estimate": 4812167.156358885,
+          "standard_error": 1664.9532056084277
+        },
+        "after-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 4813483.644326805,
+            "upper_bound": 4825728.438887842
+          },
+          "point_estimate": 4819509.02543554,
+          "standard_error": 3153.8069711811204
+        }
+      },
+      "rust_hot_paths_range_scan_layouts/bucketed_65536_1_blocks": {
+        "before-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 1102926.3200222116,
+            "upper_bound": 1105268.360622903
+          },
+          "point_estimate": 1103995.0060588464,
+          "standard_error": 599.2203234735011
+        },
+        "before-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 1100492.6100047298,
+            "upper_bound": 1102192.3104670881
+          },
+          "point_estimate": 1101180.0917924894,
+          "standard_error": 433.86214344460933
+        },
+        "after-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 300882.3310627035,
+            "upper_bound": 301353.6078288638
+          },
+          "point_estimate": 301089.9184941202,
+          "standard_error": 121.02751102459335
+        },
+        "after-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 300730.83760767616,
+            "upper_bound": 301171.5687332931
+          },
+          "point_estimate": 300937.97566419863,
+          "standard_error": 113.04092441879286
+        }
+      },
+      "rust_hot_paths_range_scan_layouts/piecewise_65536_1_blocks": {
+        "before-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 1104545.9848277427,
+            "upper_bound": 1105635.327203342
+          },
+          "point_estimate": 1105041.3879597366,
+          "standard_error": 276.90634412491596
+        },
+        "before-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 1103810.664198351,
+            "upper_bound": 1104977.5234591588
+          },
+          "point_estimate": 1104282.893495935,
+          "standard_error": 299.7761296574395
+        },
+        "after-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 300443.62434882746,
+            "upper_bound": 300826.38248238206
+          },
+          "point_estimate": 300616.042274608,
+          "standard_error": 97.53998296289632
+        },
+        "after-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 300458.4230569814,
+            "upper_bound": 301005.27735718974
+          },
+          "point_estimate": 300693.97197299654,
+          "standard_error": 141.22250492921714
+        }
+      },
+      "rust_hot_paths_range_scan_layouts/all_match_65536_16_blocks": {
+        "before-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 1105380.857695217,
+            "upper_bound": 1106590.7439085464
+          },
+          "point_estimate": 1105952.5018002323,
+          "standard_error": 310.64817015386996
+        },
+        "before-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 1105576.8024614041,
+            "upper_bound": 1109004.0725457342
+          },
+          "point_estimate": 1107165.0895470383,
+          "standard_error": 895.970196067094
+        },
+        "after-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 301022.41099756566,
+            "upper_bound": 301529.9555262455
+          },
+          "point_estimate": 301249.7806565767,
+          "standard_error": 130.93570881690005
+        },
+        "after-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 301059.93447521236,
+            "upper_bound": 302465.54454520997
+          },
+          "point_estimate": 301639.86136215157,
+          "standard_error": 369.34899973834615
+        }
+      },
+      "rust_hot_paths_range_scan_layouts/piecewise_1024_1_blocks": {
+        "before-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 17368.944840220607,
+            "upper_bound": 17400.43563508388
+          },
+          "point_estimate": 17385.4518677357,
+          "standard_error": 8.04294397126997
+        },
+        "before-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 17374.421824764726,
+            "upper_bound": 17443.6408320174
+          },
+          "point_estimate": 17401.97702192324,
+          "standard_error": 17.838200314023428
+        },
+        "after-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 4777.606099522986,
+            "upper_bound": 4783.618254569439
+          },
+          "point_estimate": 4780.375044067435,
+          "standard_error": 1.5188900712697657
+        },
+        "after-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 4774.878981292035,
+            "upper_bound": 4777.810231272672
+          },
+          "point_estimate": 4776.461643832017,
+          "standard_error": 0.7420180984415394
+        }
+      },
+      "rust_hot_paths_range_scan_layouts/ordered_65536_1_blocks": {
+        "before-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 1104914.0019019793,
+            "upper_bound": 1108038.4473619454
+          },
+          "point_estimate": 1106494.3863530778,
+          "standard_error": 792.8606013872301
+        },
+        "before-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 1104497.2556803168,
+            "upper_bound": 1105794.256845458
+          },
+          "point_estimate": 1105143.2986449865,
+          "standard_error": 331.80350552370044
+        },
+        "after-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 300501.8234023221,
+            "upper_bound": 300678.6714578588
+          },
+          "point_estimate": 300585.37304551393,
+          "standard_error": 45.134236312794606
+        },
+        "after-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 300444.83292303776,
+            "upper_bound": 300768.19110168546
+          },
+          "point_estimate": 300579.1827362805,
+          "standard_error": 85.2371106559384
+        }
+      },
+      "rust_hot_paths_range_bitset/production/16_blocks_max_655": {
+        "before-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 109579.89516087928,
+            "upper_bound": 109687.3282829661
+          },
+          "point_estimate": 109624.11751972446,
+          "standard_error": 27.390981093324147
+        },
+        "before-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 109898.14528004757,
+            "upper_bound": 110049.51562133284
+          },
+          "point_estimate": 109973.66432376146,
+          "standard_error": 38.145995026649224
+        },
+        "after-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 118623.84643121023,
+            "upper_bound": 118877.5050957934
+          },
+          "point_estimate": 118731.18740234163,
+          "standard_error": 65.3532419084215
+        },
+        "after-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 118795.76625420096,
+            "upper_bound": 119039.26619823919
+          },
+          "point_estimate": 118896.95618684668,
+          "standard_error": 62.504409364043276
+        }
+      },
+      "rust_hot_paths_range_bitset/production/16_blocks_max_32767": {
+        "before-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 109785.64758594861,
+            "upper_bound": 109998.8467082386
+          },
+          "point_estimate": 109876.87470663623,
+          "standard_error": 53.97517605464973
+        },
+        "before-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 109818.72755536225,
+            "upper_bound": 110108.11931541319
+          },
+          "point_estimate": 109968.86042292442,
+          "standard_error": 74.21887371310554
+        },
+        "after-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 118608.2544003954,
+            "upper_bound": 118761.64218578722
+          },
+          "point_estimate": 118679.46435604995,
+          "standard_error": 38.877652436601906
+        },
+        "after-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 118970.45569417489,
+            "upper_bound": 119200.53748390487
+          },
+          "point_estimate": 119068.89061193379,
+          "standard_error": 58.52068898919613
+        }
+      },
+      "rust_hot_paths_range_bitset/production/1_blocks_max_32767": {
+        "before-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 109465.37665114984,
+            "upper_bound": 109628.17319653228
+          },
+          "point_estimate": 109556.1971004045,
+          "standard_error": 41.36640282401101
+        },
+        "before-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 109754.34232183623,
+            "upper_bound": 109900.06821702416
+          },
+          "point_estimate": 109831.5209700028,
+          "standard_error": 36.92774591184943
+        },
+        "after-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 118664.12826254743,
+            "upper_bound": 118847.44819311524
+          },
+          "point_estimate": 118759.01297855303,
+          "standard_error": 46.42538621704983
+        },
+        "after-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 118820.61651957792,
+            "upper_bound": 119012.37445743887
+          },
+          "point_estimate": 118918.52477351917,
+          "standard_error": 48.994067893515805
+        }
+      },
+      "rust_hot_paths_range_bitset/production/1_blocks_max_655": {
+        "before-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 109555.4806198903,
+            "upper_bound": 109767.44700747872
+          },
+          "point_estimate": 109632.33015539269,
+          "standard_error": 54.75172598644983
+        },
+        "before-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 109617.52419830296,
+            "upper_bound": 109944.43226538286
+          },
+          "point_estimate": 109780.39724858826,
+          "standard_error": 83.60162019579235
+        },
+        "after-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 118562.8086721156,
+            "upper_bound": 118877.00994397253
+          },
+          "point_estimate": 118714.94993182851,
+          "standard_error": 81.69638090097195
+        },
+        "after-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 118866.9809208296,
+            "upper_bound": 119125.7333734698
+          },
+          "point_estimate": 118988.3731620209,
+          "standard_error": 67.04899271391841
+        }
+      }
+    },
+    "kernel_boundary": {
+      "rust_hot_paths_range_scan_layouts/bucketed_65536_16_blocks": {
+        "bounded-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 15741.691379287206,
+            "upper_bound": 15762.770279509945
+          },
+          "point_estimate": 15750.475715725515,
+          "standard_error": 5.437253264454272
+        },
+        "bounded-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 15745.4102913811,
+            "upper_bound": 15767.859827152692
+          },
+          "point_estimate": 15755.990261726522,
+          "standard_error": 5.761224912556224
+        },
+        "before-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 15148.63854206634,
+            "upper_bound": 15167.144357947669
+          },
+          "point_estimate": 15158.066199312027,
+          "standard_error": 4.677278291033291
+        },
+        "before-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 15194.558070609755,
+            "upper_bound": 15224.940378852883
+          },
+          "point_estimate": 15209.932493508511,
+          "standard_error": 7.834654798452793
+        }
+      },
+      "rust_hot_paths_range_scan_layouts/piecewise_1048576_1_blocks": {
+        "bounded-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 4805627.272491005,
+            "upper_bound": 4817841.858654136
+          },
+          "point_estimate": 4811824.728397213,
+          "standard_error": 3110.044059032703
+        },
+        "bounded-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 4809938.1880499935,
+            "upper_bound": 4817319.71569038
+          },
+          "point_estimate": 4813786.40261324,
+          "standard_error": 1878.5338434236728
+        },
+        "before-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 17698217.204136454,
+            "upper_bound": 17733796.41971931
+          },
+          "point_estimate": 17712298.346341465,
+          "standard_error": 9092.22684344811
+        },
+        "before-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 17702690.369396232,
+            "upper_bound": 17728819.159085628
+          },
+          "point_estimate": 17716045.79442509,
+          "standard_error": 6684.913470308864
+        }
+      },
+      "rust_hot_paths_range_bitset/production/16_blocks_max_655": {
+        "bounded-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 121337.62824106151,
+            "upper_bound": 121483.20470359543
+          },
+          "point_estimate": 121398.66794425088,
+          "standard_error": 36.946290476362165
+        },
+        "bounded-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 119015.86195680287,
+            "upper_bound": 119406.8416490878
+          },
+          "point_estimate": 119194.13129866219,
+          "standard_error": 101.12858857636847
+        },
+        "before-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 109886.60987477284,
+            "upper_bound": 110114.61946841053
+          },
+          "point_estimate": 110013.04124714647,
+          "standard_error": 58.81795535190236
+        },
+        "before-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 109564.76285460798,
+            "upper_bound": 109642.98438539289
+          },
+          "point_estimate": 109596.90573911651,
+          "standard_error": 19.932232529784766
+        }
+      },
+      "rust_hot_paths_range_bitset/production/16_blocks_max_32767": {
+        "bounded-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 121408.78076065201,
+            "upper_bound": 121646.81112515849
+          },
+          "point_estimate": 121518.63533277466,
+          "standard_error": 60.30608599472628
+        },
+        "bounded-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 119050.3901412934,
+            "upper_bound": 119321.56703086596
+          },
+          "point_estimate": 119188.3723319138,
+          "standard_error": 69.34968582517007
+        },
+        "before-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 109591.53179292774,
+            "upper_bound": 110034.06689544018
+          },
+          "point_estimate": 109800.0633024951,
+          "standard_error": 115.9567762834473
+        },
+        "before-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 109854.55224523516,
+            "upper_bound": 110387.30930982591
+          },
+          "point_estimate": 110072.98250630782,
+          "standard_error": 136.65022696831173
+        }
+      },
+      "rust_hot_paths_range_bitset/production/1_blocks_max_32767": {
+        "bounded-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 121166.89516247688,
+            "upper_bound": 121463.40187475826
+          },
+          "point_estimate": 121312.99076875579,
+          "standard_error": 76.14890711479589
+        },
+        "bounded-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 119088.61865672395,
+            "upper_bound": 119297.33585455005
+          },
+          "point_estimate": 119196.28730588894,
+          "standard_error": 53.49357546916147
+        },
+        "before-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 109543.99519681955,
+            "upper_bound": 109725.88323298881
+          },
+          "point_estimate": 109616.51119388042,
+          "standard_error": 46.324881347086325
+        },
+        "before-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 109737.69769354483,
+            "upper_bound": 109950.90336016753
+          },
+          "point_estimate": 109834.74958148104,
+          "standard_error": 54.625384062706345
+        }
+      },
+      "rust_hot_paths_range_bitset/production/1_blocks_max_655": {
+        "bounded-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 121126.57793998207,
+            "upper_bound": 121403.9642678204
+          },
+          "point_estimate": 121252.4072112204,
+          "standard_error": 70.5119402898971
+        },
+        "bounded-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 118957.12487728326,
+            "upper_bound": 119083.03184079206
+          },
+          "point_estimate": 119024.78397642706,
+          "standard_error": 32.20012822466094
+        },
+        "before-1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 109651.46410544323,
+            "upper_bound": 109907.7978164947
+          },
+          "point_estimate": 109754.65957787656,
+          "standard_error": 66.48700281646403
+        },
+        "before-0": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 109731.37040384363,
+            "upper_bound": 110174.85388185635
+          },
+          "point_estimate": 109970.99478553406,
+          "standard_error": 113.50201306343723
+        }
+      }
+    }
+  },
+  "rss_kib": {
+    "after-memory-2": 37016,
+    "before-memory-1": 37232,
+    "before-memory-0": 37080,
+    "after-memory-1": 37012,
+    "before-memory-2": 37252,
+    "after-memory-0": 36924
+  },
+  "cpu2_steal_ticks": {
+    "two_inline/before-1-cpu-before.txt": 0,
+    "two_inline/before-0-cpu-before.txt": 0,
+    "two_inline/after-0-cpu-before.txt": 0,
+    "two_inline/after-1-cpu-before.txt": 0,
+    "kernel_boundary/before-1-cpu-before.txt": 0,
+    "kernel_boundary/before-0-cpu-before.txt": 0,
+    "kernel_boundary/bounded-0-cpu-before.txt": 0,
+    "kernel_boundary/bounded-1-cpu-before.txt": 0
+  },
+  "archive_sha256": "e7b7ed37e3411e5c9b541a26ffb6d7ea71555b9cea92d21ecf49af89156467eb",
+  "bounded_runs": [
+    {
+      "stage": "before",
+      "repeat": 0,
+      "command": [
+        "taskset",
+        "-c",
+        "2",
+        "/home/pasha/hermes-range-trial/before-bench",
+        "--bench",
+        "--warm-up-time",
+        "1",
+        "--measurement-time",
+        "2",
+        "--save-baseline",
+        "before-0",
+        "range_bitset/production|bucketed/65536/16_blocks$|piecewise/1048576/1_blocks$"
+      ],
+      "binary_sha256": "d90f9e13e29e1e72c13f834127a97759f9562e6b6d41e1cfa8d90e99dca66e51"
+    },
+    {
+      "stage": "bounded",
+      "repeat": 0,
+      "command": [
+        "taskset",
+        "-c",
+        "2",
+        "/home/pasha/hermes-range-trial/bounded-bench",
+        "--bench",
+        "--warm-up-time",
+        "1",
+        "--measurement-time",
+        "2",
+        "--save-baseline",
+        "bounded-0",
+        "range_bitset/production|bucketed/65536/16_blocks$|piecewise/1048576/1_blocks$"
+      ],
+      "binary_sha256": "d5297bb61a04f314b2b4efc71537233e9de6d8d32366ca496c9fcf30d1752e09"
+    },
+    {
+      "stage": "bounded",
+      "repeat": 1,
+      "command": [
+        "taskset",
+        "-c",
+        "2",
+        "/home/pasha/hermes-range-trial/bounded-bench",
+        "--bench",
+        "--warm-up-time",
+        "1",
+        "--measurement-time",
+        "2",
+        "--save-baseline",
+        "bounded-1",
+        "range_bitset/production|bucketed/65536/16_blocks$|piecewise/1048576/1_blocks$"
+      ],
+      "binary_sha256": "d5297bb61a04f314b2b4efc71537233e9de6d8d32366ca496c9fcf30d1752e09"
+    },
+    {
+      "stage": "before",
+      "repeat": 1,
+      "command": [
+        "taskset",
+        "-c",
+        "2",
+        "/home/pasha/hermes-range-trial/before-bench",
+        "--bench",
+        "--warm-up-time",
+        "1",
+        "--measurement-time",
+        "2",
+        "--save-baseline",
+        "before-1",
+        "range_bitset/production|bucketed/65536/16_blocks$|piecewise/1048576/1_blocks$"
+      ],
+      "binary_sha256": "d90f9e13e29e1e72c13f834127a97759f9562e6b6d41e1cfa8d90e99dca66e51"
+    }
+  ],
+  "cleanup": "VM and boot disk deleted; both resource-list queries returned no entries."
+}

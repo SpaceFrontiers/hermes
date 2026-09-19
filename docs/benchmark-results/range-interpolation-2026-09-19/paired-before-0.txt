@@ -1,0 +1,36 @@
+Gnuplot not found, using plotters backend
+Benchmarking rust_hot_paths/range_bitset/production/1_blocks_max_655
+Benchmarking rust_hot_paths/range_bitset/production/1_blocks_max_655: Warming up for 1.0000 s
+Benchmarking rust_hot_paths/range_bitset/production/1_blocks_max_655: Collecting 20 samples in estimated 2.0011 s (79k iterations)
+Benchmarking rust_hot_paths/range_bitset/production/1_blocks_max_655: Analyzing
+rust_hot_paths/range_bitset/production/1_blocks_max_655
+                        time:   [24.088 µs 24.376 µs 24.787 µs]
+                        thrpt:  [2.6440 Gelem/s 2.6885 Gelem/s 2.7207 Gelem/s]
+
+bucketed/65536/1: 110217 encoded column bytes; 8192 output bytes
+bucketed/65536/16: 98464 encoded column bytes; 8192 output bytes
+Benchmarking rust_hot_paths/range_scan_layouts/bucketed/65536/16_blocks
+Benchmarking rust_hot_paths/range_scan_layouts/bucketed/65536/16_blocks: Warming up for 1.0000 s
+Benchmarking rust_hot_paths/range_scan_layouts/bucketed/65536/16_blocks: Collecting 20 samples in estimated 2.0001 s (407k iterations)
+Benchmarking rust_hot_paths/range_scan_layouts/bucketed/65536/16_blocks: Analyzing
+rust_hot_paths/range_scan_layouts/bucketed/65536/16_blocks
+                        time:   [4.3449 µs 4.4254 µs 4.5094 µs]
+                        thrpt:  [14.533 Gelem/s 14.809 Gelem/s 15.083 Gelem/s]
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) high mild
+ordered/65536/1: 28297 encoded column bytes; 8192 output bytes
+ordered/65536/16: 28432 encoded column bytes; 8192 output bytes
+missing/65536/16: 14288 encoded column bytes; 8192 output bytes
+all_match/65536/16: 28432 encoded column bytes; 8192 output bytes
+piecewise/1024/1: 451 encoded column bytes; 128 output bytes
+piecewise/65536/1: 28297 encoded column bytes; 8192 output bytes
+piecewise/1048576/1: 452617 encoded column bytes; 131072 output bytes
+Benchmarking rust_hot_paths/range_scan_layouts/piecewise/1048576/1_blocks
+Benchmarking rust_hot_paths/range_scan_layouts/piecewise/1048576/1_blocks: Warming up for 1.0000 s
+Benchmarking rust_hot_paths/range_scan_layouts/piecewise/1048576/1_blocks: Collecting 20 samples in estimated 2.4718 s (630 iterations)
+Benchmarking rust_hot_paths/range_scan_layouts/piecewise/1048576/1_blocks: Analyzing
+rust_hot_paths/range_scan_layouts/piecewise/1048576/1_blocks
+                        time:   [3.2433 ms 3.3250 ms 3.4303 ms]
+                        thrpt:  [305.68 Melem/s 315.36 Melem/s 323.31 Melem/s]
+
+layout bytes: HeapEntry=12, DocBitset=24, SharedThreshold=40, ColumnBlock=208, FastFieldReader=136
