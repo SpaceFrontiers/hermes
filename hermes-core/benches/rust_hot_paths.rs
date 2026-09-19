@@ -29,10 +29,20 @@ async fn range_pattern_fixture(
     blocks: u32,
     value: impl Fn(u32) -> Option<u64>,
 ) -> (SegmentReader, Field) {
+    range_pattern_fixture_multi(documents, blocks, value, false).await
+}
+
+async fn range_pattern_fixture_multi(
+    documents: u32,
+    blocks: u32,
+    value: impl Fn(u32) -> Option<u64>,
+    multi: bool,
+) -> (SegmentReader, Field) {
     let dir = RamDirectory::new();
     let mut sb = SchemaBuilder::default();
     let field = sb.add_u64_field("value", false, false);
     sb.set_fast(field, true);
+    sb.set_multi(field, multi);
     let schema = Arc::new(sb.build());
     let mut sources = Vec::new();
     for block in 0..blocks {
@@ -42,6 +52,9 @@ async fn range_pattern_fixture(
             let mut doc = Document::new();
             if let Some(value) = value(block * (documents / blocks) + local) {
                 doc.add_u64(field, value);
+                if multi {
+                    doc.add_u64(field, 42);
+                }
             }
             builder.add_document(doc).unwrap();
         }
@@ -167,6 +180,105 @@ fn bench_range_scan_layouts(c: &mut Criterion) {
         });
     }
     group.finish();
+}
+
+// Lazy scorer controls include creation/destruction and selective seek workloads.
+#[cfg(feature = "sync")]
+fn bench_lazy_range(c: &mut Criterion) {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let mut group = c.benchmark_group("rust_hot_paths/lazy_range");
+    group.sample_size(20);
+    for layout in [
+        "shuffled",
+        "piecewise",
+        "constant",
+        "missing",
+        "multi",
+        "no_match",
+    ] {
+        let values = |doc: u32| {
+            if (layout == "missing" || layout == "multi") && doc.is_multiple_of(7) {
+                None
+            } else if layout == "piecewise" {
+                let block = u64::from(doc / 512);
+                let local = u64::from(doc % 512);
+                Some(((block * 40_503) & 65_535) * 65_536 + local * (3 + block % 3) + local % 7)
+            } else if layout == "no_match" {
+                Some(1 << 60)
+            } else if layout == "constant" {
+                Some(7)
+            } else {
+                Some(value(doc))
+            }
+        };
+        let (reader, field) = runtime.block_on(range_pattern_fixture_multi(
+            DOCUMENTS,
+            1,
+            values,
+            layout == "multi",
+        ));
+        let upper = if layout == "piecewise" {
+            1 << 31
+        } else {
+            32_767
+        };
+        let query = RangeQuery::u64(field, Some(0), Some(upper));
+        eprintln!(
+            "scorer/{layout}: {} bytes",
+            std::mem::size_of_val(&*query.scorer_sync(&reader, 10).unwrap())
+        );
+        let expected: Vec<_> = (0..DOCUMENTS)
+            .filter(|&d| values(d).is_some_and(|v| v <= upper))
+            .collect();
+        for mode in ["full", "first", "seek"] {
+            let execute = || {
+                let mut scorer = query.scorer_sync(&reader, 10).unwrap();
+                let mut checksum = 0u64;
+                if mode == "first" {
+                    return u64::from(scorer.doc());
+                }
+                if mode == "seek" {
+                    for target in (0..DOCUMENTS).step_by(1021) {
+                        checksum = checksum.wrapping_add(u64::from(scorer.seek(target)));
+                    }
+                } else {
+                    while scorer.doc() != hermes_core::structures::TERMINATED {
+                        checksum += u64::from(scorer.doc());
+                        scorer.advance();
+                    }
+                }
+                checksum
+            };
+            let oracle = match mode {
+                "first" => u64::from(*expected.first().unwrap_or(&u32::MAX)),
+                "seek" => (0..DOCUMENTS)
+                    .step_by(1021)
+                    .map(|target| {
+                        u64::from(
+                            *expected
+                                .iter()
+                                .find(|&&doc| doc >= target)
+                                .unwrap_or(&u32::MAX),
+                        )
+                    })
+                    .sum(),
+                _ => expected.iter().map(|&d| u64::from(d)).sum(),
+            };
+            assert_eq!(execute(), oracle, "{layout}/{mode}");
+            group.bench_function(format!("{layout}/{mode}"), |b| {
+                b.iter(|| black_box(execute()))
+            });
+        }
+    }
+    group.finish();
+}
+
+#[cfg(not(feature = "sync"))]
+fn bench_lazy_range(_: &mut Criterion) {
+    eprintln!("Lazy scorer benchmarks require the sync feature.");
 }
 
 // These symbols deliberately remain identifiable in optimized assembly. Do not
@@ -328,6 +440,7 @@ criterion_group!(
     benches,
     bench_range,
     bench_range_scan_layouts,
+    bench_lazy_range,
     bench_dispatch,
     bench_byte_aligned_decode,
     bench_windowed_text_unions

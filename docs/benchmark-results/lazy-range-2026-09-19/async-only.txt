@@ -1,0 +1,11 @@
+   Compiling hermes-core v1.8.147 (/Users/pasha/conductor/workspaces/hermes/jerusalem/hermes-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 27.60s
+     Running tests/range_bitset.rs (target/debug/deps/range_bitset-af6064e67e4250e0)
+
+running 4 tests
+test range_block_pruning_uses_global_text_ordinals_after_merge ... ok
+test lazy_range_scans_and_seeks_preserve_hits_across_compressed_record_and_merge_tails ... ok
+test range_bitsets_preserve_numeric_bounds_missing_values_and_first_multi_value_after_merge ... ok
+test range_bitsets_preserve_matches_across_every_copied_block_bit_offset ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s

@@ -10582,6 +10582,34 @@ record exact candidate patches, same-version/compiler/fixture comparisons,
 confidence intervals, correctness and process-memory measurements. The main
 prototype passed 2,031 native tests, three async-only range tests, and the WASM
 build with 38 tests. Remote evidence was downloaded and hash-verified; the
-isolated VM and boot disk were deleted. The remaining candidates are bounded
-batching inside the lazy range scorer and accepting fully covered block spans
-through the shared reader scan protocol. Neither is implemented or measured.
+isolated VM and boot disk were deleted. The lazy scorer follow-up below implements
+bounded batching; accepting fully covered block spans through the shared reader
+scan protocol remains unimplemented.
+
+## Lazy range scorer batching (2026-09-19)
+
+The shared native/async/WASM range scorer now batches sustained single-value
+scans through a reader-owned cursor and retains a 64-bit membership mask. The
+first eight probes and distant seeks remain scalar; multi-value fields retain
+first-value semantics. Codec arithmetic, serialization, schema and planner
+policies are unchanged. The existing boxed scorer grows from 40 to 96 bytes,
+with 512 bytes of decoded stack scratch during refill and no added allocation.
+
+On paired 65,536-document Cascade Lake runs, shuffled full scans improve from
+829.109 to 330.960 microseconds (2.5×), and piecewise compressed scans improve
+from 16.914 to 1.391 ms (12.2×). M4 measurements show 2.2× and 16.1× respectively,
+with more background-load noise. Constant, missing-value and complete-miss scans
+also improve; scalar multi-value scans remain effectively unchanged. The cost is
+3.6–5.4 ns on x86 short first-hit queries and 0.06–0.15 microseconds across 65
+cheap sparse seeks. Existing bitset controls do not regress on the isolated host.
+
+The [report and reproducible evidence](range-block-scans.md#lazy-range-scorer-batching)
+include per-run confidence intervals, exact patches, compiler/host information,
+assembly findings, correctness and memory measurements. The complete check
+harness passes 2,031 native tests, all four async-only range tests pass, and WASM
+builds with all 38 tests passing. Evidence was hash-verified before deleting the
+VM and boot disk. Cold/concurrent full-query, RPC and GPU checks were not run.
+
+Remaining experiments: accept fully covered block spans without decoding, and
+batch multi-value offsets/first values in their owning reader. Neither follows
+from this result without separate measurements and semantic regressions.
