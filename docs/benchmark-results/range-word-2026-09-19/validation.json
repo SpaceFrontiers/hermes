@@ -1,0 +1,53 @@
+{
+  "wasm": {
+    "command": "cd hermes-wasm && bash build.sh && npm ci && npm test -- --run",
+    "returncode": 0,
+    "test_files": 7,
+    "tests_passed": 38
+  },
+  "search_harness": ".context/search-harness/20260919T120728.252336Z-check",
+  "documentation": {
+    "command": "uv run scripts/check_docs.py",
+    "returncode": 0,
+    "markdown_files": 129,
+    "local_links": 607,
+    "benchmark_targets": 20
+  },
+  "native_async": {
+    "command": "cargo test --locked -p hermes-core --no-default-features --features native --test range_bitset",
+    "returncode": 0,
+    "tests_passed": 2
+  },
+  "initial_check": {
+    "run": ".context/search-harness/20260919T115113.004862Z-check",
+    "test_threads": 4,
+    "result": "failed",
+    "failure": "Existing BMP severe-backlog compaction test exceeded its 10 second timeout; 1794 other core unit tests passed.",
+    "failure_output": "initial-failure.txt"
+  },
+  "isolated_retry": {
+    "command": "target/debug/deps/hermes_core-daed016561d0d789 --exact index::tests::bmp::test_bmp_severe_backlog_defers_reorder_until_after_compaction --test-threads=1",
+    "returncode": 0,
+    "seconds": 3.98
+  },
+  "final_check": {
+    "run": ".context/search-harness/20260919T120728.252336Z-check",
+    "test_threads": 2,
+    "result": "passed",
+    "tests_passed": 2025,
+    "tests_ignored": 25,
+    "steps": [
+      "format",
+      "strict Clippy",
+      "core/server/broker/tool tests with metrics",
+      "native without sync compilation",
+      "standalone broker compilation with writers disabled"
+    ]
+  },
+  "unrun": [
+    "full harness real-server RPC cases (no RPC/lifecycle changes)",
+    "Linux residency",
+    "x86 performance",
+    "end-to-end latency"
+  ]
+}

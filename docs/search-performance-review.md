@@ -1,5 +1,20 @@
 # Core/server review — 2026-09-05
 
+September 19: [range bitset word materialization](range-word-materialization.md)
+reduces measured warm filter-construction time by 39–66% on four Apple M4
+fixtures (65,536 documents, one/sixteen copied blocks, 1%/50% selectivity).
+The shared fast-field reader exposes bounded batches and the query packs exact
+matches into words. Encoded bytes, scoring and planner/codec defaults do not
+change. Output size is unchanged; 64 bytes of comparison scratch are added and
+the compiled scan grows by 4,232 bytes. Process RSS measurements include setup
+and do not establish memory savings. The report records source-comparison
+findings, retained benchmark evidence and remaining cross-architecture/full-query
+work; this is not an end-to-end latency claim.
+Validation passes the search `check` harness (2,025 tests), both async-only
+range regressions and all 38 WASM tests. A background-merge test timed out in
+the initial run, then passed in isolation and in the complete two-thread rerun;
+the linked report retains the failure and retry evidence.
+
 Current release review: [module ownership and shared implementations](#release-review-module-ownership-and-shared-implementations).
 The newest sparse storage results are in [compact Seismic summaries](seismic-compact-summaries.md);
 [binary vector storage](binary-vector-storage.md) describes the single-copy layout.
