@@ -216,6 +216,6 @@ removal of duplicate flat codes.
 - Crash tests around staged artifact write and metadata publication.
 - IVF-TQ to ScaNN and ScaNN to IVF-TQ transitions.
 - Float recall/latency/indexing tests against the existing IVF-TQ baseline and
-  the Keenable/Google ScaNN benchmark methodology.
+  the Google ScaNN benchmark methodology.
 - Binary recall against exact Hamming ground truth, with indexing, merge, and
   query throughput measured separately on x86_64 and AArch64.
