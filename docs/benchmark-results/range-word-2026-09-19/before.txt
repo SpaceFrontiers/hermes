@@ -1,0 +1,73 @@
+   Compiling hermes-core v1.8.145 (/Users/pasha/conductor/workspaces/hermes/jerusalem/hermes-core)
+    Finished `bench` profile [optimized] target(s) in 46.49s
+     Running benches/rust_hot_paths.rs (target/release/deps/rust_hot_paths-f8638787a5ef0721)
+Gnuplot not found, using plotters backend
+Benchmarking rust_hot_paths/range_bitset/production/1_blocks_max_655
+Benchmarking rust_hot_paths/range_bitset/production/1_blocks_max_655: Warming up for 3.0000 s
+Benchmarking rust_hot_paths/range_bitset/production/1_blocks_max_655: Collecting 20 samples in estimated 5.0020 s (88k iterations)
+Benchmarking rust_hot_paths/range_bitset/production/1_blocks_max_655: Analyzing
+rust_hot_paths/range_bitset/production/1_blocks_max_655
+                        time:   [45.284 µs 46.484 µs 47.466 µs]
+                        thrpt:  [1.3807 Gelem/s 1.4099 Gelem/s 1.4472 Gelem/s]
+Benchmarking rust_hot_paths/range_bitset/predicate_control/1_blocks_max_655
+Benchmarking rust_hot_paths/range_bitset/predicate_control/1_blocks_max_655: Warming up for 3.0000 s
+Benchmarking rust_hot_paths/range_bitset/predicate_control/1_blocks_max_655: Collecting 20 samples in estimated 5.0005 s (15k iterations)
+Benchmarking rust_hot_paths/range_bitset/predicate_control/1_blocks_max_655: Analyzing
+rust_hot_paths/range_bitset/predicate_control/1_blocks_max_655
+                        time:   [299.55 µs 304.32 µs 311.61 µs]
+                        thrpt:  [210.32 Melem/s 215.35 Melem/s 218.78 Melem/s]
+Found 2 outliers among 20 measurements (10.00%)
+  2 (10.00%) high mild
+Benchmarking rust_hot_paths/range_bitset/production/1_blocks_max_32767
+Benchmarking rust_hot_paths/range_bitset/production/1_blocks_max_32767: Warming up for 3.0000 s
+Benchmarking rust_hot_paths/range_bitset/production/1_blocks_max_32767: Collecting 20 samples in estimated 5.0069 s (75k iterations)
+Benchmarking rust_hot_paths/range_bitset/production/1_blocks_max_32767: Analyzing
+rust_hot_paths/range_bitset/production/1_blocks_max_32767
+                        time:   [67.426 µs 69.720 µs 71.378 µs]
+                        thrpt:  [918.16 Melem/s 939.99 Melem/s 971.97 Melem/s]
+Benchmarking rust_hot_paths/range_bitset/predicate_control/1_blocks_max_32767
+Benchmarking rust_hot_paths/range_bitset/predicate_control/1_blocks_max_32767: Warming up for 3.0000 s
+Benchmarking rust_hot_paths/range_bitset/predicate_control/1_blocks_max_32767: Collecting 20 samples in estimated 5.0531 s (12k iterations)
+Benchmarking rust_hot_paths/range_bitset/predicate_control/1_blocks_max_32767: Analyzing
+rust_hot_paths/range_bitset/predicate_control/1_blocks_max_32767
+                        time:   [389.79 µs 400.49 µs 414.44 µs]
+                        thrpt:  [158.13 Melem/s 163.64 Melem/s 168.13 Melem/s]
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) high mild
+Benchmarking rust_hot_paths/range_bitset/production/16_blocks_max_655
+Benchmarking rust_hot_paths/range_bitset/production/16_blocks_max_655: Warming up for 3.0000 s
+Benchmarking rust_hot_paths/range_bitset/production/16_blocks_max_655: Collecting 20 samples in estimated 5.0029 s (85k iterations)
+Benchmarking rust_hot_paths/range_bitset/production/16_blocks_max_655: Analyzing
+rust_hot_paths/range_bitset/production/16_blocks_max_655
+                        time:   [44.808 µs 45.905 µs 46.964 µs]
+                        thrpt:  [1.3955 Gelem/s 1.4276 Gelem/s 1.4626 Gelem/s]
+Found 3 outliers among 20 measurements (15.00%)
+  3 (15.00%) high mild
+Benchmarking rust_hot_paths/range_bitset/predicate_control/16_blocks_max_655
+Benchmarking rust_hot_paths/range_bitset/predicate_control/16_blocks_max_655: Warming up for 3.0000 s
+Benchmarking rust_hot_paths/range_bitset/predicate_control/16_blocks_max_655: Collecting 20 samples in estimated 5.0868 s (11k iterations)
+Benchmarking rust_hot_paths/range_bitset/predicate_control/16_blocks_max_655: Analyzing
+rust_hot_paths/range_bitset/predicate_control/16_blocks_max_655
+                        time:   [425.42 µs 433.46 µs 440.68 µs]
+                        thrpt:  [148.72 Melem/s 151.19 Melem/s 154.05 Melem/s]
+Benchmarking rust_hot_paths/range_bitset/production/16_blocks_max_32767
+Benchmarking rust_hot_paths/range_bitset/production/16_blocks_max_32767: Warming up for 3.0000 s
+Benchmarking rust_hot_paths/range_bitset/production/16_blocks_max_32767: Collecting 20 samples in estimated 5.0037 s (69k iterations)
+Benchmarking rust_hot_paths/range_bitset/production/16_blocks_max_32767: Analyzing
+rust_hot_paths/range_bitset/production/16_blocks_max_32767
+                        time:   [69.156 µs 71.869 µs 74.543 µs]
+                        thrpt:  [879.17 Melem/s 911.88 Melem/s 947.65 Melem/s]
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) high mild
+Benchmarking rust_hot_paths/range_bitset/predicate_control/16_blocks_max_32767
+Benchmarking rust_hot_paths/range_bitset/predicate_control/16_blocks_max_32767: Warming up for 3.0000 s
+Benchmarking rust_hot_paths/range_bitset/predicate_control/16_blocks_max_32767: Collecting 20 samples in estimated 5.0158 s (8610 iterations)
+Benchmarking rust_hot_paths/range_bitset/predicate_control/16_blocks_max_32767: Analyzing
+rust_hot_paths/range_bitset/predicate_control/16_blocks_max_32767
+                        time:   [563.31 µs 586.63 µs 622.28 µs]
+                        thrpt:  [105.32 Melem/s 111.72 Melem/s 116.34 Melem/s]
+Found 3 outliers among 20 measurements (15.00%)
+  1 (5.00%) high mild
+  2 (10.00%) high severe
+
+layout bytes: HeapEntry=12, DocBitset=24, SharedThreshold=40, ColumnBlock=208, FastFieldReader=136

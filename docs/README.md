@@ -27,6 +27,7 @@ claim as implemented or as current performance.
 - [Dictionary block and allocation experiments](search-benchmark-dictionary-results.md)
 - [L1 candidate scoring handoff and rejected lookup design](handoffs/2026-09-05-l1-candidate-scoring.md)
 - [Rust hot-path review](rust-hot-path-review.md)
+- [Range bitset word materialization](range-word-materialization.md): source comparison, bounded mask construction and measurements.
 
 ## Schema, text search, and query behavior
 
