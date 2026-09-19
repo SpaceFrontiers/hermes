@@ -1,0 +1,24 @@
+{
+  "read_bytes": 1209542,
+  "fields": {
+    "12": {
+      "attempted": 3072,
+      "decoded": 3072,
+      "missing": 37,
+      "skipped_codec": {},
+      "minimum_present": 0,
+      "maximum_present": 39
+    },
+    "14": {
+      "attempted": 3072,
+      "decoded": 2969,
+      "missing": 1,
+      "skipped_codec": {
+        "3": 103
+      },
+      "minimum_present": -62135596800,
+      "maximum_present": 1788739200
+    }
+  },
+  "scope": "largest segment in each of three shards; 1024 uniform sampled documents per field; constant and bitpacked blocks only"
+}

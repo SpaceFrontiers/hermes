@@ -1,0 +1,1 @@
+Byte-identical tags and payloads: 9472 retained production rows in both modes, plus 1932 boundary cases.

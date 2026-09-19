@@ -1,0 +1,33 @@
+{
+  "read_bytes": 5016,
+  "sections": {
+    "9/6": {
+      "entries": 38,
+      "bytes": 729215567958,
+      "vectors": 0,
+      "dimensions": [],
+      "quant": []
+    },
+    "9/4": {
+      "entries": 38,
+      "bytes": 729140538550,
+      "vectors": 2236627417,
+      "dimensions": [2560],
+      "quant": [3]
+    },
+    "10/6": {
+      "entries": 38,
+      "bytes": 33102603708,
+      "vectors": 0,
+      "dimensions": [],
+      "quant": []
+    },
+    "10/4": {
+      "entries": 38,
+      "bytes": 33086424556,
+      "vectors": 101492098,
+      "dimensions": [2560],
+      "quant": [3]
+    }
+  }
+}

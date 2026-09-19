@@ -10284,3 +10284,257 @@ Remaining repository dependency alerts are recorded in PR #191. Existing `lru`
 and frontend/test/build-tooling advisories are outside this search-feature review;
 the critical GitPython alert references a removed training lockfile. A passing
 Cargo Audit job is not a claim that all repository dependency alerts are resolved.
+
+## Seismic forward dimensions: DotVByte and U24 (2026-09-19)
+
+The [forward-index paper](https://arxiv.org/pdf/2602.05445) applies to Seismic's
+exact candidate-scoring owner. Implemented opt-in lossless dimension compression
+in `structures/postings/sparse/dimensions.rs`, shared by forward iteration, scoring,
+retrieval, and maintenance. Existing configured weight bytes and scorer remain
+unchanged. The codec uses eight one/two-byte gaps per control byte, a U32 base
+and prefix sums, independent row alignment, and raw U32 tails. ARM NEON and
+x86 SSSE3 decode groups; WASM uses the portable decoder. Raw U16/U24/U32 fallbacks
+cover short vectors and large gaps, including 100k vocabularies. The row tag
+uses existing reserved directory space; persistent directory size stays 24 B.
+
+Envelope version 6 rejects earlier versions, as requested. Copy merge preserves
+encoded runs; compaction copies each surviving row's bytes and tag. No summary
+or forward payload scan was added. Enable with
+`seismic_forward_compression: true`; it was initially opt-in and is now the
+default at the user's request (see the follow-up below). This is a physical
+storage setting: schema, query, and returned dimension IDs retain U32 semantics.
+
+The first prototype accidentally outlined the generic dimension fold. Assembly
+confirmed a weight-decoder call per coordinate, and default raw exhaustive
+search regressed. Explicitly inlining that fold restores constant precision
+inside the shared hot loop; a single coordinate cursor also drives both
+dimension and weight accesses. A compile-time raw specialization of the same
+iterator keeps compressed-format dispatch out of the raw row-scoring loop.
+The final comparison includes the unchanged main binary as well as
+raw/compressed layouts in the candidate binary.
+
+Validation: the full nine-step harness passed 2013 native tests (25 existing
+ignored tests), strict Clippy, feature combinations, API docs, server build, and
+five real-server tests. The final focused harness
+(`20260919T055521.799404Z-check`) passed the same 2013 tests. Codec tests also passed as x86 binaries under
+Rosetta; Linux query/codec tests and the rebuilt WASM suite provide independent
+native-x86 and portable coverage. The final rebuilt WASM suite passes all 37
+tests. Remaining limitations: no RGB dimension
+permutation/global mapping, no separate packed SIMD weight scorer, and no measured claim for the user's actual
+100k-token embedding model. A shifted real-vector sample exercises wide IDs
+while preserving its original gap distribution.
+
+Final measurements and reproduction artifacts are linked from
+[the forward codec design](seismic-forward-compression.md) and
+[the benchmark instructions](benchmark-results/seismic-forward/README.md).
+
+On the 1M Float32 fixture, adaptive gaps save 64.8% of dimension bytes,
+32.4% of forward payload, and 12.0% of the complete index. Warm top-100 means
+are 27.99 ms raw, 31.50 ms U24, and 32.79 ms adaptive, with peak RSS 2.00,
+1.89, and 1.70 GiB respectively. Original main averages 29.85 ms. Exhaustive
+candidate scoring is 259.31 ms raw versus 378.16 ms adaptive, so this is a
+measured CPU/storage tradeoff, not a blanket speed improvement.
+
+Two reverse-order trials under a 1 GiB cgroup reproduce a cache threshold for
+20 repeated queries: raw averages 984.41 ms, U24 35.77 ms, and adaptive gaps
+33.97 ms. All IDs and scores match. Read traffic averages 2.44/0.96/0.77 GiB
+respectively over all three passes. The compressed working set fits this
+particular budget; this does not establish production RAM requirements or a
+universal speedup. The shifted wide-ID sample averages 10.23/10.46/10.72 ms.
+See [the measurements and limits](benchmark-results/seismic-forward/2026-09-19/README.md)
+for full distributions, cgroup counters, environment, hashes, and validation.
+
+The benchmark VM is confirmed `TERMINATED` after the evidence export and local
+checksum/source verification. No benchmark process or cloud VM was left running.
+
+### Default selection and BMP applicability
+
+At the user's request, Seismic forward compression now defaults to true in
+constructors, omitted serde fields and SDL. Explicit false is preserved through
+JSON and server SDL round trips. This selects the existing measured codec; it
+does not change score precision, the version-6 format, or already-written rows.
+The benchmark snapshot above predates this default-only policy change; its
+source manifest remains historical evidence, not a hash of the later config.
+Cross-architecture latency and genuine 100k-token model results remain unmeasured.
+
+The initial BMP investigation (superseded by the implementation below) found a
+reusable dimension-codec opportunity: its forward
+entries still use U32 dimensions plus U8 impacts, independently of `index_size`.
+L1 backfill and BP consume them, while normal search remains inverted. At 126
+entries, a proposed U24/count layout saves 18.9% including the existing logical
+directory; gap savings require a BMP retained-row benchmark. See the
+[current format and ownership](bmp-forward-index.md).
+BMP storage and query execution were unchanged at that stage.
+
+The default-on follow-up passed the focused harness
+(`20260919T073653.759718Z-check`): 2015 native tests, 25 existing ignored tests,
+strict Clippy and both feature checks. The rebuilt WASM suite passed all 37
+tests, including default-compressed versus explicitly raw wide-ID fields.
+Documentation links and formatting pass. No new BMP runtime or compression
+benchmark was run; the BMP numbers above are layout estimates.
+
+### BMPB gap packets and production distributions (2026-09-19)
+
+Implemented bounded 128-entry forward packets using the same adaptive
+U16/U24/U32/DotVByte dimension codec as Seismic. The codec now belongs to
+`structures/postings/sparse/dimensions.rs`; Seismic's existing version-6 bytes
+are unchanged. A single BMP row writer serves ingestion and materialization.
+BMPB is an incompatible envelope requiring rebuilds; no BMPA runtime reader is
+kept. Native copy merge, both BP modes, and deletion compaction preserve encoded
+forward rows. U8 impacts, ordinals, duplicate dimensions and integer scoring
+remain unchanged. Query scoring uses the writer-trusted view once; explicit
+integrity/BP validation remains outside query loops.
+
+Read-only sampling of three physical production shards found 101.49M documents
+and 2.338B sparse vectors with a 105,879-dimension vocabulary. Exact retained
+mean NNZ is 160.75 for passage vectors and 150.14 for short-document vectors.
+Eight stratified windows per field/segment supplied 9,472 rows, requesting only
+7.45 MB of metadata and payload. On those identical retained entries, BMPA
+payload is 7,279,190 bytes and BMPB payload 4,024,684 bytes: 44.71% less, or
+43.80% less including the unchanged directory. Segment-weighted extrapolation
+estimates 846 GB less forward payload across the three shards (1.874 TB to
+1.028 TB), reducing total sparse blobs about 21.7%. This is estimated disk
+storage, not a resident-RAM requirement or measured production latency gain.
+
+Same-fixture ARM64 resident-row scoring measured medians 164.66 ns raw and
+263.84 ns compressed (1.60× CPU). A packet-level fused fold replaced the first
+nested-iterator scoring loop, reducing its roughly 420 ns cost without changing
+score units. The packet writer is 1,040 bytes plus a few KiB bounded temporary
+scratch; decode needs eight U32 lanes and no candidate-sized allocation.
+All sampled tuples and integer score checksums agree with the raw-row oracle.
+Ordinary BMP retrieval remains inverted. The later
+[query-latency follow-up](benchmark-results/bmp-forward/2026-09-19/query-latency.md)
+measures public core L1 on x86 under warm and constrained memory. Full BP
+build/rewrite timing, production-server latency and concurrent QPS remain unmeasured.
+
+Additional read-only inspection covered 596 inverted BMP blocks and fast-field
+metadata. Dimension arrays comprise about one third of sampled inverted block
+bytes; U24 could reduce total sampled block bytes about 8.3% while preserving
+indexed access. Gaps are smaller still but need a separate random-access design.
+Language-column blocks covering 100.4M rows use 64-bit values despite small
+dictionaries, exposing missing-sentinel width inflation; a validity bitmap is a
+concrete follow-up experiment. Fast fields total only 5.35 GB, so prioritize the
+much larger sparse payload. No other field format changed on the basis of
+metadata alone. See the [measurement report](benchmark-results/bmp-forward/2026-09-19/README.md)
+for raw aggregates, methodology, source/input provenance and limits.
+
+Validation: the storage regression failed on BMPA and passed on BMPB. New
+coverage exercises full-width IDs, duplicate dimensions, packet boundaries and
+long rows, folded/iterated equality, writer failure, encoded-byte preservation
+through merge/materialization/compaction, and rejection of BMPA. Existing BP,
+missing-value, cancellation, score and lifecycle regressions are retained.
+The first focused harness passed native tests but exposed featureless broker
+build warnings after moving maintenance-only APIs; those APIs/imports now have
+matching feature gates. Final full-harness and WASM results are recorded below.
+
+Further inspection found 762.227 GB of duplicate flat binary vector sections
+alongside 762.318 GB of IVF sections in the live files. No exact-location sections
+were present. The repository already owns an ANN-code-plus-location-table writer;
+using it on rebuilt generations suggests about 729 GB additional savings after
+14-byte lookup rows, before small span/block metadata. This capability predates
+this gap-encoding patch and was not deployed here. Bounded fast-value sampling
+also confirmed 37/3,072 missing language ordinals among present IDs 0–39;
+rare missing sentinels explain full-width blocks. Aggregate evidence is in the
+same report; no extra runtime format changes were added for these findings.
+
+Final validation: `20260919T080450.635887Z-full` passed formatting, strict Clippy,
+2021 regular native tests (25 normally ignored), native-without-sync and broker
+feature checks, featureless core, strict documentation, and the server build.
+The parallel real-server stage passed four tests and hit `Address already in
+use (os error 48)` during the fifth server's startup. Rerunning the entire
+five-test integration suite with `--test-threads=1` passed all five in 5.21s
+(`/tmp/hermes-bmp-gap-e2e-serial.log`); no test assertion or timeout was weakened.
+The WASM release build and all 38 JavaScript tests passed, including the new
+wide-ID BMP packet/tail fixture. Moving the Seismic codec was additionally
+byte-compared with the archived pre-extraction encoder for 9,472 production
+rows in both modes and 1,932 boundary cases; every tag/payload matched.
+`git diff --check` and documentation ownership checks pass. Production files
+were only read. The later query-latency follow-up adds controlled x86 BMP
+candidate measurements; full production and BP benchmarks remain future work.
+
+## BMP packet forward values: measured query latency (2026-09-19)
+
+The [query-latency report](benchmark-results/bmp-forward/2026-09-19/query-latency.md)
+compares the public core retrieval/candidate APIs on one segment built from
+900,000 genuine retained vectors (42,596 documents, 105,879 dimensions). A raw
+comparison fixture copies the inverted prefix exactly. Both readers trust
+writer-produced values. No production workload was available, so the benchmark
+uses deterministic 16-term query templates and forces same-field all-passage
+backfill; it does not model a production ranking plan or RPC latency.
+
+On the common 64 queries, retrieval k=1,000 plus L1 has these mean/p95 times:
+
+| Cache condition |         Raw mean / p95 |     Packets mean / p95 |
+| --------------- | ---------------------: | ---------------------: |
+| Warm            |       53.22 / 81.76 ms |     143.38 / 213.17 ms |
+| 1 GiB           | 1,559.65 / 4,704.47 ms |     145.17 / 217.65 ms |
+| 512 MiB         | 5,221.43 / 8,936.47 ms | 3,056.54 / 4,848.53 ms |
+
+Forward payload shrinks 45.05%; full sparse bytes shrink 20.03%. The compressed
+pipeline peaks at 892 MiB under the 1 GiB limit, while raw reaches the limit and
+continues faulting. At 512 MiB both remain I/O-bound. Retrieval alone stays near
+8 ms. The exact mean expansion is 476.09 unique documents to 64,653.36 vectors;
+the largest query scores 124,040 vectors before retaining at most ten documents.
+
+Remaining findings: warm backfill increases from 26.56 to 116.78 ms. A short CPU
+profile and annotated assembly put the hotspot inside candidate scoring,
+including repeated stack copies around the fallible fold accumulator. A smaller
+primitive accumulator was a concrete experiment at that point; the follow-up
+below measures the implemented fix. Forward
+bytes also use `MADV_RANDOM`, with no explicit selected-range prefetch after
+budget admission. At 512 MiB, nearby rather than scattered 1,000-document pools
+reduce raw forward-only repeat latency only from 1,826.26 to 1,687.91 ms. These
+pools differ in membership; page/vector footprints accompany the results.
+Bounded coalesced forward prefetch is the next I/O experiment. Neither runtime
+optimization was added during this measurement.
+
+All 52 runs / 9,856 requests completed; all 26 format pairs match every returned
+ID and score bit. Offline checking matched all 900,000 vectors / 146,460,740
+entries against the source and byte-compared the 900,363,945-byte unchanged
+inverted prefix. No pressure run recorded an OOM. Early 1 GiB I/O counters were
+unavailable and remain null; the checked-in driver now enables I/O accounting
+up front. The exact measured driver, binaries' hashes, timings, profiles and
+input provenance are archived. The evidence was downloaded and hash-verified,
+and the VM is confirmed stopped. This follow-up changes benchmark tooling and
+documentation; runtime validation remains the preceding full native/WASM run.
+
+## BMP rescoring accumulator optimization (2026-09-19)
+
+The [accumulator follow-up](benchmark-results/bmp-forward/2026-09-19/accumulator-optimization.md)
+replaces the full error-carrying fold state with `Option<u32>` and constructs the
+existing error only at the row boundary. Checked integer arithmetic, duplicate
+matches, exact score bits and serialized index bytes are preserved. The change
+belongs solely to the shared query scorer; there is no new codec, allocation,
+validation pass, cache policy or default.
+
+On the same 900,000-vector fixture and Cascade Lake VM, paired warm k=1,000
+pipeline backfill falls from 116.88 to 45.97 ms (2.54× faster). Total mean/p95
+falls from 143.21/214.48 to 72.07/106.65 ms. Fixed 1,000-document scoring falls
+from 38.94 to 16.06 ms; retrieval alone remains about 7.6 ms. Peak warm pipeline
+RSS is effectively unchanged at 1,149 MiB. These are synthetic query templates
+through the public core APIs, not production traffic or a concurrent QPS claim.
+
+Validation: the full serial `check` harness passes 2,023 native tests (25 normally
+ignored), strict Clippy and feature checks; WASM builds and passes all 38 tests.
+The initial parallel harness hit a broker discovery timeout; the complete serial
+rerun passed without weakening assertions. New regressions cover duplicate
+matches across packets/encodings, no matches, the exact u32 limit, and sticky
+overflow. Capped-memory measurements and profiles are recorded in the linked
+report. Selected-range prefetch remains an unimplemented I/O follow-up.
+
+All 24 before/after runs (4,096 timed requests) matched every result ID/score bit
+across 12 pairs; index-file hashes were unchanged. The 1 GiB pipeline improves
+from 144.72 to 73.62 ms at effectively unchanged 892 MiB peak cgroup memory;
+all eight capped runs have zero OOM events. The annotated optimized loop removes
+the large error-state copies; the hottest sampled instruction is now in SIMD
+gap unpacking. Full evidence was downloaded and hash-verified, and the isolated
+VM is confirmed `TERMINATED`.
+
+Final pre-merge review: traced SDL/schema conversion, the shared dimension codec,
+BMP and Seismic writers/readers, candidate scorers, copy merge, compaction and
+WASM. No blocking correctness or duplicated runtime-codec findings remain.
+Corrected a stale encoded-view comment that implied prefetch was implemented;
+public benchmark metadata now redacts the internal host name while the private
+archive retains exact provenance. The latest main cleanup changes comments and
+benchmark labels only. The passing 2,023-test native harness, 38 WASM tests and
+paired score/byte measurements above cover the unchanged runtime implementation.

@@ -1,0 +1,165 @@
+{
+  "warm": {
+    "before": {
+      "mean_ms": 10.326627783333334,
+      "p50_ms": 10.37622,
+      "p95_ms": 15.671020666666665,
+      "p99_ms": 17.318444,
+      "rss_kib": 309838.6666666667,
+      "open_ms": 5.312478333333334,
+      "major_faults": 0,
+      "fs_input_blocks": 0,
+      "runs": 3,
+      "mean_range_ms": [10.25589511, 10.442033747499998],
+      "hits_identical": true
+    },
+    "raw": {
+      "mean_ms": 10.225030466666668,
+      "p50_ms": 10.339676,
+      "p95_ms": 15.306957,
+      "p99_ms": 17.244864999999997,
+      "rss_kib": 309758.6666666667,
+      "open_ms": 5.713131,
+      "major_faults": 0,
+      "fs_input_blocks": 0,
+      "runs": 3,
+      "mean_range_ms": [10.161257447500002, 10.305490922500002],
+      "hits_identical": true
+    },
+    "u24": {
+      "mean_ms": 10.462406827499999,
+      "p50_ms": 10.507967666666667,
+      "p95_ms": 15.807050333333333,
+      "p99_ms": 17.624759,
+      "rss_kib": 297290.6666666667,
+      "open_ms": 5.461056666666667,
+      "major_faults": 0,
+      "fs_input_blocks": 0,
+      "runs": 3,
+      "mean_range_ms": [10.379923040000001, 10.515497417499992],
+      "hits_identical": true
+    },
+    "dot": {
+      "mean_ms": 10.716632232500002,
+      "p50_ms": 10.831844666666667,
+      "p95_ms": 16.142826333333332,
+      "p99_ms": 17.882076,
+      "rss_kib": 277500,
+      "open_ms": 5.435029,
+      "major_faults": 0,
+      "fs_input_blocks": 0,
+      "runs": 3,
+      "mean_range_ms": [10.704184142499994, 10.726887880000003],
+      "hits_identical": true
+    }
+  },
+  "exact": {
+    "before": {
+      "mean_ms": 78.87441510000001,
+      "p50_ms": 79.17848099999999,
+      "p95_ms": 88.01328699999999,
+      "p99_ms": 88.01328699999999,
+      "rss_kib": 119900,
+      "open_ms": 5.152367,
+      "major_faults": 0,
+      "fs_input_blocks": 0,
+      "runs": 1,
+      "mean_range_ms": [78.87441510000001, 78.87441510000001],
+      "hits_identical": true
+    },
+    "raw": {
+      "mean_ms": 77.5592219,
+      "p50_ms": 78.511589,
+      "p95_ms": 86.956199,
+      "p99_ms": 86.956199,
+      "rss_kib": 119928,
+      "open_ms": 5.501974,
+      "major_faults": 0,
+      "fs_input_blocks": 0,
+      "runs": 1,
+      "mean_range_ms": [77.5592219, 77.5592219],
+      "hits_identical": true
+    },
+    "u24": {
+      "mean_ms": 80.2659098,
+      "p50_ms": 80.885119,
+      "p95_ms": 89.806753,
+      "p99_ms": 89.806753,
+      "rss_kib": 107476,
+      "open_ms": 5.592639,
+      "major_faults": 0,
+      "fs_input_blocks": 0,
+      "runs": 1,
+      "mean_range_ms": [80.2659098, 80.2659098],
+      "hits_identical": true
+    },
+    "dot": {
+      "mean_ms": 77.71462509999999,
+      "p50_ms": 77.930537,
+      "p95_ms": 88.06378,
+      "p99_ms": 88.06378,
+      "rss_kib": 87652,
+      "open_ms": 5.510987999999999,
+      "major_faults": 0,
+      "fs_input_blocks": 0,
+      "runs": 1,
+      "mean_range_ms": [77.71462509999999, 77.71462509999999],
+      "hits_identical": true
+    }
+  },
+  "top10": {
+    "before": {
+      "mean_ms": 5.91527779,
+      "p50_ms": 6.044305,
+      "p95_ms": 9.182357,
+      "p99_ms": 12.144856,
+      "rss_kib": 206996,
+      "open_ms": 5.157551,
+      "major_faults": 0,
+      "fs_input_blocks": 0,
+      "runs": 1,
+      "mean_range_ms": [5.91527779, 5.91527779],
+      "hits_identical": true
+    },
+    "raw": {
+      "mean_ms": 5.735549529999999,
+      "p50_ms": 5.704783,
+      "p95_ms": 8.961949,
+      "p99_ms": 11.539423,
+      "rss_kib": 207340,
+      "open_ms": 5.25542,
+      "major_faults": 0,
+      "fs_input_blocks": 0,
+      "runs": 1,
+      "mean_range_ms": [5.735549529999999, 5.735549529999999],
+      "hits_identical": true
+    },
+    "u24": {
+      "mean_ms": 5.987595360000001,
+      "p50_ms": 6.083317,
+      "p95_ms": 9.243336,
+      "p99_ms": 12.314083,
+      "rss_kib": 195156,
+      "open_ms": 5.55737,
+      "major_faults": 0,
+      "fs_input_blocks": 0,
+      "runs": 1,
+      "mean_range_ms": [5.987595360000001, 5.987595360000001],
+      "hits_identical": true
+    },
+    "dot": {
+      "mean_ms": 6.122823170000001,
+      "p50_ms": 6.238351,
+      "p95_ms": 9.514769,
+      "p99_ms": 12.674747,
+      "rss_kib": 175060,
+      "open_ms": 5.442278,
+      "major_faults": 0,
+      "fs_input_blocks": 0,
+      "runs": 1,
+      "mean_range_ms": [6.122823170000001, 6.122823170000001],
+      "hits_identical": true
+    }
+  },
+  "pressure": {}
+}

@@ -1,0 +1,130 @@
+{
+  "before": {
+    "exact": {
+      "backend": "Seismic",
+      "directory_bytes": 2728494428,
+      "exact": true,
+      "first_query_ms": 273.731679,
+      "k": 100,
+      "live_bytes": 2728494428,
+      "mean_ms": 274.06939339999997,
+      "open_ms": 35.864672,
+      "operation": "search",
+      "p50_ms": 273.25291000000004,
+      "p95_ms": 292.17010700000003,
+      "p99_ms": 292.17010700000003,
+      "queries": 5
+    },
+    "ann": {
+      "backend": "Seismic",
+      "directory_bytes": 2728494428,
+      "exact": false,
+      "first_query_ms": 35.38943,
+      "k": 100,
+      "live_bytes": 2728494428,
+      "mean_ms": 28.65906333,
+      "open_ms": 35.092365,
+      "operation": "search",
+      "p50_ms": 26.200047,
+      "p95_ms": 48.15981,
+      "p99_ms": 54.217538000000005,
+      "queries": 50
+    }
+  },
+  "raw": {
+    "exact": {
+      "backend": "Seismic",
+      "directory_bytes": 2728494428,
+      "exact": true,
+      "first_query_ms": 246.990245,
+      "k": 100,
+      "live_bytes": 2728494428,
+      "mean_ms": 256.7631641,
+      "open_ms": 38.383409,
+      "operation": "search",
+      "p50_ms": 255.00690500000002,
+      "p95_ms": 273.01848,
+      "p99_ms": 273.01848,
+      "queries": 5
+    },
+    "ann": {
+      "backend": "Seismic",
+      "directory_bytes": 2728494428,
+      "exact": false,
+      "first_query_ms": 33.212221,
+      "k": 100,
+      "live_bytes": 2728494428,
+      "mean_ms": 27.542059200000008,
+      "open_ms": 37.729555999999995,
+      "operation": "search",
+      "p50_ms": 24.689315999999998,
+      "p95_ms": 45.516262000000005,
+      "p99_ms": 52.491588,
+      "queries": 50
+    }
+  },
+  "u24": {
+    "exact": {
+      "backend": "Seismic",
+      "directory_bytes": 2602174334,
+      "exact": true,
+      "first_query_ms": 341.76496699999996,
+      "k": 100,
+      "live_bytes": 2602174334,
+      "mean_ms": 349.3669914,
+      "open_ms": 38.249009,
+      "operation": "search",
+      "p50_ms": 351.682227,
+      "p95_ms": 377.259141,
+      "p99_ms": 377.259141,
+      "queries": 5
+    },
+    "ann": {
+      "backend": "Seismic",
+      "directory_bytes": 2602174334,
+      "exact": false,
+      "first_query_ms": 35.948832,
+      "k": 100,
+      "live_bytes": 2602174334,
+      "mean_ms": 31.256848080000005,
+      "open_ms": 37.414048,
+      "operation": "search",
+      "p50_ms": 28.135309,
+      "p95_ms": 51.835981000000004,
+      "p99_ms": 60.389285,
+      "queries": 50
+    }
+  },
+  "dot": {
+    "exact": {
+      "backend": "Seismic",
+      "directory_bytes": 2401254625,
+      "exact": true,
+      "first_query_ms": 376.396982,
+      "k": 100,
+      "live_bytes": 2401254625,
+      "mean_ms": 379.1057406,
+      "open_ms": 37.872702000000004,
+      "operation": "search",
+      "p50_ms": 377.469298,
+      "p95_ms": 387.54650899999996,
+      "p99_ms": 387.54650899999996,
+      "queries": 5
+    },
+    "ann": {
+      "backend": "Seismic",
+      "directory_bytes": 2401254625,
+      "exact": false,
+      "first_query_ms": 34.905968,
+      "k": 100,
+      "live_bytes": 2401254625,
+      "mean_ms": 32.647848399999994,
+      "open_ms": 38.13839900000001,
+      "operation": "search",
+      "p50_ms": 29.462285,
+      "p95_ms": 54.380983,
+      "p99_ms": 62.458263,
+      "queries": 50
+    }
+  }
+}

@@ -1,0 +1,15 @@
+rows=9472 raw_bytes=7279190 packet_bytes=4024684 tags=[0, 6, 15268, 801] prepare_and_verify_s=0.031004 row_writer_bytes=1040
+pass=0 codec=raw ns_per_row=168.806 checksum=1751700
+pass=0 codec=gap ns_per_row=268.377 checksum=1751700
+pass=1 codec=gap ns_per_row=262.102 checksum=1751700
+pass=1 codec=raw ns_per_row=164.658 checksum=1751700
+pass=2 codec=raw ns_per_row=163.983 checksum=1751700
+pass=2 codec=gap ns_per_row=265.495 checksum=1751700
+pass=3 codec=gap ns_per_row=263.264 checksum=1751700
+pass=3 codec=raw ns_per_row=165.160 checksum=1751700
+pass=4 codec=raw ns_per_row=164.032 checksum=1751700
+pass=4 codec=gap ns_per_row=263.314 checksum=1751700
+pass=5 codec=gap ns_per_row=263.841 checksum=1751700
+pass=5 codec=raw ns_per_row=165.519 checksum=1751700
+pass=6 codec=raw ns_per_row=163.745 checksum=1751700
+pass=6 codec=gap ns_per_row=269.447 checksum=1751700
