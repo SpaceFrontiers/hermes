@@ -143,6 +143,11 @@ name = "core_structures"
 harness = false
 
 [[bench]]
+name = "collector_selection"
+path = "benches/collector_selection/main.rs"
+harness = false
+
+[[bench]]
 name = "search_pipeline"
 harness = false
 

@@ -316,6 +316,58 @@ fn bench_fast_field_blockwise(c: &mut Criterion) {
     group.finish();
 }
 
+/// Identical encoded values: old header walks versus the reader's bounded directory.
+fn bench_fast_field_sparse_lookup(c: &mut Criterion) {
+    use hermes_core::directories::OwnedBytes;
+    use hermes_core::structures::fast_field::codec::auto_read;
+    use hermes_core::structures::fast_field::{
+        FastFieldColumnType, FastFieldReader, FastFieldWriter,
+    };
+    let mut group = c.benchmark_group("core_structures/fast_field_sparse_lookup");
+    group.throughput(Throughput::Elements(100));
+    for count in [512u32, 65_536, 1_048_576] {
+        let mut writer = FastFieldWriter::new_numeric(FastFieldColumnType::U64);
+        for index in 0..count {
+            writer.add_u64(
+                index,
+                (index / 512) as u64 * 1_000_000
+                    + (index % 512) as u64 * ((index / 512) as u64 % 7 + 1)
+                    + (index % 11) as u64,
+            );
+        }
+        let mut bytes = Vec::new();
+        let (toc, _) = writer.serialize(&mut bytes, 0).unwrap();
+        let reader = FastFieldReader::open(&OwnedBytes::new(bytes), &toc).unwrap();
+        let encoded = reader.blocks()[0].data.as_slice();
+        if count > 512 {
+            assert_eq!(encoded[0], 3);
+        }
+        let probes: Vec<_> = (0..100).map(|i| (i * 7919 + 37) % count).collect();
+        for &doc in &probes {
+            assert_eq!(reader.get_u64(doc), auto_read(encoded, doc as usize));
+        }
+        group.bench_with_input(BenchmarkId::new("header_walk", count), &count, |b, _| {
+            b.iter(|| {
+                for &doc in &probes {
+                    black_box(auto_read(black_box(encoded), black_box(doc) as usize));
+                }
+            });
+        });
+        group.bench_with_input(
+            BenchmarkId::new("reader_checkpoints", count),
+            &count,
+            |b, _| {
+                b.iter(|| {
+                    for &doc in &probes {
+                        black_box(black_box(&reader).get_u64(black_box(doc)));
+                    }
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
 /// Term-dictionary point lookups with restart points every 16 entries.
 #[cfg(feature = "sync")]
 fn bench_term_dict_lookup(c: &mut Criterion) {
@@ -372,67 +424,6 @@ fn bench_term_dict_lookup(c: &mut Criterion) {
 #[cfg(not(feature = "sync"))]
 fn bench_term_dict_lookup(_: &mut Criterion) {}
 
-/// Phrase-style position access: for every candidate document in order, the
-/// old random-access lookup re-decodes the block from its start, the
-/// sequential cursor decodes each block once.
-fn bench_position_access(c: &mut Criterion) {
-    use hermes_core::structures::PositionPostingList;
-
-    let mut list = PositionPostingList::new();
-    let mut doc = 0u32;
-    for i in 0..100_000u32 {
-        doc += 1 + (i % 3);
-        let positions: Vec<u32> = (0..6).map(|k| 3 + k * 7 + (i % 5)).collect();
-        list.push(doc, positions);
-    }
-    let mut bytes = Vec::new();
-    list.serialize(&mut bytes).unwrap();
-    let list = PositionPostingList::deserialize(&bytes).unwrap();
-    // Every 4th document is a candidate (a conjunction that keeps 25%).
-    let candidates: Vec<u32> = {
-        let mut it = list.iter();
-        let mut docs = Vec::new();
-        let mut n = 0usize;
-        while it.doc() != u32::MAX {
-            if n.is_multiple_of(4) {
-                docs.push(it.doc());
-            }
-            n += 1;
-            it.advance();
-        }
-        docs
-    };
-
-    let mut group = c.benchmark_group("core_structures/position_access");
-    group.throughput(Throughput::Elements(candidates.len() as u64));
-    group.bench_function("random_access_per_candidate", |bencher| {
-        let mut buf = Vec::new();
-        bencher.iter(|| {
-            let mut total = 0usize;
-            for &doc in &candidates {
-                if list.get_positions_into(doc, &mut buf) {
-                    total += buf.len();
-                }
-            }
-            black_box(total)
-        })
-    });
-    group.bench_function("sequential_cursor", |bencher| {
-        bencher.iter(|| {
-            let mut cursor = list.iter();
-            let mut total = 0usize;
-            for &doc in &candidates {
-                cursor.seek(doc);
-                if cursor.doc() == doc {
-                    total += cursor.positions().len();
-                }
-            }
-            black_box(total)
-        })
-    });
-    group.finish();
-}
-
 criterion_group!(
     benches,
     bench_top_k,
@@ -443,7 +434,7 @@ criterion_group!(
     bench_slice_cache_churn,
     bench_combiner,
     bench_fast_field_blockwise,
+    bench_fast_field_sparse_lookup,
     bench_term_dict_lookup,
-    bench_position_access,
 );
 criterion_main!(benches);

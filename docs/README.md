@@ -7,6 +7,7 @@
 
 - [Schema (SDL)](schema.md)
 - [Query language](query-language.md)
+- [Wildcard queries and expansion limits](wildcard-query.md)
 - [Tokenization and phrase queries](dynamic-tokenizer-and-phrase.md)
 - [Chunked text](chunked-text-fields.md) and [chunked BM25](chunked-bm25.md)
 - [Formula ranking, backfill, and diagnostics](candidate-rescoring.md)
@@ -63,6 +64,10 @@ status and fixture before treating a result as current behavior or performance.
 
 - [Full-text comparison](search-benchmark-current.md)
 - [Search review ledger](search-performance-review.md)
+- [Yonik Searchbench comparison](searchbench-comparison.md)
+- [Collector selection benchmark](collector-benchmark.md)
+- [IResearch optimization and Linux I/O audit](iresearch-optimization-audit.md)
+- [Topic-aware placement and redistribution proposal](topic-aware-placement.md)
 - [Range bitset word materialization](range-word-materialization.md): source comparison and measured filter-construction gains.
 - [Range block scan experiments](range-block-scans.md): header-based pruning and sequential decoding.
 - [Merge review](search-merge-review.md), [reorder review](reordering-performance-review.md), and [Rust hot paths](rust-hot-path-review.md)

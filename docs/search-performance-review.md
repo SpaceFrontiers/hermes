@@ -68,6 +68,41 @@ The newest sparse storage results are in [compact Seismic summaries](seismic-com
 [binary vector storage](binary-vector-storage.md) describes the single-copy layout.
 The text benchmark overview below describes its September 16 measurement snapshot.
 
+The September 20 [IResearch and Linux I/O audit](iresearch-optimization-audit.md)
+finds existing batch/lazy evaluation, heap-based text collectors, partial adaptive
+codec coverage, and a release-versus-benchmark SIMD verification gap. No io_uring
+backend exists; a read-only check also found no rings in the three running index
+server processes. The audit distinguishes the benchmark's buffered selection from
+current IResearch's loser-tree collector and mmap reads from async writes. No
+performance improvement or backend enablement is claimed.
+
+The follow-up [collector experiment](collector-benchmark.md) compares the real
+scoring heap with benchmark-only partial selection and a loser tree. Two M4
+runs show partial selection reducing synthetic BM25 collection time by 22–28%
+at k=100 and 60–62% at k=1000, with no meaningful top-10 win. It doubles retained
+entry capacity and visits 30.6% more candidates in the k=1000 block-pruning
+control. These are collector-only measurements with precomputed scores; desktop
+noise and the absence of x86/end-to-end measurements limit conclusions. The
+production heap remains unchanged. Oracle checks and the search harness pass.
+
+September 22 [Searchbench preparation](searchbench-comparison.md) pins Yonik's
+10M-document HTTP workload and probes all 826 selected queries. Of those, 585
+parse with no known missing operator, 83 fail native syntax, and 158 require
+wildcard/regex support. A four-document smoke confirms `th*e` is currently parsed
+as prefix OR term, returning four matches instead of the wildcard's two. No
+Searchbench timing has run; the serving adapter, count-agreement gate, corpus
+builds, and execution-host decision remain outstanding.
+
+The September 20 [topic-aware placement proposal](topic-aware-placement.md) traces
+broker ingestion and proposes intra-shard topic cells, similarity-aware merges,
+and local N→M redistribution. Primary-key shard routing stays unchanged; each
+shard reuses its own ANN model, with optional broker-computed hints. Remaining work
+is bounded builder scheduling, placement metadata, and local rewrite/publication
+integration. No implementation or performance measurements are claimed.
+The proposal's RGB reuse assessment identifies the existing shared partitioner
+and field writers; whole-document mapping and byte-aware output planning remain
+new work. Dense-only RGB would additionally need a measured graph adapter.
+
 New [query-work diagnosis](search-work-diagnosis.md) separates the gap by family:
 standalone top-10 decodes 8.29× Tantivy's document blocks; ranked unions and phrases
 already avoid work, while intersection/complete phrase gap payloads remain larger.
@@ -10601,6 +10636,405 @@ public benchmark metadata now redacts the internal host name while the private
 archive retains exact provenance. The latest main cleanup changes comments and
 benchmark labels only. The passing 2,023-test native harness, 38 WASM tests and
 paired score/byte measurements above cover the unchanged runtime implementation.
+
+### Searchbench restart and HTTP adapter — September 22, 2026
+
+The authorized GCP benchmark VM is running; the verified 10M corpus is ready and the
+four-engine campaign (including Luxir 0.1.0) started at 19:23 UTC. The native benchmark HTTP adapter uses canonical
+writers/searchers/count collection and fast-column IDs. Native end-to-end smoke
+passed on macOS and Linux. The repository check passed on a serial rerun after
+three broker discovery timeouts in its first concurrent run; no broker code changed.
+
+The 100k corpus probe found 162/826 queries with exact count agreement across
+Hermes/Elasticsearch/OpenSearch. The references agreed on all 826. Hermes lexical
+analysis differs from Lucene standard analysis, including punctuation and
+contractions; even `the` matched 90,785 versus 90,758 documents. This coverage
+limit must accompany any later QPS table. No full-corpus comparison numbers are
+available yet. See [the campaign design and evidence](searchbench-comparison.md).
+
+### Completed Searchbench evidence — September 23, 2026
+
+All four engines completed 27 cells each without request errors, but only 15 of
+826 queries have equal full-corpus counts. All three references agree on every
+query. Hermes has 216 errors (including unsupported operators) and 595 count
+mismatches. Analyzer compatibility remains a prerequisite for broad claims.
+At eight clients, Hermes top-10 conjunction throughput is 9,253 QPS versus Luxir
+10,848, Elasticsearch 5,049 and OpenSearch 5,742. Its phrase ranking trails all
+references: 470 QPS for seven low-phrase queries and 189 for the single medium
+phrase. Investigate phrase candidate/position work separately; no runtime changes
+or default changes have been made from this experiment. See the
+[full result table](benchmark-results/searchbench-2026-09-22.md).
+
+## Non-RGB phrase follow-up (2026-09-23)
+
+The retained changes move conservative score admission before expensive
+conjunction/position work, batch posting intersections, reuse per-threshold
+TF/length cutoffs, and streamline cached position reads and two-term exact
+matching. Exact phrases may use the rarest term's TF bound only when the writer
+certifies unique positions for the original first term. Sloppy phrases and
+duplicate starts retain their existing multiplicity and conservative first-term
+bound. The certificate costs one existing footer bit; it adds no payload bytes.
+
+Position streams now use POS5/POS6. Old readers, whole-list migration branches,
+unused position-list codecs and the obsolete codec benchmark were removed.
+Old position formats require rebuilding. Copying merge combines certificates
+with AND; doc-aligned deletion compaction and reordering preserve them. The
+native-written WASM fixtures were rebuilt through the public writer, retaining
+their corpus hashes and exact counts. Impact envelopes remain opt-in.
+
+The native harness passed 2,021 tests, strict Clippy, native-without-sync and
+standalone broker checks in `.context/search-harness/20260923T064244.392846Z-check`.
+The WASM build and all 38 browser tests passed. Tests cover exact IDs/score bits,
+position duplicates, offsets, zero/nonzero slop, cancellation, copied payload
+bytes, reordering, compaction and rejection of obsolete position formats.
+Full production-RPC testing was not run; no RPC or publication protocol changed.
+
+The [final paired run](benchmark-results/searchbench-2026-09-23-phrases.md)
+measured low-phrase top-10 at 2,605 QPS versus 677 for first-term admission and
+1,510 for fresh Luxir. Medium-phrase top-10 reached 2,129 versus 1,099 and 3,524;
+the 39.6% gap remains. Hermes top-100 beat Luxir in both phrase families, while
+phrase counting remained about 20–21% behind. Exact IDs, score bits and counts
+matched between binaries on the same index. Query RSS remained about 1,137 MiB.
+The current-format RGB build passed its separate exhaustive top-100 smoke audit.
+Profiles identify candidate scanning/advancement (49.7% combined self samples)
+as the main remaining medium-phrase top-10 cost; position range/read/matching
+account for 55.9% of count samples. These profiles cover one query, not the
+complete benchmark. Lazy cutoff construction
+and block-max-one TF scanning were rejected because they regressed the common
+phrase; no experimental assumption of unique positions survives in production.
+Analyzer/count mismatches outside the 15-query agreement subset remain open.
+
+## Phrase scan follow-up and 32-vCPU campaign (2026-09-23)
+
+The [fresh eight-client paired comparison](benchmark-results/searchbench-2026-09-23-gap.md)
+retains singleton/tie-aware admission, verified inverse-seeded length cutoffs,
+AVX2/AVX-512 TF/norm scans, existing L1 group bounds, cost-aware intersections,
+and bounded position-offset/membership caches. Encoded index bytes and defaults
+are unchanged in this follow-up. The complete query screen supports the wider
+x86 kernel; scalar and native/async semantics remain covered by tests.
+
+On the same ordinary index, medium-phrase top-10 rises 2,121 → 3,130 QPS,
+top-100 1,316 → 2,012, and count 99 → 138. Low-phrase top-10 rises
+2,538 → 3,081 and count 321 → 383; top-100 regresses 1.3%. Conjunction count
+regresses 3.2%. Fresh Luxir remains ahead for medium top-10 (3,540) and low
+count (413). Optional impacts reach 6,352 medium top-10 QPS but regress low
+phrase top-10/top-100 relative to ordinary Hermes. Impacts stay disabled by default.
+Only 15/826 queries qualify; no broad engine-parity conclusion is justified.
+
+All 36 timing cells have zero request errors. Same-index before/after IDs,
+score bits and counts agree on 45 HTTP responses and exhaustive top-100 audits.
+RSS changes from 1,137 to 1,140 MiB. These are warm-cache process RSS figures,
+not heap-only or cluster memory requirements. The software user-time profiles
+still put candidate scanning/decoding at the center of medium top-10 cost and
+posting seek/intersection at the center of the slowest low-phrase count case.
+The linked report preserves regressions and sampling limitations.
+
+The frozen phrase source passed the native harness at
+`.context/search-harness/20260923T091012.641296Z-check`, and all 26 phrase tests
+passed on the x86 host, exercising both vector kernels. Initial perf permission
+failure was recovered by a temporary host setting change; prior settings were
+restored. The archive was downloaded and SHA-256 verified before stopping the
+8-vCPU VM; independent cloud status confirms `TERMINATED`.
+
+The completed [32-client, 32-vCPU report](benchmark-results/searchbench-2026-09-23-32cpu.md)
+uses 30 server hardware threads on 15 physical cores with SMT and reserves the
+remaining physical core (two SMT threads) for replay. Prior/current Hermes, RGB,
+Elasticsearch, OpenSearch and Luxir run sequentially, followed by an optional
+impacts variant. All 63 timing cells have zero errors. Ordinary medium-phrase
+top-10 improves 10,248 → 14,896 QPS, still below Luxir's 17,580. Optional impacts
+reach 27,085 but regress low-phrase top-100 relative to ordinary Hermes. Impacts
+remain off by default. RGB stays separate and has substantial regressions as well
+as gains. Only 15/826 corpus-count-compatible queries are measured.
+
+Before/after exact IDs, score bits and counts agree with exhaustive top-100;
+RGB/impact builds preserve counts and ranked score bits with independent tie IDs.
+Ordinary optimized peak process RSS is 1,284 MiB versus 1,283 before. The report
+records all reference/memory results, CPU placement and the overlapping-client
+caveat of the separate health control. Search measurements use disjoint CPUs.
+An isolated-hostname lookup failure was fixed before any reference timing, then
+references resumed in a fresh namespace with identical network mode and CPU
+policy. Impacts use a third namespace after transferring the existing index.
+No copying, indexing or compilation overlaps query timing.
+
+## Wildcard term filters (separate from the timed binaries)
+
+The [wildcard query](wildcard-query.md) adds a core `WildcardQuery` with whole-term
+Unicode `*`, `?` and backslash escaping, plus named and bare-pattern QL forms.
+Simple trailing-star patterns retain `PrefixQuery`. Other patterns no longer
+silently split into prefix/term clauses. The benchmark adapter delegates its
+three wildcard families to this core query; Lucene regex remains unsupported.
+The general production protobuf interface has no dedicated wildcard variant yet.
+
+Dictionary filtering remains in the SSTable owner, field-key expansion and posting
+reads in the segment reader, and shared constant-score union/scoring in query.
+Literal prefixes restrict dictionary scanning. Existing prefix term/posting limits
+remain, with separate wildcard pattern/compiler/scan bounds. No new format,
+second scorer, document scan, or index migration is introduced. Full 826-query
+comparison still needs analyzer compatibility/rebuilt indexes, sloppy-phrase
+semantics, regex and escaped-literal handling, and broader bounded expansion.
+
+An end-to-end regression reproduced an existing prefix RGB defect: expanded
+term filters returned physical rather than logical IDs. Shared union and prefix
+bitset paths now translate through the existing document map. Tests preserve
+unmapped/multi-value deduplication, RGB logical IDs, constant scores, exact counts,
+Unicode/escaping, Boolean composition, limit errors and sync/async equality.
+The WASM release build and all 39 browser tests pass, including both QL forms.
+Ordinary/RGB benchmark HTTP smoke tests pass. Final native validation is recorded
+below after completion; no new wildcard timing or full-corpus count claim is made.
+
+Final combined-tree validation: `.context/search-harness/20260923T094049.124403Z-check`
+passes formatting, strict Clippy, 2,029 native tests (25 normally ignored),
+native-without-sync and standalone broker compilation. The final WASM release
+build and 39 browser tests pass, including bare and function wildcard patterns.
+Both ordinary and RGB HTTP smoke tests pass, including native pattern parsing.
+Documentation links and `git diff --check` pass. An intermediate check caught the
+new bare-pattern regression while parser edits were still in progress; the final
+run uses the completed, unchanged Rust tree. Full production RPC/lifecycle tests
+were not rerun: no protobuf, production RPC, or lifecycle protocol changed.
+No ARM throughput or full-corpus wildcard-performance claim is made.
+
+A post-change capability check submits all 826 published expressions to the real
+HTTP adapter over a four-document fixture: **801 accepted, 25 explicit errors**
+(13 regex and 12 escaped-query syntax cases). All 145 wildcard expressions are
+accepted. This fixture deliberately does not establish 10M-corpus count agreement
+or test full-vocabulary expansion budgets; the throughput gate remains 15/826.
+Raw responses and binary/query hashes are retained in
+`.context/yonik-benchmark/gap/wildcard-http-capabilities-826.json`.
+The native-only preflight separately accepts 730 expressions; its 83 syntax
+rejections include 71 sloppy phrases handled by the HTTP adapter's existing
+`PhraseQuery` translation, plus those same 12 escaped expressions.
+
+The final 32-client evidence archive is downloaded and SHA-256 verified. Both
+`hermes-validation-moroni` and `hermes-benchmark-32-moroni` are independently
+confirmed `TERMINATED`; temporary transfer keys are removed and changed host
+restrictions restored. The completed report preserves the startup/transfer
+failures and successful recovery; no benchmark work remains running.
+
+## Conjunction HTTP scheduling and response encoding
+
+The [conjunction follow-up](benchmark-results/searchbench-2026-09-23-conjunctions.md)
+separates core work from the benchmark frontend. Two HTTP runtime threads were
+limiting throughput while serializing/destroying response JSON and scheduling
+requests. Encoding and temporary-tree destruction now remain inside the existing
+bounded blocking worker and admission permit. Core scoring and the persisted
+index are unchanged. A diagnostic-only counter records actual MaxScore heap
+updates, including conjunctions; it compiles out of ordinary builds.
+
+The benchmark frontend now defaults its HTTP workers from available logical
+CPUs: one on a single CPU, otherwise `clamp(ceil(CPUs / 8), 2, 8)`. Detection
+respects the measured Linux affinity and selected counts are logged; explicit
+1–64 overrides remain available. Production gRPC/search-pool defaults and the
+64-request admission limit are unchanged. This heuristic is not claimed optimal
+across architectures or workloads.
+
+On the same 10M-document ordinary index at 32 clients, top-100 rises from 21,036
+to 33,246 QPS with the original two HTTP workers. Automatic sizing selects four
+and yields 32,720 top-100, 41,722 top-10 and 68,524 count QPS. Fresh Luxir results
+are 41,003, 53,073 and 64,756 respectively. Relative to baseline, automatic
+sizing plus worker encoding improves top-100 by 55.5% and counts by 33.6%, while
+top-10 is essentially unchanged. Single-client throughput regresses by
+2.3–19.4%; retain that tradeoff and the explicit worker override.
+
+All 24 cells and their repetitions are error-free. All 15 admitted queries have
+identical before/after exhaustive top-100 IDs/score bits/counts; all 45 response
+bodies are byte-identical. Only seven conjunctions are timed, with no claim of
+full 826-query compatibility. Remaining Hermes profile costs include posting
+decode/seek/intersection and ID-column random reads. Luxir's stripped executable
+prevents a comparable function-level attribution; do not infer its exact pruning
+or codec strategy from the throughput gap. The report retains memory, CPU usage,
+profiles, stage timings, work counts and the limited health-control comparison.
+
+Final validation: `.context/search-harness/20260923T110257.277217Z-check` passes
+all five stages, including 2,029 native tests (25 normally ignored). CPU-default
+and feature-only heap-counter regressions pass; feature Clippy, WASM release and
+39 browser tests, ordinary/RGB HTTP smokes, CLI bounds, Python compilation and
+documentation/diff checks pass. Full production RPC/lifecycle tests were not
+rerun; no production RPC or lifecycle protocol changed.
+
+The final evidence archive (including raw perf) is downloaded and SHA-256
+verified as `4b535604f4f5c8f9875d12e750bbb1e3d01da8de0b1d2358033979f6aab83188`
+(65,645,432 bytes). Temporary transfer keys are removed and changed host settings
+restored. Both cloud stop commands lost their polling connection, but independent
+status confirms **both VMs `TERMINATED`**. No benchmark work remains running.
+
+## Borrowed-ID responses and shared-pool handoff measurements
+
+The [response/handoff follow-up](benchmark-results/searchbench-2026-09-23-handoffs.md)
+uses a fresh paired 32-vCPU campaign over the same 10M-document ordinary index.
+The benchmark HTTP response now borrows external-ID strings into one bounded
+vector and serializes them inside the existing admitted worker. It removes
+per-hit JSON maps, string copies and the outer temporary-tree conversion.
+Scoring, pruning, persisted bytes, shared search-pool ownership, CPU-based HTTP
+defaults and concurrency bounds remain unchanged.
+
+At 32 clients, conjunction top-100 improves **17.4%** (33,148 → 38,909 QPS),
+reducing the gap to fresh Luxir from **20.3% to 6.4%**. Top-10 improves **6.7%**
+but remains **15.0%** below Luxir. Count regresses **4.9%** while remaining
+**2.9%** above Luxir. The shorter screen also shows a count regression; this
+is a ranked-response improvement with an unresolved count tradeoff. Single-client
+medians improve for ranked operations but regress for count; retain the raw
+repetition ranges and do not infer a universal latency benefit.
+
+Opt-in bounded timing diagnostics place response projection plus encoding/drop
+at about 156 → 65 microseconds for 32-client conjunction top-100, with segment
+work approximately unchanged. HTTP/blocking and shared-search-pool handoffs
+remain material wall-time components. These nested, instrumented means include
+warmup and are not production latency measurements. Normal builds compile out
+the endpoint and timers. Completed pool installs count on the capturing caller;
+direct async count collection and invalid-window rejection do not enter that pool.
+
+Remaining work: attribute the count regression; investigate dispatch overhead
+without adding an executor or bypassing owner-controlled search capacity; and
+measure reader-owned sparse/batched ID lookup with a bounded metadata/scratch
+budget. Production async entry differs from the benchmark's double offload, so
+the measured handoff cost must not be projected onto gRPC. Existing unsuccessful
+AND-bound-pruning experiments remain evidence against enabling more checks merely
+to lower decoded-block counts. Luxir's stripped binary still prevents equivalent
+function-level attribution of its internal strategy.
+
+The saturation check at 64 clients reaches 47,107 conjunction top-100 QPS versus
+Luxir's 44,167. At 32 clients, Hermes uses 649 CPU µs/request versus Luxir's 703,
+but only 25.25 CPU equivalents versus 29.22; utilization is now a larger part of
+that gap than per-request CPU cost. These 64-client results remain separate from
+the requested 32-client comparison. Peak anonymous RSS is 111.3 MiB versus
+Luxir's 15.1 MiB, so the response change does not resolve the memory difference.
+The separate count diagnostic shows cheaper encoding and nearly unchanged search
+time, with higher parsing time; it does not establish the cause of the regression.
+
+All 45 cells / 135 repetitions pass without request or memory-sampling errors.
+The 15 exhaustive audits and 45 response bodies are identical before/after.
+Coverage remains the original 15/826 count-compatible queries. Native harness
+`.context/search-harness/20260923T113909.147943Z-check` passes all five stages,
+including 2,029 tests (25 normally ignored). Example byte/default tests, feature
+core diagnostics/Clippy, ordinary/RGB/diagnostic HTTP smoke checks, WASM release
+and 39 WASM JavaScript tests pass. Full production RPC/lifecycle tests were not
+rerun; no production protocol or lifecycle mechanism changed.
+
+Final evidence is downloaded and checksum-verified as
+`382ba48a577a49b034d6aee275606e6e497472ec0fd84dc52c978f4e05d7aadb`
+(766,389 bytes), with the separate source/build archive recorded in the report.
+
+Temporary transfer keys are removed and host restrictions are restored. Both
+cloud stop commands lost their polling connection; independent cloud status
+confirms **both VMs `TERMINATED`** after evidence verification. No benchmark work
+remains running. Final documentation links, ownership contracts, Python checks
+and `git diff --check` pass.
+
+## Worker configuration and alternating count comparison
+
+The [worker study](benchmark-results/searchbench-2026-09-23-workers.md) varies
+existing settings on the frozen borrowed-ID executable; it makes no Rust/runtime,
+admission, format or default changes. It tests 8/15/30 coupled search/blocking
+workers against 2/4/8 HTTP workers, with three stable 30/4 baseline anchors.
+Smaller pools lose ranked throughput, and eight HTTP workers do not improve the
+mix. This is not an isolated Rayon-pool experiment: `WORKERS` controls both pools.
+
+The independent 32-client/all-15-query comparison finds a useful explicit
+30-worker/two-HTTP-worker tradeoff: conjunction top-10 is **8.9% faster** and
+top-100 **4.9% faster** than four HTTP workers, but count is **18.8% slower**.
+Top-100 nearly matches fresh Luxir (42,720 versus 42,887 QPS). Four HTTP workers
+retain the count advantage over Luxir (76,094 versus 66,996). Phrase ranked gains
+are smaller or absent; phrase counts are effectively unchanged. Keep the
+CPU-derived HTTP default and the explicit override, not a new universal policy.
+
+The earlier 4.9% borrowed-response count-throughput regression at 32 clients does
+not reproduce in before/borrowed/borrowed/before order: average session medians
+are 76,639.99 versus 76,638.93 QPS. The original measurement remains recorded;
+this does not establish single-client behavior. A **1.5% CPU-cost increase**
+(315.4 versus 310.7 µs/count) remains unassigned. In the short screen, 15 workers
+and two HTTP workers match count throughput with about **32% less CPU per count**,
+but lose ranked throughput; confirm this count-only lead before any policy change.
+
+Remaining ranked cost still includes utilization: two-HTTP-worker top-100 uses
+599 CPU µs/request versus Luxir's 689, but 25.59 busy CPU equivalents versus
+29.53. Pinned Tokio 1.53.1 source inspection shows `block_in_place` itself transfers
+the runtime worker core through a blocking task. Replacing the benchmark's
+outer dispatch is not automatically removal of all handoffs. Any experiment must
+preserve Searcher ownership, bounded capacity, reader/permit retention,
+panic-to-response behavior, cancellation and shutdown; no additional executor or
+benchmark-only public core API was introduced here. Peak anonymous RSS remains
+107.8–109.5 MiB for Hermes versus Luxir's 12.4 MiB in this run.
+
+All **64 cells / 192 repetitions** pass without request or memory-sampling errors.
+Seventeen Hermes instances preserve all 45 response bodies; worker widths preserve
+the exhaustive IDs/score-bits/count audit. Coverage remains **15/826**. Harness
+`.context/search-harness/20260923T160104.343227Z-check` passes all five stages and
+2,029 native tests (25 normally ignored). Ruff/Python/report checks pass. WASM and
+full production RPC tests were not rerun for this configuration-only follow-up;
+the preceding WASM release/39 JavaScript tests validate the unchanged code.
+
+Final evidence is downloaded, size-checked and SHA-256 verified as
+`f8f8b4ffe0accb6a89547d16348de102cc1a688b4258ecf17b1caec000cffa2d`
+(1,139,078 bytes). The build VM remained stopped. Initial cloud-start polling and
+an early SSH connection failed; independent status and a successful retry
+established the benchmark VM before timing. No timed sample was affected.
+
+Host restrictions are restored and no temporary inter-VM transfer keys were
+created. The benchmark stop command lost its polling connection; independent
+cloud status confirms **both VMs `TERMINATED`** after evidence verification.
+No benchmark work remains running. Final documentation links, ownership
+contracts, Python/Ruff and diff checks pass.
+
+## Bounded ID lookup, dispatch policy, and envelope ownership
+
+The [completed study](benchmark-results/searchbench-2026-09-23-dispatch-directory.md)
+implements all three follow-ups. The fast-field owner now keeps at most 256
+sparse header checkpoints (3 KiB heap payload per reader across all source
+blocks), using the existing decoder and original encoded bytes. The benchmark
+frontend exposes `blocking` / `in-place` dispatch while preserving 64-request
+admission, reader/permit ownership through cancellation and panic, and shutdown
+draining. Blocking remains the default; Searcher pool ownership and CPU-derived
+HTTP-worker defaults are unchanged.
+
+Envelope conversion moves both validated strings from the consumed JSON object.
+A counting-allocator regression test caught two temporary key allocations in the
+initial mutable-indexing prototype. Borrowed `get_mut` lookups remove those too:
+successful conversion now allocates zero times. The corrected executable was
+rebuilt and all 15 admitted queries were remeasured against fresh controls;
+prototype measurements remain separate.
+
+At 32 clients, corrected conjunction top-100 improves **4.1%** (37,927 to
+39,493 QPS) and consumes **3.8% less CPU per request** (658.8 to 633.7 µs).
+Top-10 improves 1.3%; count is effectively unchanged. The prototype ABBA repeat
+also finds a 3.7% top-100 improvement and does not reproduce its first run's
+2.8% top-10 loss. Separate stage probes show **about 43% less ID projection time**;
+that is not an HTTP latency improvement of the same size. Two ARM decoder
+microbenchmark passes support the reduced header-walk cost, with their small
+control and noisy scalar measurement retained in the report.
+
+In-place dispatch loses **2.5%** conjunction top-100 throughput and adds **7.8%**
+CPU cost relative to updated blocking execution. Some phrase workloads improve,
+but the evidence does not justify changing the default. Tokio still transfers
+its runtime core, and the shared Searcher handoff remains. Updated Hermes is
+16.8% behind fresh Luxir on conjunction top-10 and 2.9% ahead on top-100 in the
+corrected campaign. Luxir top-100 varies between campaigns; this is not a general
+performance lead. Coverage remains **15/826**, with one medium-phrase query.
+
+Peak anonymous RSS remains 109.1 MiB for updated blocking Hermes versus 12.4 MiB
+for Luxir; total RSS is 1,150.6 versus 159.0 MiB. Fast-field block metadata and
+checkpoints now contribute to estimated heap accounting. Existing lazy dictionary
+tables and ordinal maps remain outside that estimate. Remaining work includes
+explaining the top-10 utilization/CPU-cost gap and memory difference, measuring
+startup cost of the extra validated-header pass, and extending compatibility
+coverage before claiming parity across the full query set.
+
+All **114 cells / 342 repetitions** pass request and memory-sampling checks.
+Fifteen Hermes instances preserve all 45 response bodies and saved exhaustive
+ranked-ID/score-bit/count audits agree. Full harness run
+`20260923T170615.743556Z-full` passes all nine stages, including real-server
+broker E2E. Final check `20260923T180425.771100Z-check` passes all five stages
+and 2,031 native tests (25 normally ignored). One intermediate mock-broker
+discovery timeout passes focused and full retries without code changes; the
+failed log is retained. Final WASM release, 39 JavaScript tests (also rerun after
+`npm ci`), diagnostic-feature Clippy, seven example tests and four real HTTP
+smoke configurations pass. Documentation/contracts and diff checks pass.
+
+Final combined evidence is downloaded and SHA-256 verified as
+`6d9dffed84a78f3f3ad999dd930e70234729e699866bb5022e23371bbea35818`
+(1,828,573 bytes), with source/build artifacts, raw Criterion data and validation
+logs retained separately. The report records the pre-timing launch failures and
+separate-boot repeats. Transfer credentials are removed and host restrictions
+restored. Independent final cloud state confirms **both VMs `TERMINATED`**.
 
 ## Range interpolation experiment (2026-09-19; rejected)
 
