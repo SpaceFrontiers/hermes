@@ -1,5 +1,29 @@
 # Core/server review — 2026-09-05
 
+September 23: issue #185 reproduced at the index boundary: with `en_stem` before
+`lex(segmenter: unicode)`, `棕毛狐狸` returned no hits although the qualified
+Chinese query matched. Both unqualified terms and the permissive plain-text
+fallback now tokenize each default field independently. They retain OR semantics
+across tokens and fields, ignore a field's empty token stream when another field
+has tokens, and report the existing error when all fields yield no tokens.
+Qualified queries and the single-field term planner decomposition are preserved.
+The shared core parser serves native, async-only and WASM callers; persisted
+index and wire formats are unchanged.
+
+The cost is one tokenizer invocation per default field and one query clause per
+emitted token. Temporary token storage covers one field at a time, with no new
+cache or retained corpus data. This is a correctness fix; no latency or memory
+improvement is claimed, and no performance benchmark was run.
+
+Regression coverage includes both schema orders, Chinese segmentation, mixed
+stemmed/unstemmed fields, stop-word-only input, strict parsing, and plain-text
+fallback. The original regression failed before the fix; all 28 parser tests
+pass afterward with both default features and native-without-sync. The WASM
+release build and all 39 browser tests pass, including the new multilingual
+regression. The standard `python3 scripts/check_search.py check` passes ownership
+and formatting checks but stops at existing `stop_words::LANGUAGE` deprecations
+in `tokenizer/mod.rs`, because it treats warnings as errors.
+
 September 19: [range bitset word materialization](range-word-materialization.md)
 reduces measured warm filter-construction time by 39–66% on four Apple M4
 fixtures (65,536 documents, one/sixteen copied blocks, 1%/50% selectivity).
