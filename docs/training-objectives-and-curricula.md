@@ -153,7 +153,10 @@ The supplied context also authenticates cumulative optimizer-step and exact
 trainable-policy model-token clocks against the phase input. The first-party
 `NativePostTrainingBoundaryController` wraps every inner native-sleep cursor in
 the post-training resume envelope and drains all crossed tier boundaries in
-clock order before the next update may commit.
+clock order before the next update may commit. It persists the optimizer receipt
+before sleep begins. The registered controller must match the lent controller
+and clock authority; each output checkpoint must authenticate both cumulative
+clocks for the next phase factory.
 Promotion remains built in, and only ordinary non-periodic phases may use the
 external worker. The host validates the complete dispatch plan before
 it creates or loads state and binds workflow, worker, and factory identities

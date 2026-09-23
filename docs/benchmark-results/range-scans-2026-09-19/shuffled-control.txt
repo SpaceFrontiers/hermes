@@ -1,0 +1,68 @@
+    Finished `bench` profile [optimized] target(s) in 0.21s
+     Running benches/rust_hot_paths.rs (target/release/deps/rust_hot_paths-f8638787a5ef0721)
+Gnuplot not found, using plotters backend
+Benchmarking rust_hot_paths/range_bitset/production/1_blocks_max_655
+Benchmarking rust_hot_paths/range_bitset/production/1_blocks_max_655: Warming up for 3.0000 s
+Benchmarking rust_hot_paths/range_bitset/production/1_blocks_max_655: Collecting 20 samples in estimated 5.0022 s (235k iterations)
+Benchmarking rust_hot_paths/range_bitset/production/1_blocks_max_655: Analyzing
+rust_hot_paths/range_bitset/production/1_blocks_max_655
+                        time:   [21.278 µs 21.348 µs 21.437 µs]
+                        thrpt:  [3.0571 Gelem/s 3.0699 Gelem/s 3.0799 Gelem/s]
+                 change:
+                        time:   [−22.510% −20.792% −19.154%] (p = 0.00 < 0.05)
+                        thrpt:  [+23.692% +26.249% +29.049%]
+                        Performance has improved.
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) high severe
+Benchmarking rust_hot_paths/range_bitset/production/1_blocks_max_32767
+Benchmarking rust_hot_paths/range_bitset/production/1_blocks_max_32767: Warming up for 3.0000 s
+Benchmarking rust_hot_paths/range_bitset/production/1_blocks_max_32767: Collecting 20 samples in estimated 5.0037 s (233k iterations)
+Benchmarking rust_hot_paths/range_bitset/production/1_blocks_max_32767: Analyzing
+rust_hot_paths/range_bitset/production/1_blocks_max_32767
+                        time:   [21.292 µs 21.356 µs 21.430 µs]
+                        thrpt:  [3.0581 Gelem/s 3.0688 Gelem/s 3.0779 Gelem/s]
+                 change:
+                        time:   [−21.519% −20.095% −18.784%] (p = 0.00 < 0.05)
+                        thrpt:  [+23.128% +25.149% +27.419%]
+                        Performance has improved.
+Found 2 outliers among 20 measurements (10.00%)
+  2 (10.00%) high severe
+Benchmarking rust_hot_paths/range_bitset/production/16_blocks_max_655
+Benchmarking rust_hot_paths/range_bitset/production/16_blocks_max_655: Warming up for 3.0000 s
+Benchmarking rust_hot_paths/range_bitset/production/16_blocks_max_655: Collecting 20 samples in estimated 5.0001 s (231k iterations)
+Benchmarking rust_hot_paths/range_bitset/production/16_blocks_max_655: Analyzing
+rust_hot_paths/range_bitset/production/16_blocks_max_655
+                        time:   [21.378 µs 21.443 µs 21.551 µs]
+                        thrpt:  [3.0409 Gelem/s 3.0562 Gelem/s 3.0656 Gelem/s]
+                 change:
+                        time:   [−46.144% −38.090% −28.915%] (p = 0.00 < 0.05)
+                        thrpt:  [+40.677% +61.525% +85.681%]
+                        Performance has improved.
+Found 4 outliers among 20 measurements (20.00%)
+  2 (10.00%) high mild
+  2 (10.00%) high severe
+Benchmarking rust_hot_paths/range_bitset/production/16_blocks_max_32767
+Benchmarking rust_hot_paths/range_bitset/production/16_blocks_max_32767: Warming up for 3.0000 s
+Benchmarking rust_hot_paths/range_bitset/production/16_blocks_max_32767: Collecting 20 samples in estimated 5.0015 s (232k iterations)
+Benchmarking rust_hot_paths/range_bitset/production/16_blocks_max_32767: Analyzing
+rust_hot_paths/range_bitset/production/16_blocks_max_32767
+                        time:   [21.500 µs 21.674 µs 21.906 µs]
+                        thrpt:  [2.9917 Gelem/s 3.0238 Gelem/s 3.0481 Gelem/s]
+                 change:
+                        time:   [−10.632% −9.2230% −7.8212%] (p = 0.00 < 0.05)
+                        thrpt:  [+8.4848% +10.160% +11.897%]
+                        Performance has improved.
+Found 2 outliers among 20 measurements (10.00%)
+  1 (5.00%) high mild
+  1 (5.00%) high severe
+
+bucketed/65536/1: 110217 encoded column bytes; 8192 output bytes
+bucketed/65536/16: 98464 encoded column bytes; 8192 output bytes
+ordered/65536/1: 28297 encoded column bytes; 8192 output bytes
+ordered/65536/16: 28432 encoded column bytes; 8192 output bytes
+missing/65536/16: 14288 encoded column bytes; 8192 output bytes
+all_match/65536/16: 28432 encoded column bytes; 8192 output bytes
+piecewise/1024/1: 451 encoded column bytes; 128 output bytes
+piecewise/65536/1: 28297 encoded column bytes; 8192 output bytes
+piecewise/1048576/1: 452617 encoded column bytes; 131072 output bytes
+layout bytes: HeapEntry=12, DocBitset=24, SharedThreshold=40, ColumnBlock=208, FastFieldReader=136

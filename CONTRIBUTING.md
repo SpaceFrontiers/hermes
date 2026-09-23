@@ -1,150 +1,62 @@
-# Contributing to Hermes
+# Contributing
 
-Thank you for your interest in contributing to Hermes. This guide will help you get started.
+Read [AGENTS.md](AGENTS.md), [CLAUDE.md](CLAUDE.md), and the
+[search system contract](docs/search-system-contract.md) before changing search
+code. Package guides are listed in the [README](README.md#packages).
 
-## Development Setup
+## Setup
 
-### Prerequisites
-
-- **Rust 1.98.1+** (see `rust-toolchain.toml` for the exact version)
-- **protoc** (Protocol Buffers compiler, for gRPC builds)
-- **Node.js 22.12+** (for WASM and web UI development)
-- **Python 3.12+** (for Python bindings)
-- **wasm-pack** (for WASM builds)
-- **pre-commit** (for automated code quality checks)
-- **uv**, **pnpm**, and **maturin** (for Python, web, and binding projects)
-
-### Getting Started
-
-```bash
-git clone https://github.com/<your-fork>/hermes.git
-cd hermes
-```
-
-Install pre-commit hooks:
-
-```bash
-pre-commit install
-```
-
-Verify your setup by running the full build and test suite:
+- Rust pinned by [rust-toolchain.toml](rust-toolchain.toml); `protoc` for gRPC.
+- Python 3.12+ and `uv` for development; `maturin` for MAL bindings.
+- Node.js 22.12+ and pnpm 10+ for web/TypeScript; `wasm-pack` and LLVM for WASM.
 
 ```bash
 cargo build --release
-cargo test --workspace
+pre-commit install
 ```
 
-## Build Commands
+## Checks
 
-For core/server work, start with `python3 scripts/check_search.py check`.
-The [search system contract](docs/search-system-contract.md) maps component
-ownership, invariants, regression coverage, and before/after benchmarking.
-`python3 scripts/check_search.py full` includes the real-server broker tests.
+Run from the repository root:
 
-| Command                                                                                                      | Description                       |
-| ------------------------------------------------------------------------------------------------------------ | --------------------------------- |
-| `cargo build --release`                                                                                      | Build all Rust packages           |
-| `cargo test --workspace`                                                                                     | Run the portable Rust test suite  |
-| `cargo fmt --all -- --check`                                                                                 | Check Rust formatting             |
-| `cargo clippy --workspace --all-targets -- -D warnings`                                                      | Run portable Rust lints           |
-| `cargo check -p hermes-core --no-default-features --features native --all-targets`                           | Check Core's native-only boundary |
-| `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps`                                                 | Check all Rust API documentation  |
-| `(cd hermes-wasm && bash build.sh && npm ci && npm test -- --run)`                                           | Build and test the WASM package   |
-| `(cd hermes-client-python && uv build)`                                                                      | Build the Python gRPC client      |
-| `pnpm --dir hermes-client-typescript install --frozen-lockfile && pnpm --dir hermes-client-typescript build` | Build the TypeScript gRPC client  |
-| `(cd hermes-mal-python && maturin build --release)`                                                          | Build the MAL Python binding      |
-| `pnpm --dir hermes-web test`                                                                                 | Run the search web unit tests     |
-| `pnpm --dir hermes-model-lab install --frozen-lockfile && pnpm --dir hermes-model-lab check`                 | Check and build the LLM Model Lab |
-| `pre-commit run --all-files`                                                                                 | Run commit-stage hooks            |
-| `pre-commit run --all-files --hook-stage pre-push`                                                           | Run push-stage hooks              |
+| Change                                          | Check                                                                                                        |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Search stack                                    | `python3 scripts/check_search.py check`                                                                      |
+| Lifecycle or RPC                                | `python3 scripts/check_search.py full`                                                                       |
+| Portable Rust workspace                         | `cargo test --workspace`                                                                                     |
+| Rust formatting                                 | `cargo fmt --all -- --check`                                                                                 |
+| Rust lints                                      | `cargo clippy --workspace --all-targets -- -D warnings`                                                      |
+| Rust API docs                                   | `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps`                                                 |
+| Markdown links, navigation, benchmark inventory | `uv run scripts/check_docs.py`                                                                               |
+| WASM                                            | `(cd hermes-wasm && bash build.sh && npm ci && npm test -- --run)`                                           |
+| Python client                                   | `(cd hermes-client-python && uv sync --group dev --group test && uv run pytest tests/test_client_unit.py)`   |
+| TypeScript client                               | `pnpm --dir hermes-client-typescript install --frozen-lockfile && pnpm --dir hermes-client-typescript check` |
+| MAL Python wheel                                | `(cd hermes-mal-python && maturin build --release)`                                                          |
+| Search UI                                       | `pnpm --dir hermes-web test && pnpm --dir hermes-web lint && pnpm --dir hermes-web build`                    |
+| Model Lab                                       | `pnpm --dir hermes-model-lab install --frozen-lockfile && pnpm --dir hermes-model-lab check`                 |
 
-## Project Structure
+Install web dependencies and build WASM before checking the search UI. Python
+integration tests need `target/debug/hermes-server`. Protocol changes require
+[regenerating both clients](hermes-proto/README.md#regeneration-and-validation).
 
-| Project                      | Description                                                                                |
-| ---------------------------- | ------------------------------------------------------------------------------------------ |
-| **hermes-core**              | Core search engine library (async, BM25 ranking, WAND optimization, segment-based storage) |
-| **hermes-server**            | gRPC server for remote search and index operations                                         |
-| **hermes-broker**            | gRPC broker routing the same protocol across many hermes-server instances                  |
-| **hermes-tool**              | CLI for index management and data processing pipelines                                     |
-| **hermes-wasm**              | WebAssembly bindings for browser-based search and indexing                                 |
-| **hermes-web**               | Vue/WASM search UI                                                                         |
-| **hermes-model-lab**         | Standalone local LLM trace and observability UI                                            |
-| **hermes-client-python**     | Async Python gRPC client                                                                   |
-| **hermes-client-typescript** | TypeScript gRPC client                                                                     |
-| **hermes-proto**             | Protocol Buffer definitions shared by the server and clients                               |
-| **hermes-mal**               | Model Architecture Language parser and well-known definitions                              |
-| **hermes-mal-python**        | Thin PyO3 binding around the shared `hermes-mal` parser                                    |
-| **hermes-tokenizer**         | Stable-Rust byte-level BPE tokenizer used by training and inference                        |
-| **hermes-llm**               | Burn-based shared model, inference, generation, and accelerator kernels                    |
-| **hermes-train**             | Autodiff training for the same `hermes-llm` model and safetensors checkpoints              |
+The search harness checks native-without-sync and standalone broker builds.
+GPU backends require separate Metal/CUDA hosts and checks; `--all-features`
+is not a portable test profile. See the [LLM code map](docs/llm-code-map.md)
+and [dependency register](docs/upstream-dependencies.md).
 
-For architecture and operational guides, start with the
-[documentation index](docs/README.md). The shared LLM stack is mapped in the
-[code map](docs/llm-code-map.md); temporary GPU revisions and their release
-exit criteria live in the [dependency register](docs/upstream-dependencies.md).
+Run all hooks with `pre-commit run --all-files` and
+`pre-commit run --all-files --hook-stage pre-push`.
 
-## Documentation and benchmarks
+## Changes and evidence
 
-Run `uv run scripts/check_docs.py` to check Markdown file links, heading
-anchors, documentation navigation, and the benchmark target inventory. CI
-runs the same check. Use repository-relative links for source references and
-keep commands runnable from their stated working directory. Verify external
-references when changing them; an HTTP 403 or rate limit alone does not prove
-that a link is broken.
+- Reproduce bugs with behavior-named regression tests.
+- Update the owning design document before substantial changes; preserve format,
+  lifecycle, and native/WASM contracts.
+- Keep documentation concise and source links relative. Label proposals and
+  historical results; preserve their dates, workloads, and raw evidence.
+- Follow the [benchmark protocol](docs/benchmarks.md#recorded-results-and-reporting)
+  for performance claims.
+- Open PRs against `main`; describe the behavior, validation, and unrun checks.
 
-The [benchmark guide](docs/benchmarks.md) lists every Cargo benchmark, dataset
-requirements, CPU/GPU profiles, and reporting requirements. Preserve the date
-and environment of historical measurements. New performance claims need a
-commit, command, workload, hardware, and retained raw output.
-
-## Submitting Pull Requests
-
-1. **Fork** the repository and create a new branch from `main`:
-
-   ```bash
-   git checkout -b my-feature main
-   ```
-
-2. **Make your changes.** Write clear, focused commits. Include tests for new functionality.
-
-3. **Run checks locally** before pushing:
-
-   ```bash
-   cargo fmt --all -- --check
-   cargo clippy --workspace --all-targets -- -D warnings
-   RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
-   cargo test --workspace
-   ```
-
-4. **Push** your branch and open a pull request against `main`.
-
-5. In the PR description, explain what the change does and why. Reference any related issues.
-
-6. Address review feedback. Once approved, a maintainer will merge your PR.
-
-## Code Style
-
-- **Formatting**: All Rust code must pass `cargo fmt --all -- --check`. Repository-wide settings live in `rustfmt.toml`.
-- **Linting**: All code must pass `cargo clippy` with warnings treated as errors.
-- **Pre-commit hooks**: The project uses pre-commit hooks that run rustfmt, clippy, Ruff, and Prettier for repository documents/configuration. Install them with `pre-commit install` so checks run automatically before each commit.
-- **Tests**: Refactors must keep focused regression tests around the extracted behavior. Run `cargo test --workspace` for the portable suite, then run the affected Python, TypeScript, WASM, or web harness listed above.
-- **GPU backends**: Metal and CUDA are validated separately; do not use `--all-features` as a portable substitute for backend-specific checks. Run `pre-commit run clippy-metal --all-files --hook-stage manual` or the corresponding `clippy-cuda` hook on a compatible host.
-
-## Good First Issues
-
-If you are looking for a place to start, these areas are well-suited for first-time contributors:
-
-- **Tokenizer coverage**: Extend Unicode, language-hint, and phrase-gap fixtures in [`hermes-core/src/tokenizer/`](hermes-core/src/tokenizer/).
-- **CLI improvements**: The CLI (`hermes-tool/src/main.rs`) uses clap for argument parsing. Improvements to help text, new utility subcommands, or better error messages are welcome.
-- **Client library examples**: Add usage examples or improve documentation for `hermes-client-python` or other client libraries.
-- **Documentation**: Improve inline docs, add examples to public APIs, or expand the schema reference in `docs/schema.md`.
-
-Look for issues labeled [`good first issue`](https://github.com/SpaceFrontiers/hermes/labels/good%20first%20issue) in the issue tracker to find specific tasks.
-
-## Reporting Bugs and Requesting Features
-
-Please use the GitHub issue templates when filing bug reports or feature requests. See [the available templates](.github/ISSUE_TEMPLATE/).
-
-## License
-
-By contributing to Hermes, you agree that your contributions will be licensed under the same license as the project.
+Use the [issue templates](.github/ISSUE_TEMPLATE/) for bugs and feature requests.
+Contributions use the repository's MIT license.

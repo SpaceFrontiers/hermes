@@ -1,0 +1,39 @@
+   Compiling hermes-core v1.8.145 (/Users/pasha/conductor/workspaces/hermes/jerusalem/hermes-core)
+    Finished `bench` profile [optimized] target(s) in 34.49s
+     Running benches/rust_hot_paths.rs (target/release/deps/rust_hot_paths-f8638787a5ef0721)
+Gnuplot not found, using plotters backend
+bucketed/65536/1: 110217 encoded column bytes; 8192 output bytes
+Benchmarking rust_hot_paths/range_scan_layouts/bucketed/65536/1_blocks
+Benchmarking rust_hot_paths/range_scan_layouts/bucketed/65536/1_blocks: Warming up for 3.0000 s
+Benchmarking rust_hot_paths/range_scan_layouts/bucketed/65536/1_blocks: Collecting 20 samples in estimated 5.0404 s (26k iterations)
+Benchmarking rust_hot_paths/range_scan_layouts/bucketed/65536/1_blocks: Analyzing
+rust_hot_paths/range_scan_layouts/bucketed/65536/1_blocks
+                        time:   [192.56 µs 193.83 µs 195.72 µs]
+                        thrpt:  [334.85 Melem/s 338.11 Melem/s 340.34 Melem/s]
+                 change:
+                        time:   [−1.0476% +0.8454% +3.4113%] (p = 0.52 > 0.05)
+                        thrpt:  [−3.2988% −0.8383% +1.0587%]
+                        No change in performance detected.
+Found 2 outliers among 20 measurements (10.00%)
+  2 (10.00%) high severe
+bucketed/65536/16: 98464 encoded column bytes; 8192 output bytes
+Benchmarking rust_hot_paths/range_scan_layouts/bucketed/65536/16_blocks
+Benchmarking rust_hot_paths/range_scan_layouts/bucketed/65536/16_blocks: Warming up for 3.0000 s
+Benchmarking rust_hot_paths/range_scan_layouts/bucketed/65536/16_blocks: Collecting 20 samples in estimated 5.0007 s (1.2M iterations)
+Benchmarking rust_hot_paths/range_scan_layouts/bucketed/65536/16_blocks: Analyzing
+rust_hot_paths/range_scan_layouts/bucketed/65536/16_blocks
+                        time:   [4.0577 µs 4.0921 µs 4.1242 µs]
+                        thrpt:  [15.891 Gelem/s 16.015 Gelem/s 16.151 Gelem/s]
+                 change:
+                        time:   [−93.600% −93.562% −93.521%] (p = 0.00 < 0.05)
+                        thrpt:  [+1443.4% +1453.2% +1462.4%]
+                        Performance has improved.
+ordered/65536/1: 28297 encoded column bytes; 8192 output bytes
+ordered/65536/16: 28432 encoded column bytes; 8192 output bytes
+missing/65536/16: 14288 encoded column bytes; 8192 output bytes
+all_match/65536/16: 28432 encoded column bytes; 8192 output bytes
+piecewise/1024/1: 451 encoded column bytes; 128 output bytes
+piecewise/65536/1: 28297 encoded column bytes; 8192 output bytes
+piecewise/1048576/1: 452617 encoded column bytes; 131072 output bytes
+
+layout bytes: HeapEntry=12, DocBitset=24, SharedThreshold=40, ColumnBlock=208, FastFieldReader=136

@@ -1,5 +1,68 @@
 # Core/server review — 2026-09-05
 
+September 23: issue #185 reproduced at the index boundary: with `en_stem` before
+`lex(segmenter: unicode)`, `棕毛狐狸` returned no hits although the qualified
+Chinese query matched. Both unqualified terms and the permissive plain-text
+fallback now tokenize each default field independently. They retain OR semantics
+across tokens and fields, ignore a field's empty token stream when another field
+has tokens, and report the existing error when all fields yield no tokens.
+Qualified queries and the single-field term planner decomposition are preserved.
+The shared core parser serves native, async-only and WASM callers; persisted
+index and wire formats are unchanged.
+
+The cost is one tokenizer invocation per default field and one query clause per
+emitted token. Temporary token storage covers one field at a time, with no new
+cache or retained corpus data. This is a correctness fix; no latency or memory
+improvement is claimed, and no performance benchmark was run.
+
+Regression coverage includes both schema orders, Chinese segmentation, mixed
+stemmed/unstemmed fields, stop-word-only input, strict parsing, and plain-text
+fallback. The original regression failed before the fix; all 28 parser tests
+pass afterward with both default features and native-without-sync. The WASM
+release build and all 39 browser tests pass, including the new multilingual
+regression. The initial `python3 scripts/check_search.py check` run passed
+ownership and formatting checks but stopped at `stop_words::LANGUAGE`
+deprecations in `tokenizer/mod.rs`, because it treats warnings as errors.
+
+September 23 follow-up: the shared stop-word language mapping now uses
+`stop_words::Language`, imported as `StopWordLanguage` to distinguish it from
+Hermes's own `Language`. Comparing the old and new APIs for all 18 supported
+languages confirms byte-identical stop-word lists. Both APIs are generated from
+the same upstream enum definition; tokenizer behavior, serialized formats and
+allocation costs are unchanged. Strict search-stack and full-workspace Clippy
+now pass without allowing deprecations. The WASM release build and all 39 browser
+tests also pass.
+
+September 19: [range bitset word materialization](range-word-materialization.md)
+reduces measured warm filter-construction time by 39–66% on four Apple M4
+fixtures (65,536 documents, one/sixteen copied blocks, 1%/50% selectivity).
+The shared fast-field reader exposes bounded batches and the query packs exact
+matches into words. Encoded bytes, scoring and planner/codec defaults do not
+change. Output size is unchanged; 64 bytes of comparison scratch are added and
+the compiled scan grows by 4,232 bytes. Process RSS measurements include setup
+and do not establish memory savings. The report records source-comparison
+findings, retained benchmark evidence and remaining cross-architecture/full-query
+work; this is not an end-to-end latency claim.
+Validation passes the search `check` harness (2,025 tests), both async-only
+range regressions and all 38 WASM tests. A background-merge test timed out in
+the initial run, then passed in isolation and in the complete two-thread rerun;
+the linked report retains the failure and retry evidence.
+
+September 19 follow-up: [range block scans](range-block-scans.md) retain two
+format-preserving optimizations. Existing codec headers reject disjoint copied
+blocks, and a constant-size decoder cursor removes repeated BlockwiseLinear
+header walks. On the same M4, clustered 65K/sixteen-block filtering falls from
+63.219 to 4.083 µs; million-document piecewise filtering falls from 5.172 to
+2.863 ms. Pruning alone does not help BlockwiseLinear ordered columns. The
+shuffled controls do not regress. Encoded sizes and output/metadata allocations
+are unchanged; the cursor adds two `usize` fields, with no retained payload.
+Process RSS includes setup and does not establish a residency reduction.
+The linked report records isolated contributions, confidence intervals, noisy
+and unsuccessful controls, and remaining cold/full-query/x86 measurements.
+The native `check` harness passes 2,029 tests (25 normally ignored), strict
+Clippy, native-without-sync and standalone broker compilation. All three
+async-only range regressions and the WASM build plus 38 tests also pass.
+
 Current release review: [module ownership and shared implementations](#release-review-module-ownership-and-shared-implementations).
 The newest sparse storage results are in [compact Seismic summaries](seismic-compact-summaries.md);
 [binary vector storage](binary-vector-storage.md) describes the single-copy layout.
@@ -10972,3 +11035,48 @@ Final combined evidence is downloaded and SHA-256 verified as
 logs retained separately. The report records the pre-timing launch failures and
 separate-boot repeats. Transfer credentials are removed and host restrictions
 restored. Independent final cloud state confirms **both VMs `TERMINATED`**.
+
+## Range interpolation experiment (2026-09-19; rejected)
+
+An exact quotient/remainder recurrence speeds warm BlockwiseLinear bitset scans
+by about 2× on Apple M4 and 3.7× on Cascade Lake, but changes compiler decisions
+in shared scan code. On a dedicated x86 VM, all four ordinary shuffled bitpacked
+controls regress 8.1–8.3% in alternating runs. A final explicit kernel boundary
+still regresses them 9.4–9.6%. No runtime change or new default is retained.
+
+The [report and evidence](range-block-scans.md#incremental-interpolation-experiment-not-integrated)
+record exact candidate patches, same-version/compiler/fixture comparisons,
+confidence intervals, correctness and process-memory measurements. The main
+prototype passed 2,031 native tests, three async-only range tests, and the WASM
+build with 38 tests. Remote evidence was downloaded and hash-verified; the
+isolated VM and boot disk were deleted. The lazy scorer follow-up below implements
+bounded batching; accepting fully covered block spans through the shared reader
+scan protocol remains unimplemented.
+
+## Lazy range scorer batching (2026-09-19)
+
+The shared native/async/WASM range scorer now batches sustained single-value
+scans through a reader-owned cursor and retains a 64-bit membership mask. The
+first eight probes and distant seeks remain scalar; multi-value fields retain
+first-value semantics. Codec arithmetic, serialization, schema and planner
+policies are unchanged. The existing boxed scorer grows from 40 to 96 bytes,
+with 512 bytes of decoded stack scratch during refill and no added allocation.
+
+On paired 65,536-document Cascade Lake runs, shuffled full scans improve from
+829.109 to 330.960 microseconds (2.5×), and piecewise compressed scans improve
+from 16.914 to 1.391 ms (12.2×). M4 measurements show 2.2× and 16.1× respectively,
+with more background-load noise. Constant, missing-value and complete-miss scans
+also improve; scalar multi-value scans remain effectively unchanged. The cost is
+3.6–5.4 ns on x86 short first-hit queries and 0.06–0.15 microseconds across 65
+cheap sparse seeks. Existing bitset controls do not regress on the isolated host.
+
+The [report and reproducible evidence](range-block-scans.md#lazy-range-scorer-batching)
+include per-run confidence intervals, exact patches, compiler/host information,
+assembly findings, correctness and memory measurements. The complete check
+harness passes 2,031 native tests, all four async-only range tests pass, and WASM
+builds with all 38 tests passing. Evidence was hash-verified before deleting the
+VM and boot disk. Cold/concurrent full-query, RPC and GPU checks were not run.
+
+Remaining experiments: accept fully covered block spans without decoding, and
+batch multi-value offsets/first values in their owning reader. Neither follows
+from this result without separate measurements and semantic regressions.

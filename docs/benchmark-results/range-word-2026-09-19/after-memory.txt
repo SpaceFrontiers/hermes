@@ -1,0 +1,37 @@
+Gnuplot not found, using plotters backend
+Testing rust_hot_paths/range_bitset/production/1_blocks_max_655
+Success
+Testing rust_hot_paths/range_bitset/predicate_control/1_blocks_max_655
+Success
+Testing rust_hot_paths/range_bitset/production/1_blocks_max_32767
+Success
+Testing rust_hot_paths/range_bitset/predicate_control/1_blocks_max_32767
+Success
+Testing rust_hot_paths/range_bitset/production/16_blocks_max_655
+Success
+Testing rust_hot_paths/range_bitset/predicate_control/16_blocks_max_655
+Success
+Testing rust_hot_paths/range_bitset/production/16_blocks_max_32767
+Success
+Testing rust_hot_paths/range_bitset/predicate_control/16_blocks_max_32767
+Success
+
+layout bytes: HeapEntry=12, DocBitset=24, SharedThreshold=40, ColumnBlock=208, FastFieldReader=136
+        0.19 real         0.02 user         0.02 sys
+            18776064  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                1208  page reclaims
+                 289  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                  20  voluntary context switches
+                2852  involuntary context switches
+           612350749  instructions retired
+           179165031  cycles elapsed
+            12812792  peak memory footprint

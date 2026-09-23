@@ -21,18 +21,41 @@ fn value(doc: u32) -> u64 {
 }
 
 async fn range_fixture(blocks: u32) -> (SegmentReader, Field) {
+    range_pattern_fixture(DOCUMENTS, blocks, |doc| Some(value(doc))).await
+}
+
+async fn range_pattern_fixture(
+    documents: u32,
+    blocks: u32,
+    value: impl Fn(u32) -> Option<u64>,
+) -> (SegmentReader, Field) {
+    range_pattern_fixture_multi(documents, blocks, value, false).await
+}
+
+async fn range_pattern_fixture_multi(
+    documents: u32,
+    blocks: u32,
+    value: impl Fn(u32) -> Option<u64>,
+    multi: bool,
+) -> (SegmentReader, Field) {
     let dir = RamDirectory::new();
     let mut sb = SchemaBuilder::default();
     let field = sb.add_u64_field("value", false, false);
     sb.set_fast(field, true);
+    sb.set_multi(field, multi);
     let schema = Arc::new(sb.build());
     let mut sources = Vec::new();
     for block in 0..blocks {
         let mut builder =
             SegmentBuilder::new(Arc::clone(&schema), SegmentBuilderConfig::default()).unwrap();
-        for local in 0..DOCUMENTS / blocks {
+        for local in 0..documents / blocks {
             let mut doc = Document::new();
-            doc.add_u64(field, value(block * (DOCUMENTS / blocks) + local));
+            if let Some(value) = value(block * (documents / blocks) + local) {
+                doc.add_u64(field, value);
+                if multi {
+                    doc.add_u64(field, 42);
+                }
+            }
             builder.add_document(doc).unwrap();
         }
         let id = SegmentId::new();
@@ -95,6 +118,167 @@ fn bench_range(c: &mut Criterion) {
         }
     }
     group.finish();
+}
+
+// End-to-end materialization controls for pruning and sequential decoding.
+fn bench_range_scan_layouts(c: &mut Criterion) {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let mut group = c.benchmark_group("rust_hot_paths/range_scan_layouts");
+    group.sample_size(20);
+    for (layout, documents, blocks, upper) in [
+        ("bucketed", 65_536, 1, 655u64),
+        ("bucketed", 65_536, 16, 655),
+        ("ordered", 65_536, 1, 6_550),
+        ("ordered", 65_536, 16, 6_550),
+        ("missing", 65_536, 16, 327_670),
+        ("all_match", 65_536, 16, u64::MAX),
+        ("piecewise", 1_024, 1, 1 << 31),
+        ("piecewise", 65_536, 1, 1 << 31),
+        ("piecewise", 1_048_576, 1, 1 << 31),
+    ] {
+        let value = |doc: u32| {
+            if layout == "missing" && (doc / (documents / blocks)).is_multiple_of(2) {
+                None
+            } else if layout == "bucketed" {
+                Some(u64::from(doc / 4096) * (1 << 20) + u64::from(doc.wrapping_mul(40_503) & 4095))
+            } else if layout == "piecewise" {
+                let block = u64::from(doc / 512);
+                let local = u64::from(doc % 512);
+                Some(((block * 40_503) & 65_535) * 65_536 + local * (3 + block % 3) + local % 7)
+            } else {
+                Some(u64::from(doc) * 10 + u64::from(doc % 7))
+            }
+        };
+        let (reader, field) = runtime.block_on(range_pattern_fixture(documents, blocks, value));
+        let column = reader.fast_field(field.0).unwrap();
+        if layout == "piecewise" {
+            assert!(column.blocks().iter().all(|b| b.data.as_slice()[0] == 3));
+        }
+        if layout == "bucketed" && blocks == 16 {
+            assert!(column.blocks().iter().all(|b| b.data.as_slice()[0] == 1));
+        }
+        let query = RangeQuery::u64(field, Some(0), Some(upper));
+        let result = query.as_doc_bitset(&reader).unwrap();
+        let mut matches = 0;
+        for doc in 0..documents {
+            let expected = value(doc).is_some_and(|v| v <= upper);
+            assert_eq!(result.contains(doc), expected, "{layout}, doc {doc}");
+            matches += u32::from(expected);
+        }
+        assert_eq!(result.count(), matches);
+        eprintln!(
+            "{layout}/{documents}/{blocks}: {} encoded column bytes; {} output bytes",
+            column.disk_bytes(),
+            u64::from(documents).div_ceil(64) * 8
+        );
+        group.throughput(Throughput::Elements(u64::from(documents)));
+        group.bench_function(format!("{layout}/{documents}/{blocks}_blocks"), |b| {
+            b.iter(|| black_box(black_box(&query).as_doc_bitset(black_box(&reader)).unwrap()));
+        });
+    }
+    group.finish();
+}
+
+// Lazy scorer controls include creation/destruction and selective seek workloads.
+#[cfg(feature = "sync")]
+fn bench_lazy_range(c: &mut Criterion) {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let mut group = c.benchmark_group("rust_hot_paths/lazy_range");
+    group.sample_size(20);
+    for layout in [
+        "shuffled",
+        "piecewise",
+        "constant",
+        "missing",
+        "multi",
+        "no_match",
+    ] {
+        let values = |doc: u32| {
+            if (layout == "missing" || layout == "multi") && doc.is_multiple_of(7) {
+                None
+            } else if layout == "piecewise" {
+                let block = u64::from(doc / 512);
+                let local = u64::from(doc % 512);
+                Some(((block * 40_503) & 65_535) * 65_536 + local * (3 + block % 3) + local % 7)
+            } else if layout == "no_match" {
+                Some(1 << 60)
+            } else if layout == "constant" {
+                Some(7)
+            } else {
+                Some(value(doc))
+            }
+        };
+        let (reader, field) = runtime.block_on(range_pattern_fixture_multi(
+            DOCUMENTS,
+            1,
+            values,
+            layout == "multi",
+        ));
+        let upper = if layout == "piecewise" {
+            1 << 31
+        } else {
+            32_767
+        };
+        let query = RangeQuery::u64(field, Some(0), Some(upper));
+        eprintln!(
+            "scorer/{layout}: {} bytes",
+            std::mem::size_of_val(&*query.scorer_sync(&reader, 10).unwrap())
+        );
+        let expected: Vec<_> = (0..DOCUMENTS)
+            .filter(|&d| values(d).is_some_and(|v| v <= upper))
+            .collect();
+        for mode in ["full", "first", "seek"] {
+            let execute = || {
+                let mut scorer = query.scorer_sync(&reader, 10).unwrap();
+                let mut checksum = 0u64;
+                if mode == "first" {
+                    return u64::from(scorer.doc());
+                }
+                if mode == "seek" {
+                    for target in (0..DOCUMENTS).step_by(1021) {
+                        checksum = checksum.wrapping_add(u64::from(scorer.seek(target)));
+                    }
+                } else {
+                    while scorer.doc() != hermes_core::structures::TERMINATED {
+                        checksum += u64::from(scorer.doc());
+                        scorer.advance();
+                    }
+                }
+                checksum
+            };
+            let oracle = match mode {
+                "first" => u64::from(*expected.first().unwrap_or(&u32::MAX)),
+                "seek" => (0..DOCUMENTS)
+                    .step_by(1021)
+                    .map(|target| {
+                        u64::from(
+                            *expected
+                                .iter()
+                                .find(|&&doc| doc >= target)
+                                .unwrap_or(&u32::MAX),
+                        )
+                    })
+                    .sum(),
+                _ => expected.iter().map(|&d| u64::from(d)).sum(),
+            };
+            assert_eq!(execute(), oracle, "{layout}/{mode}");
+            group.bench_function(format!("{layout}/{mode}"), |b| {
+                b.iter(|| black_box(execute()))
+            });
+        }
+    }
+    group.finish();
+}
+
+#[cfg(not(feature = "sync"))]
+fn bench_lazy_range(_: &mut Criterion) {
+    eprintln!("Lazy scorer benchmarks require the sync feature.");
 }
 
 // These symbols deliberately remain identifiable in optimized assembly. Do not
@@ -255,6 +439,8 @@ fn bench_windowed_text(c: &mut Criterion, name: &str, term_count: u32) {
 criterion_group!(
     benches,
     bench_range,
+    bench_range_scan_layouts,
+    bench_lazy_range,
     bench_dispatch,
     bench_byte_aligned_decode,
     bench_windowed_text_unions

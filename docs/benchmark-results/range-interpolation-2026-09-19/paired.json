@@ -1,0 +1,78 @@
+[
+  {
+    "stage": "before",
+    "repeat": 0,
+    "command": [
+      ".context/interpolation/before-bench",
+      "--bench",
+      "--warm-up-time",
+      "1",
+      "--measurement-time",
+      "2",
+      "--sample-size",
+      "30",
+      "--save-baseline",
+      "interpolation-pair-before-0",
+      "bucketed/65536/16_blocks$|range_bitset/production/1_blocks_max_655$|piecewise/1048576/1_blocks$"
+    ],
+    "binary_sha256": "97f6e99a2eed72f360c2cff23f6b29608cad2a2aecad78715d4e5b8936b644e0",
+    "log": "paired-before-0.txt"
+  },
+  {
+    "stage": "after",
+    "repeat": 0,
+    "command": [
+      ".context/interpolation/after-bench",
+      "--bench",
+      "--warm-up-time",
+      "1",
+      "--measurement-time",
+      "2",
+      "--sample-size",
+      "30",
+      "--save-baseline",
+      "interpolation-pair-after-0",
+      "bucketed/65536/16_blocks$|range_bitset/production/1_blocks_max_655$|piecewise/1048576/1_blocks$"
+    ],
+    "binary_sha256": "be272a2c081fb9aa3efc777437385aa897bb6269f25af92f6f38980dbdd0819e",
+    "log": "paired-after-0.txt"
+  },
+  {
+    "stage": "after",
+    "repeat": 1,
+    "command": [
+      ".context/interpolation/after-bench",
+      "--bench",
+      "--warm-up-time",
+      "1",
+      "--measurement-time",
+      "2",
+      "--sample-size",
+      "30",
+      "--save-baseline",
+      "interpolation-pair-after-1",
+      "bucketed/65536/16_blocks$|range_bitset/production/1_blocks_max_655$|piecewise/1048576/1_blocks$"
+    ],
+    "binary_sha256": "be272a2c081fb9aa3efc777437385aa897bb6269f25af92f6f38980dbdd0819e",
+    "log": "paired-after-1.txt"
+  },
+  {
+    "stage": "before",
+    "repeat": 1,
+    "command": [
+      ".context/interpolation/before-bench",
+      "--bench",
+      "--warm-up-time",
+      "1",
+      "--measurement-time",
+      "2",
+      "--sample-size",
+      "30",
+      "--save-baseline",
+      "interpolation-pair-before-1",
+      "bucketed/65536/16_blocks$|range_bitset/production/1_blocks_max_655$|piecewise/1048576/1_blocks$"
+    ],
+    "binary_sha256": "97f6e99a2eed72f360c2cff23f6b29608cad2a2aecad78715d4e5b8936b644e0",
+    "log": "paired-before-1.txt"
+  }
+]

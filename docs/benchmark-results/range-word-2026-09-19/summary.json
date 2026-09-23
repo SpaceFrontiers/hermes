@@ -1,0 +1,369 @@
+{
+  "unit": "nanoseconds",
+  "fixture": {
+    "documents": 65536,
+    "blocks": [1, 16],
+    "inclusive_upper_bounds": [655, 32767],
+    "value": "(doc * 40503) & 65535",
+    "directory": "RAM",
+    "criterion_samples": 20,
+    "setup_in_timing": false,
+    "output_allocation_and_drop_in_timing": true
+  },
+  "runs": {
+    "before": {
+      "environment": {
+        "revision": "c11169b41aa04fff00fd9c4204cacdedd76d0943",
+        "status": "M hermes-core/tests/range_bitset.rs\n?? docs/range-word-materialization.md",
+        "working_diff_sha256": "31194def0d1cc148a49eda272138fd109be08b2e988d1445180ba08e66681adb",
+        "host": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+        "machine": "arm64",
+        "processor": "arm",
+        "cpu_model": "Apple M4",
+        "logical_cpus": 10,
+        "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8",
+        "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+        "flags": {
+          "RUSTFLAGS": "",
+          "CARGO_ENCODED_RUSTFLAGS": "",
+          "CARGO_BUILD_TARGET": "",
+          "CARGO_TARGET_DIR": "",
+          "CARGO_BUILD_JOBS": "",
+          "CRITERION_HOME": "",
+          "RAYON_NUM_THREADS": "",
+          "HERMES_PIN_MODE": "",
+          "HERMES_PIN_METADATA_BUDGET_MB": ""
+        }
+      },
+      "command": [
+        "cargo",
+        "bench",
+        "--locked",
+        "-p",
+        "hermes-core",
+        "--bench",
+        "rust_hot_paths",
+        "--",
+        "--save-baseline",
+        "range-main-before",
+        "range_bitset"
+      ],
+      "success": true
+    },
+    "after": {
+      "environment": {
+        "revision": "c11169b41aa04fff00fd9c4204cacdedd76d0943",
+        "status": "M hermes-core/src/query/range.rs\n M hermes-core/src/query/traits.rs\n M hermes-core/src/structures/fast_field/mod.rs\n M hermes-core/tests/range_bitset.rs\n?? docs/range-word-materialization.md",
+        "working_diff_sha256": "dba240097a466af6d74ae3d29dc6748cbea73889bb73a8b61e4ce96240fd0928",
+        "host": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+        "machine": "arm64",
+        "processor": "arm",
+        "cpu_model": "Apple M4",
+        "logical_cpus": 10,
+        "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8",
+        "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+        "flags": {
+          "RUSTFLAGS": "",
+          "CARGO_ENCODED_RUSTFLAGS": "",
+          "CARGO_BUILD_TARGET": "",
+          "CARGO_TARGET_DIR": "",
+          "CARGO_BUILD_JOBS": "",
+          "CRITERION_HOME": "",
+          "RAYON_NUM_THREADS": "",
+          "HERMES_PIN_MODE": "",
+          "HERMES_PIN_METADATA_BUDGET_MB": ""
+        }
+      },
+      "command": [
+        "cargo",
+        "bench",
+        "--locked",
+        "-p",
+        "hermes-core",
+        "--bench",
+        "rust_hot_paths",
+        "--",
+        "--baseline",
+        "range-main-before",
+        "range_bitset"
+      ],
+      "success": true
+    }
+  },
+  "benchmarks": {
+    "production/16_blocks_max_32767": {
+      "before": {
+        "confidence_interval": {
+          "confidence_level": 0.95,
+          "lower_bound": 69156.34829694706,
+          "upper_bound": 74542.93604593954
+        },
+        "point_estimate": 71869.30330904867,
+        "standard_error": 1373.4021915675974
+      },
+      "after": {
+        "confidence_interval": {
+          "confidence_level": 0.95,
+          "lower_bound": 23603.54213714993,
+          "upper_bound": 24812.483079452035
+        },
+        "point_estimate": 24287.988576934455,
+        "standard_error": 309.53440665977
+      },
+      "central_time_reduction_percent": 66.20533738515246,
+      "criterion_change_mean": {
+        "confidence_interval": {
+          "confidence_level": 0.95,
+          "lower_bound": -0.6669143074533987,
+          "upper_bound": -0.6445932437525458
+        },
+        "point_estimate": -0.6554482005981177,
+        "standard_error": 0.00568993857594341
+      }
+    },
+    "production/16_blocks_max_655": {
+      "before": {
+        "confidence_interval": {
+          "confidence_level": 0.95,
+          "lower_bound": 44807.50261584304,
+          "upper_bound": 46963.73359886481
+        },
+        "point_estimate": 45904.81600550609,
+        "standard_error": 556.9344543123275
+      },
+      "after": {
+        "confidence_interval": {
+          "confidence_level": 0.95,
+          "lower_bound": 27009.53326891657,
+          "upper_bound": 29181.849940232627
+        },
+        "point_estimate": 27863.591554998555,
+        "standard_error": 551.0678021273371
+      },
+      "central_time_reduction_percent": 39.30137623979053,
+      "criterion_change_mean": {
+        "confidence_interval": {
+          "confidence_level": 0.95,
+          "lower_bound": -0.32287801045150444,
+          "upper_bound": -0.12444644789053902
+        },
+        "point_estimate": -0.2292931016727574,
+        "standard_error": 0.05308879292330906
+      }
+    },
+    "production/1_blocks_max_32767": {
+      "before": {
+        "confidence_interval": {
+          "confidence_level": 0.95,
+          "lower_bound": 67426.12596047242,
+          "upper_bound": 71377.73859660972
+        },
+        "point_estimate": 69720.00695501528,
+        "standard_error": 1006.0127727740394
+      },
+      "after": {
+        "confidence_interval": {
+          "confidence_level": 0.95,
+          "lower_bound": 26456.757810480754,
+          "upper_bound": 28053.382854390333
+        },
+        "point_estimate": 27274.226976510243,
+        "standard_error": 411.3576622705336
+      },
+      "central_time_reduction_percent": 60.880343867280295,
+      "criterion_change_mean": {
+        "confidence_interval": {
+          "confidence_level": 0.95,
+          "lower_bound": -0.6114030758393565,
+          "upper_bound": -0.5859942003683851
+        },
+        "point_estimate": -0.5988005821745059,
+        "standard_error": 0.0065048055887400825
+      }
+    },
+    "production/1_blocks_max_655": {
+      "before": {
+        "confidence_interval": {
+          "confidence_level": 0.95,
+          "lower_bound": 45284.27384228177,
+          "upper_bound": 47466.49213082362
+        },
+        "point_estimate": 46484.08626527516,
+        "standard_error": 559.075384111218
+      },
+      "after": {
+        "confidence_interval": {
+          "confidence_level": 0.95,
+          "lower_bound": 25652.525283496918,
+          "upper_bound": 27789.370429193892
+        },
+        "point_estimate": 26571.777257674516,
+        "standard_error": 550.4544440566456
+      },
+      "central_time_reduction_percent": 42.836829993742754,
+      "criterion_change_mean": {
+        "confidence_interval": {
+          "confidence_level": 0.95,
+          "lower_bound": -0.4412182794066023,
+          "upper_bound": -0.4107922719505099
+        },
+        "point_estimate": -0.4260472155765165,
+        "standard_error": 0.007827555205520635
+      }
+    },
+    "predicate_control/16_blocks_max_32767": {
+      "before": {
+        "confidence_interval": {
+          "confidence_level": 0.95,
+          "lower_bound": 563314.8619599661,
+          "upper_bound": 622283.5714627497
+        },
+        "point_estimate": 586634.8084983429,
+        "standard_error": 15041.820514627883
+      },
+      "after": {
+        "confidence_interval": {
+          "confidence_level": 0.95,
+          "lower_bound": 548708.9351481968,
+          "upper_bound": 580843.6282938584
+        },
+        "point_estimate": 563315.018789836,
+        "standard_error": 8205.711561915427
+      },
+      "central_time_reduction_percent": 3.9751800218266076,
+      "criterion_change_mean": {
+        "confidence_interval": {
+          "confidence_level": 0.95,
+          "lower_bound": -0.09117871195071064,
+          "upper_bound": 0.0365062455955235
+        },
+        "point_estimate": -0.025808048166250486,
+        "standard_error": 0.032618803070909246
+      }
+    },
+    "predicate_control/16_blocks_max_655": {
+      "before": {
+        "confidence_interval": {
+          "confidence_level": 0.95,
+          "lower_bound": 425416.7544203646,
+          "upper_bound": 440679.1336616485
+        },
+        "point_estimate": 433459.1707795313,
+        "standard_error": 3933.471984655146
+      },
+      "after": {
+        "confidence_interval": {
+          "confidence_level": 0.95,
+          "lower_bound": 420032.0692212308,
+          "upper_bound": 437181.7071578401
+        },
+        "point_estimate": 426719.9572264808,
+        "standard_error": 4381.330959678609
+      },
+      "central_time_reduction_percent": 1.554751636914431,
+      "criterion_change_mean": {
+        "confidence_interval": {
+          "confidence_level": 0.95,
+          "lower_bound": -0.030995749959833334,
+          "upper_bound": 0.01767890316257855
+        },
+        "point_estimate": -0.010035381690918665,
+        "standard_error": 0.01250978291379153
+      }
+    },
+    "predicate_control/1_blocks_max_32767": {
+      "before": {
+        "confidence_interval": {
+          "confidence_level": 0.95,
+          "lower_bound": 389790.4513109321,
+          "upper_bound": 414438.6370907558
+        },
+        "point_estimate": 400487.3026492851,
+        "standard_error": 6386.078237044508
+      },
+      "after": {
+        "confidence_interval": {
+          "confidence_level": 0.95,
+          "lower_bound": 373893.0201991613,
+          "upper_bound": 381485.60912144015
+        },
+        "point_estimate": 377154.11727418925,
+        "standard_error": 1932.6302843479184
+      },
+      "central_time_reduction_percent": 5.8261985388158966,
+      "criterion_change_mean": {
+        "confidence_interval": {
+          "confidence_level": 0.95,
+          "lower_bound": -0.09751528905587076,
+          "upper_bound": -0.0291681285362897
+        },
+        "point_estimate": -0.06342472561795243,
+        "standard_error": 0.017490370742098655
+      }
+    },
+    "predicate_control/1_blocks_max_655": {
+      "before": {
+        "confidence_interval": {
+          "confidence_level": 0.95,
+          "lower_bound": 299553.0191644664,
+          "upper_bound": 311606.27173841966
+        },
+        "point_estimate": 304317.1621784163,
+        "standard_error": 3114.997929105406
+      },
+      "after": {
+        "confidence_interval": {
+          "confidence_level": 0.95,
+          "lower_bound": 308396.33358744753,
+          "upper_bound": 331381.50206891197
+        },
+        "point_estimate": 320045.2844446566,
+        "standard_error": 5881.954201363947
+      },
+      "central_time_reduction_percent": -5.168332325936675,
+      "criterion_change_mean": {
+        "confidence_interval": {
+          "confidence_level": 0.95,
+          "lower_bound": -0.07555587209924788,
+          "upper_bound": 0.013758211768735764
+        },
+        "point_estimate": -0.030214919170889698,
+        "standard_error": 0.02279222791366234
+      }
+    }
+  },
+  "memory": {
+    "before": {
+      "maximum resident set size": 20889600,
+      "peak memory footprint": 12665384
+    },
+    "after": {
+      "maximum resident set size": 18776064,
+      "peak memory footprint": 12812792
+    },
+    "compiled_scan_frame_bytes": {
+      "before": 2224,
+      "after": 2384,
+      "scope": "ARM64 stack-pointer adjustments including saved registers, excluding called decoders"
+    }
+  },
+  "code_size_bytes": {
+    "before_scan": 1020,
+    "after_scan": 5252,
+    "before_materializer": 668,
+    "after_materializer": 668
+  },
+  "after_source_sha256": {
+    "hermes-core/benches/rust_hot_paths.rs": "a8cb32bbde28fe993cc66f831fbeb037ae03da3118d7a6adc83d7b605ea6305f",
+    "hermes-core/src/query/range.rs": "3207928002687ec1ab591ed24ed4931340323122a13dde805a76ad975b46c9c8",
+    "hermes-core/src/query/traits.rs": "d558d30ef904381005265416cf3c98103b6415df260264a831ea64cbbb64adf3",
+    "hermes-core/src/structures/fast_field/mod.rs": "c2d779160e3f602cc933f8995928d3cdc3d78a814b6373706a0f216e97add5b0"
+  },
+  "limitations": [
+    "Single Apple M4 host with unrelated desktop/VPN activity; no task-owned compilation during timing.",
+    "Warm materialization benchmark, not whole-query latency or cold mmap I/O.",
+    "Only u64 timing; signed/floating/multi-value behavior is regression-tested.",
+    "Process RSS includes fixture construction; no memory reduction claim.",
+    "No x86 performance or recall measurements; no format/codec/planner defaults change."
+  ]
+}

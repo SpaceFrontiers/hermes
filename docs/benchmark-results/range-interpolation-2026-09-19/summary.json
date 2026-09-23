@@ -1,0 +1,847 @@
+{
+  "decision": "Rejected and runtime changes reverted: x86 compressed scans improve about 3.7x, but shuffled bitpacked controls regress 8% with two inline hints and 10% with a fixed kernel boundary.",
+  "units": "nanoseconds",
+  "runs": {
+    "before": {
+      "environment": {
+        "revision": "5b5f843657f85929790339be8cf350a92fbbb37a",
+        "status": "M docs/range-block-scans.md",
+        "working_diff_sha256": "81152649cdaa225e3bd447602a60be1cd23e69b696b342b816dfeb19db320138",
+        "host": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+        "machine": "arm64",
+        "processor": "arm",
+        "cpu_model": "Apple M4",
+        "logical_cpus": 10,
+        "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8",
+        "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+        "flags": {
+          "RUSTFLAGS": "",
+          "CARGO_ENCODED_RUSTFLAGS": "",
+          "CARGO_BUILD_TARGET": "",
+          "CARGO_TARGET_DIR": "",
+          "CARGO_BUILD_JOBS": "",
+          "CRITERION_HOME": "",
+          "RAYON_NUM_THREADS": "",
+          "HERMES_PIN_MODE": "",
+          "HERMES_PIN_METADATA_BUDGET_MB": ""
+        }
+      },
+      "steps": [
+        {
+          "command": [
+            "cargo",
+            "bench",
+            "--locked",
+            "-p",
+            "hermes-core",
+            "--bench",
+            "rust_hot_paths",
+            "--",
+            "--save-baseline",
+            "interpolation-before",
+            "range_scan_layouts"
+          ],
+          "log": "01-bench.log",
+          "returncode": 0,
+          "seconds": 120.70652862498537
+        }
+      ],
+      "success": true
+    },
+    "unhinted": {
+      "environment": {
+        "revision": "5b5f843657f85929790339be8cf350a92fbbb37a",
+        "status": "M docs/range-block-scans.md\n M hermes-core/src/structures/fast_field/codec.rs",
+        "working_diff_sha256": "59b7cdb1527708982dd02d9359a561aed0043993ba92a73d68c5025d4539da6e",
+        "host": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+        "machine": "arm64",
+        "processor": "arm",
+        "cpu_model": "Apple M4",
+        "logical_cpus": 10,
+        "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8",
+        "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+        "flags": {
+          "RUSTFLAGS": "",
+          "CARGO_ENCODED_RUSTFLAGS": "",
+          "CARGO_BUILD_TARGET": "",
+          "CARGO_TARGET_DIR": "",
+          "CARGO_BUILD_JOBS": "",
+          "CRITERION_HOME": "",
+          "RAYON_NUM_THREADS": "",
+          "HERMES_PIN_MODE": "",
+          "HERMES_PIN_METADATA_BUDGET_MB": ""
+        }
+      },
+      "steps": [
+        {
+          "command": [
+            "cargo",
+            "bench",
+            "--locked",
+            "-p",
+            "hermes-core",
+            "--bench",
+            "rust_hot_paths",
+            "--",
+            "--baseline",
+            "interpolation-before",
+            "range_scan_layouts"
+          ],
+          "log": "01-bench.log",
+          "returncode": 0,
+          "seconds": 124.00362270791084
+        }
+      ],
+      "success": true
+    },
+    "control-before": {
+      "environment": {
+        "revision": "5b5f843657f85929790339be8cf350a92fbbb37a",
+        "status": "M docs/range-block-scans.md",
+        "working_diff_sha256": "81152649cdaa225e3bd447602a60be1cd23e69b696b342b816dfeb19db320138",
+        "host": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+        "machine": "arm64",
+        "processor": "arm",
+        "cpu_model": "Apple M4",
+        "logical_cpus": 10,
+        "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8",
+        "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+        "flags": {
+          "RUSTFLAGS": "",
+          "CARGO_ENCODED_RUSTFLAGS": "",
+          "CARGO_BUILD_TARGET": "",
+          "CARGO_TARGET_DIR": "",
+          "CARGO_BUILD_JOBS": "",
+          "CRITERION_HOME": "",
+          "RAYON_NUM_THREADS": "",
+          "HERMES_PIN_MODE": "",
+          "HERMES_PIN_METADATA_BUDGET_MB": ""
+        }
+      },
+      "steps": [
+        {
+          "command": [
+            "cargo",
+            "bench",
+            "--locked",
+            "-p",
+            "hermes-core",
+            "--bench",
+            "rust_hot_paths",
+            "--",
+            "--save-baseline",
+            "interpolation-control-before",
+            "range_bitset/production"
+          ],
+          "log": "01-bench.log",
+          "returncode": 0,
+          "seconds": 97.01227037515491
+        }
+      ],
+      "success": true
+    },
+    "dispatch-inline": {
+      "environment": {
+        "revision": "5b5f843657f85929790339be8cf350a92fbbb37a",
+        "status": "M docs/range-block-scans.md\n M hermes-core/src/structures/fast_field/codec.rs",
+        "working_diff_sha256": "a11ba65258650d8a746f398953b76507603bf1dfe798c06da1e39a028ccedbad",
+        "host": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+        "machine": "arm64",
+        "processor": "arm",
+        "cpu_model": "Apple M4",
+        "logical_cpus": 10,
+        "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8",
+        "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+        "flags": {
+          "RUSTFLAGS": "",
+          "CARGO_ENCODED_RUSTFLAGS": "",
+          "CARGO_BUILD_TARGET": "",
+          "CARGO_TARGET_DIR": "",
+          "CARGO_BUILD_JOBS": "",
+          "CRITERION_HOME": "",
+          "RAYON_NUM_THREADS": "",
+          "HERMES_PIN_MODE": "",
+          "HERMES_PIN_METADATA_BUDGET_MB": ""
+        }
+      },
+      "steps": [
+        {
+          "command": [
+            "cargo",
+            "bench",
+            "--locked",
+            "-p",
+            "hermes-core",
+            "--bench",
+            "rust_hot_paths",
+            "--",
+            "--baseline",
+            "interpolation-before",
+            "range_scan_layouts"
+          ],
+          "log": "01-bench.log",
+          "returncode": 0,
+          "seconds": 131.7856230000034
+        }
+      ],
+      "success": true
+    },
+    "kernel-boundary": {
+      "environment": {
+        "revision": "5b5f843657f85929790339be8cf350a92fbbb37a",
+        "status": "M docs/range-block-scans.md\n M hermes-core/src/structures/fast_field/codec.rs",
+        "working_diff_sha256": "6cbce0ac076af69c54b10c104839c4b214e30eb287b42fc9d1b59d97c644a054",
+        "host": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+        "machine": "arm64",
+        "processor": "arm",
+        "cpu_model": "Apple M4",
+        "logical_cpus": 10,
+        "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8",
+        "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+        "flags": {
+          "RUSTFLAGS": "",
+          "CARGO_ENCODED_RUSTFLAGS": "",
+          "CARGO_BUILD_TARGET": "",
+          "CARGO_TARGET_DIR": "",
+          "CARGO_BUILD_JOBS": "",
+          "CRITERION_HOME": "",
+          "RAYON_NUM_THREADS": "",
+          "HERMES_PIN_MODE": "",
+          "HERMES_PIN_METADATA_BUDGET_MB": ""
+        }
+      },
+      "steps": [
+        {
+          "command": [
+            "cargo",
+            "bench",
+            "--locked",
+            "-p",
+            "hermes-core",
+            "--bench",
+            "rust_hot_paths",
+            "--",
+            "--baseline",
+            "interpolation-before",
+            "range_scan_layouts"
+          ],
+          "log": "01-bench.log",
+          "returncode": 0,
+          "seconds": 136.4843651666306
+        }
+      ],
+      "success": true
+    }
+  },
+  "paired_estimates": {
+    "shuffled": {
+      "before-0": {
+        "mean": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 24535.736700771038,
+            "upper_bound": 25191.854564938858
+          },
+          "point_estimate": 24862.353313321782,
+          "standard_error": 167.8314904610299
+        },
+        "median": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 24488.794165196945,
+            "upper_bound": 25038.717425431714
+          },
+          "point_estimate": 24851.980423280424,
+          "standard_error": 171.35145038593188
+        },
+        "median_abs_dev": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 244.78833593191513,
+            "upper_bound": 1427.7594635410912
+          },
+          "point_estimate": 933.3642654973722,
+          "standard_error": 369.1445866130196
+        },
+        "slope": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 24088.34249983271,
+            "upper_bound": 24786.916474835547
+          },
+          "point_estimate": 24376.408199214646,
+          "standard_error": 178.98610771808984
+        },
+        "std_dev": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 560.5649436614534,
+            "upper_bound": 905.6201792275294
+          },
+          "point_estimate": 771.2430583130057,
+          "standard_error": 88.95573834589969
+        }
+      },
+      "after-0": {
+        "mean": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 24958.30258940064,
+            "upper_bound": 26969.347406746798
+          },
+          "point_estimate": 25866.692691062,
+          "standard_error": 518.6981400959033
+        },
+        "median": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 24634.879465318398,
+            "upper_bound": 25019.220059372346
+          },
+          "point_estimate": 24711.506785411366,
+          "standard_error": 171.1262759973039
+        },
+        "median_abs_dev": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 66.90711091023957,
+            "upper_bound": 651.1665852333696
+          },
+          "point_estimate": 181.26663078314547,
+          "standard_error": 248.8016709956027
+        },
+        "slope": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 25584.24970160627,
+            "upper_bound": 28928.081102497745
+          },
+          "point_estimate": 27387.320702006367,
+          "standard_error": 858.5784939847574
+        },
+        "std_dev": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 829.2404565073447,
+            "upper_bound": 3168.428190096473
+          },
+          "point_estimate": 2387.5636954313736,
+          "standard_error": 579.7873431990221
+        }
+      },
+      "before-1": {
+        "mean": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 29073.890205538326,
+            "upper_bound": 30090.51663591729
+          },
+          "point_estimate": 29572.23967372724,
+          "standard_error": 259.57525783769324
+        },
+        "median": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 29192.389407313996,
+            "upper_bound": 30002.4606010929
+          },
+          "point_estimate": 29878.955320417288,
+          "standard_error": 216.11401512467714
+        },
+        "median_abs_dev": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 140.96787395633746,
+            "upper_bound": 1568.0416239842646
+          },
+          "point_estimate": 433.7995850416344,
+          "standard_error": 388.2891345413493
+        },
+        "slope": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 28641.028442460876,
+            "upper_bound": 29908.859707342108
+          },
+          "point_estimate": 29289.945290455245,
+          "standard_error": 324.6675730091723
+        },
+        "std_dev": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 725.6014044469758,
+            "upper_bound": 1583.221660758985
+          },
+          "point_estimate": 1190.683983834995,
+          "standard_error": 224.17973811130585
+        }
+      },
+      "after-1": {
+        "mean": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 30599.628344150133,
+            "upper_bound": 33752.28143136785
+          },
+          "point_estimate": 32184.84951169985,
+          "standard_error": 801.9232224167221
+        },
+        "median": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 29799.784276126557,
+            "upper_bound": 33333.962807606265
+          },
+          "point_estimate": 32890.46093615556,
+          "standard_error": 889.595466883853
+        },
+        "median_abs_dev": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 359.5591008313161,
+            "upper_bound": 6737.449162869593
+          },
+          "point_estimate": 4205.0958710661025,
+          "standard_error": 1731.8327865290503
+        },
+        "slope": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 28308.404491186517,
+            "upper_bound": 31974.898599705757
+          },
+          "point_estimate": 29718.098969903887,
+          "standard_error": 935.2455384867285
+        },
+        "std_dev": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 2645.2312689302494,
+            "upper_bound": 4376.136967366676
+          },
+          "point_estimate": 3667.1341779569093,
+          "standard_error": 441.5352888331776
+        }
+      }
+    },
+    "clustered": {
+      "before-0": {
+        "mean": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 4347.758964818546,
+            "upper_bound": 4449.943188433577
+          },
+          "point_estimate": 4396.553242244971,
+          "standard_error": 26.082098253370663
+        },
+        "median": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 4306.182001718213,
+            "upper_bound": 4460.428906673901
+          },
+          "point_estimate": 4375.823026844289,
+          "standard_error": 54.49671767501931
+        },
+        "median_abs_dev": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 20.408663704684272,
+            "upper_bound": 180.04162123918982
+          },
+          "point_estimate": 115.49625745984056,
+          "standard_error": 48.15355311226386
+        },
+        "slope": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 4344.9088195400045,
+            "upper_bound": 4509.4061964710545
+          },
+          "point_estimate": 4425.3932125794745,
+          "standard_error": 41.78523277180678
+        },
+        "std_dev": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 77.84183250371578,
+            "upper_bound": 156.80284766529368
+          },
+          "point_estimate": 119.69746296130845,
+          "standard_error": 21.279639048098776
+        }
+      },
+      "after-0": {
+        "mean": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 4768.199448657889,
+            "upper_bound": 4941.482889922735
+          },
+          "point_estimate": 4848.261812452095,
+          "standard_error": 44.37628878392266
+        },
+        "median": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 4699.703250949304,
+            "upper_bound": 4919.386349672857
+          },
+          "point_estimate": 4768.421053542217,
+          "standard_error": 63.90958968884065
+        },
+        "median_abs_dev": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 45.27291023348481,
+            "upper_bound": 280.37044990634774
+          },
+          "point_estimate": 137.32857200417283,
+          "standard_error": 63.325536557119605
+        },
+        "slope": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 4750.762633365633,
+            "upper_bound": 4926.620920601182
+          },
+          "point_estimate": 4827.075861116482,
+          "standard_error": 44.8303330148737
+        },
+        "std_dev": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 107.1655894625444,
+            "upper_bound": 263.6334898535979
+          },
+          "point_estimate": 203.2737883993468,
+          "standard_error": 40.058625669584806
+        }
+      },
+      "before-1": {
+        "mean": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 4752.945230685379,
+            "upper_bound": 4980.002902609907
+          },
+          "point_estimate": 4865.6994005665065,
+          "standard_error": 58.000920143091896
+        },
+        "median": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 4666.022689489997,
+            "upper_bound": 4955.27290521978
+          },
+          "point_estimate": 4894.731045739974,
+          "standard_error": 90.55991229710511
+        },
+        "median_abs_dev": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 77.46886706558713,
+            "upper_bound": 479.0993157937368
+          },
+          "point_estimate": 347.6328836159953,
+          "standard_error": 97.53991581455675
+        },
+        "slope": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 4581.485115008716,
+            "upper_bound": 4763.581362666537
+          },
+          "point_estimate": 4654.571152410307,
+          "standard_error": 46.67051917569605
+        },
+        "std_dev": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 198.63158850268564,
+            "upper_bound": 310.2572052987205
+          },
+          "point_estimate": 266.4013389180728,
+          "standard_error": 28.50333637460071
+        }
+      },
+      "after-1": {
+        "mean": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 4488.576772038265,
+            "upper_bound": 4679.341803455018
+          },
+          "point_estimate": 4583.927565152176,
+          "standard_error": 48.94659189841029
+        },
+        "median": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 4481.936786330403,
+            "upper_bound": 4688.486774008051
+          },
+          "point_estimate": 4585.489257148832,
+          "standard_error": 88.25142753258386
+        },
+        "median_abs_dev": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 134.49515878148844,
+            "upper_bound": 359.05751287023196
+          },
+          "point_estimate": 234.7355288760272,
+          "standard_error": 55.571713415686624
+        },
+        "slope": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 4335.395093929837,
+            "upper_bound": 4514.537394190139
+          },
+          "point_estimate": 4408.419683906606,
+          "standard_error": 45.60281886112114
+        },
+        "std_dev": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 165.5719113965453,
+            "upper_bound": 265.5032902046033
+          },
+          "point_estimate": 224.27131260527034,
+          "standard_error": 25.62232494532554
+        }
+      }
+    },
+    "piecewise": {
+      "before-0": {
+        "mean": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 3335842.784929841,
+            "upper_bound": 3452481.4285319056
+          },
+          "point_estimate": 3394973.180731752,
+          "standard_error": 29769.9966918263
+        },
+        "median": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 3313210.4264957267,
+            "upper_bound": 3471336.791666667
+          },
+          "point_estimate": 3438430.0303030303,
+          "standard_error": 50975.07789776807
+        },
+        "median_abs_dev": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 20237.97011292656,
+            "upper_bound": 222168.93845767365
+          },
+          "point_estimate": 161591.15391451688,
+          "standard_error": 54435.55209837845
+        },
+        "slope": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 3243252.6991648017,
+            "upper_bound": 3430303.7861324097
+          },
+          "point_estimate": 3325005.52601626,
+          "standard_error": 48960.62870394093
+        },
+        "std_dev": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 96042.76559870369,
+            "upper_bound": 164842.47854668775
+          },
+          "point_estimate": 136831.6918199438,
+          "standard_error": 17528.12731648664
+        }
+      },
+      "after-0": {
+        "mean": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 1635333.154694492,
+            "upper_bound": 1703120.1180750716
+          },
+          "point_estimate": 1668134.4894354176,
+          "standard_error": 17316.524402461906
+        },
+        "median": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 1591770.4041666668,
+            "upper_bound": 1744621.25
+          },
+          "point_estimate": 1661947.0784313725,
+          "standard_error": 36052.975312488525
+        },
+        "median_abs_dev": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 3577.1430864930153,
+            "upper_bound": 115599.01572928617
+          },
+          "point_estimate": 106186.0410529633,
+          "standard_error": 37818.1628473688
+        },
+        "slope": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 1599952.6261870263,
+            "upper_bound": 1636305.758409087
+          },
+          "point_estimate": 1614048.34912892,
+          "standard_error": 9397.093398904062
+        },
+        "std_dev": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 57407.97826069467,
+            "upper_bound": 99003.99345323
+          },
+          "point_estimate": 79968.75118974475,
+          "standard_error": 10901.809995715254
+        }
+      },
+      "before-1": {
+        "mean": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 3672471.1819619867,
+            "upper_bound": 3890180.368479376
+          },
+          "point_estimate": 3776099.3368874663,
+          "standard_error": 55675.217207456
+        },
+        "median": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 3642285.166666667,
+            "upper_bound": 3899990.9833333334
+          },
+          "point_estimate": 3709300.667582418,
+          "standard_error": 55118.77735375985
+        },
+        "median_abs_dev": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 15719.1426709292,
+            "upper_bound": 362973.76713161415
+          },
+          "point_estimate": 254810.84293722926,
+          "standard_error": 90035.2411946946
+        },
+        "slope": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 3564381.443507779,
+            "upper_bound": 3776880.1081340904
+          },
+          "point_estimate": 3642813.5968641117,
+          "standard_error": 54332.174156506764
+        },
+        "std_dev": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 161824.50171734396,
+            "upper_bound": 325678.9746044785
+          },
+          "point_estimate": 255551.7091009885,
+          "standard_error": 42771.47232117843
+        }
+      },
+      "after-1": {
+        "mean": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 1628602.3783705262,
+            "upper_bound": 1692256.5777182567
+          },
+          "point_estimate": 1658239.1808897143,
+          "standard_error": 16324.155146819023
+        },
+        "median": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 1592941.7407407407,
+            "upper_bound": 1668309.8958333335
+          },
+          "point_estimate": 1659097.9444444445,
+          "standard_error": 21969.71685250105
+        },
+        "median_abs_dev": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 7424.414515412299,
+            "upper_bound": 108824.16105793726
+          },
+          "point_estimate": 98083.18586978666,
+          "standard_error": 28878.59288313655
+        },
+        "slope": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 1651026.6383944266,
+            "upper_bound": 1720997.250498879
+          },
+          "point_estimate": 1683653.5395470383,
+          "standard_error": 17852.269184349327
+        },
+        "std_dev": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 43101.71330843992,
+            "upper_bound": 99188.06384076113
+          },
+          "point_estimate": 74675.66294740875,
+          "standard_error": 14799.792162472371
+        }
+      }
+    }
+  },
+  "paired_order": ["before-0", "after-0", "after-1", "before-1"],
+  "paired_configuration": {
+    "warmup_seconds": 1,
+    "measurement_seconds": 2,
+    "package_version": "1.8.146",
+    "cpu": "Apple M4",
+    "rustc": "1.98.1",
+    "requested_samples": 30,
+    "effective_samples": 20,
+    "sample_note": "The benchmark groups explicitly set sample_size(20), overriding the command-line request."
+  },
+  "memory_rss_bytes": {
+    "after-memory-2": 41959424,
+    "before-memory-1": 41992192,
+    "before-memory-0": 41336832,
+    "after-memory-1": 41287680,
+    "before-memory-2": 41598976,
+    "after-memory-0": 42221568
+  },
+  "logical_progression_state_bytes": 48,
+  "new_heap_allocations": 0,
+  "discarded_comparison": "Initial shuffled control used a saved v1.8.145 binary against v1.8.146; excluded and replaced by matching builds.",
+  "validation": {
+    "arithmetic_codec_tests_passed": 31,
+    "benchmark_membership_assertions": "passed for every fixture in every retained run",
+    "full_native_check": {
+      "success": true,
+      "passed": 2031,
+      "ignored": 25,
+      "run": "20260919T140550.914623Z-check"
+    },
+    "wasm": {
+      "build": true,
+      "tests": 38
+    },
+    "x86": "31 codec and 3 range tests passed for two-inline candidate; exact membership checks passed for both measured variants. See cloud-summary.json and cloud-evidence.tar.gz.",
+    "async_only_range_tests": 3
+  },
+  "cloud": "cloud-summary.json"
+}

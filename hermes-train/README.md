@@ -16,14 +16,27 @@ repository root, run `export PATH="$PWD/target/release:$PATH"`.
 See the [benchmark guide](../docs/benchmarks.md) for wake-tier profiling and
 [training contracts](../docs/training-objectives-and-curricula.md) for task semantics.
 
+## Commands
+
+| Command                                 | Purpose                                                   |
+| --------------------------------------- | --------------------------------------------------------- |
+| `train`                                 | Built-in streaming objectives and optional periodic sleep |
+| `validate-workflow`, `run-workflow`     | Validate and orchestrate phase workflows                  |
+| `eval`                                  | Held-out loss and task metrics                            |
+| `generate-eval`                         | Free-running generation quality                           |
+| `retrieval-pool-eval`                   | Retrieval against a shared candidate pool                 |
+| `prepare-corpus`, `compose-curriculum`  | Immutable corpus and curriculum builds                    |
+| `quantize`, `upgrade-memory-checkpoint` | Explicit weight transformations                           |
+| `verify-checkpoint`                     | Validate a sealed generation and metric prefix            |
+
+Run `hermes-train <command> --help` for flags. See
+[generation evaluation](../docs/generation-eval.md) and
+[retrieval evaluation](../docs/retrieval-pool-eval.md).
+
 ## WorkflowV2
 
-Training configuration is a strict version-2 workflow. It describes
-`pretrain`, `continued_pretrain`, `sft`, `preference`, `rl`, `distillation`,
-`sleep`, `quantization`, `evaluation`, and `promotion` phases. Task adapters
-cover causal LM, summarization, retrieval representation/ranking/planning,
-instruction tuning, QA/reasoning, pairwise preference, and verifiable RL.
-Unknown fields and unsupported schema versions fail before execution.
+Use strict [WorkflowV2](../docs/training-objectives-and-curricula.md) configuration.
+Unknown fields and unsupported versions fail before execution.
 
 Validate and inspect resolved paths before a run:
 
@@ -283,35 +296,10 @@ and adapter parameters, so equal revision labels from different providers or
 model repositories cannot alias one another. Context factories should use
 `FrozenModelSpec::immutable_identity()` as their exact expected value.
 
-The complete education recipe combines periodic sleep with phase kinds outside
-the wake trainer and therefore uses the public embedded host in `native_host`.
-An embedding application constructs `NativeWorkflowAdapters` and registers an
-external worker for ordinary phases, a
-`NativePostTrainingContextFactory` for native DPO/KL/GRPO, a
-`NativePeriodicWakeExecutor` for periodic optimizer-bearing phases not handled
-by typed post-training, and a `NativeSleepPhaseContextFactory` when the
-workflow has a standalone `sleep` phase. Periodic DPO/KL/GRPO boundaries use
-the `PostTrainingBoundaryHook` lent with their native execution context; the
-optimizer receipt, sleep receipt, and cursor therefore commit as one chain.
-Use `NativePostTrainingBoundaryController` with an injected
-`NativePostTrainingSleepRuntime` for the first-party implementation. Its tagged
-resume envelope persists the optimizer receipt before sleep starts and wraps
-every inner `NativeSleepCheckpoint`, so an interrupted sleep subphase cannot
-replace the outer post-training cursor. The registered controller identity must
-match the lent controller and the clock authority. Each resulting immutable
-checkpoint must carry enough authenticated metadata for the next phase factory
-to reconstruct both cumulative optimizer-step and exact model-token clocks.
-
-`NativeWorkflowHost::start` or `resume` computes a content identity from the
-resolved workflow and registered worker/factory identities, owns the atomic
-runtime checkpoint and optional metric journal, and exposes
-`drive_until_yield_or_complete`. Typed post-training uses the native library
-when its factory is registered; all remaining periodic sleep stays in process;
-standalone sleep is always native; promotion is always the built-in verified
-gate; only ordinary phases may fall back to the external worker. Missing routes
-fail before state is created or loaded. This host supplies orchestration only:
-deployment code must provide the actual model, storage, judge, and evaluator
-implementations.
+The complete education recipe needs the embedded `NativeWorkflowHost`, with
+registered model, storage, judge, and evaluator adapters. Missing routes fail
+before state is created. See [execution surfaces](../docs/training-objectives-and-curricula.md#execution-surfaces)
+for native DPO/KL/GRPO, periodic wake, standalone sleep, and promotion routing.
 
 ## Corpus preparation
 
@@ -502,6 +490,9 @@ reported trends.
 
 ## Ultra-low-bit quantization
 
+In the command below, replace `sha256-HASH` with the generation named by
+`checkpoint/current.json`.
+
 Hermes supports group-128 binary (`1.125` encoded bits/weight for full groups),
 dense two-bit ternary (`2.125`), and compact base-3 ternary (`1.75`) checkpoint
 codecs, including one FP16 scale per group. The training path performs deterministic
@@ -512,7 +503,7 @@ non-matrix tensors stay in their original dtype.
 
 ```bash
 hermes-train quantize \
-  --checkpoint checkpoint/weights.safetensors \
+  --checkpoint checkpoint/generations/sha256-HASH/weights.safetensors \
   --format binary-g128 \
   --output checkpoint/weights.binary-g128
 ```
@@ -687,13 +678,8 @@ interrupted and uninterrupted runs are therefore allowed to differ in honest
 wall-clock observations; final state and semantic progress must still match
 exactly.
 
-The benchmark runner records fixed ordering, at least three paired seeds,
-GPU-hour budgets, evaluator identity, public/sealed visibility, and the required
-sleep/continual-learning ablations. The strongest matched baseline is derived
-from the runs rather than asserted by evidence. Benchmark-run artifacts retain
-sealed case ids and scores for audit; they never contain the private suite
-examples. Promotion reports contain public per-case results and only an
-aggregate sealed gate.
+Benchmark artifacts retain sealed case IDs and scores for audit, never private
+examples. Promotion reports expose public results and an aggregate sealed gate.
 
 For WorkflowV2 release, configure the typed `promotion` object shown in
 [`workflow.sleep.example.json`](workflow.sleep.example.json): one selected run,
