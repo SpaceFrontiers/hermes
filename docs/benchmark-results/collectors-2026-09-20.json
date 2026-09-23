@@ -1,0 +1,71 @@
+{
+  "date": "2026-09-20",
+  "production_revision": "15b8a3683fd563f03f1b4f8b14310c761303734e",
+  "benchmark_working_diff_sha256": "97b260e00f71b7957e46b65131105aab6ddd4d61d2753eeb369b9b8fb16deedc",
+  "source_sha256": {
+    "hermes-core/benches/collector_selection/main.rs": "76c0f776af06a3ba2347cbac19dbce4c3feae7c3487ce90cc1366fd6afdff507",
+    "hermes-core/benches/collector_selection/collectors.rs": "97627ab76081419a679d2787fbf5b8c56b12a5186b2d4bc6503798de56d4e38c"
+  },
+  "environment": {
+    "host": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "processor": "arm",
+    "cpu_model": "Apple M4",
+    "logical_cpus": 10,
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8",
+    "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+    "flags": {
+      "RUSTFLAGS": "",
+      "CARGO_ENCODED_RUSTFLAGS": "",
+      "CARGO_BUILD_TARGET": "",
+      "CARGO_TARGET_DIR": "",
+      "CARGO_BUILD_JOBS": "",
+      "CRITERION_HOME": "",
+      "RAYON_NUM_THREADS": "",
+      "HERMES_PIN_MODE": "",
+      "HERMES_PIN_METADATA_BUDGET_MB": ""
+    }
+  },
+  "runs": {
+    "forward": {
+      "command": [
+        "cargo",
+        "bench",
+        "--locked",
+        "-p",
+        "hermes-core",
+        "--bench",
+        "collector_selection",
+        "--",
+        "--save-baseline",
+        "collectors-forward"
+      ],
+      "elapsed_seconds": 101.84161683311686,
+      "collector_reverse": false
+    },
+    "reverse": {
+      "command": [
+        "cargo",
+        "bench",
+        "--locked",
+        "-p",
+        "hermes-core",
+        "--bench",
+        "collector_selection",
+        "--",
+        "--save-baseline",
+        "collectors-reverse"
+      ],
+      "elapsed_seconds": 100.68795216735452,
+      "collector_reverse": true
+    }
+  },
+  "samples_per_case": 30,
+  "warmup_seconds": 0.3,
+  "target_measurement_seconds": 1,
+  "case_count_per_run": 63,
+  "metric": "Criterion median point estimate and its within-run 95% bootstrap confidence interval, in nanoseconds",
+  "scope": "Synthetic score replay and exact-block-bound feedback; includes collector allocation, screening, admission, sorting and destruction. Excludes scoring, decode, I/O, positions, exact-count collection, seeded/shared thresholds and end-to-end query execution.",
+  "noise": "Active desktop background processes; repeat slowed several cases. Small differences inconclusive. No agent compilation/tests overlapped timed runs.",
+  "memory": "Backing capacities: heap 12*k bytes, partition 24*k, loser tree 28*k. Object sizes 48/48/72 bytes. Excludes input fixtures, allocator overhead, output and oracle; not RSS."
+}

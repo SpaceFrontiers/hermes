@@ -10,28 +10,29 @@ Criterion targets accept a name filter after `--` and write statistical reports
 under `target/criterion/` (or `$CARGO_TARGET_DIR/criterion/`). Standalone targets
 have their own CLI or environment variables and print reports to stdout.
 
-| Package        | Target                | Harness                | Measures                                                                 |
-| -------------- | --------------------- | ---------------------- | ------------------------------------------------------------------------ |
-| `hermes-core`  | `compression`         | Criterion              | Zstd encode/decode across sizes and levels                               |
-| `hermes-core`  | `indexing`            | Criterion              | Text ingestion, commit, and document storage                             |
-| `hermes-core`  | `posting_compression` | Criterion              | Standalone posting codecs, distributions, seek, decode, and summary      |
-| `hermes-core`  | `vector_indexing`     | Criterion              | Coarse training, TQ block scoring, and IVF-TQ query plans                |
-| `hermes-core`  | `binary_vectors`      | Criterion              | Hamming kernels and binary coarse routing/build assignment               |
-| `hermes-core`  | `scann_vectors`       | Criterion              | Persisted float/binary ScaNN routing and FastScan scoring                |
-| `hermes-core`  | `dense_ann`           | Criterion              | Float routing, on-disk IVF-TQ search, and exact scoring kernels          |
-| `hermes-core`  | `bmp_vs_maxscore`     | Criterion              | Synthetic sparse retrieval, recall, latency, and build cost              |
-| `hermes-core`  | `bmp_hot_path`        | Criterion              | Wide-query BMP executor hot paths                                        |
-| `hermes-core`  | `bmp_reorder`         | Standalone             | Sparse latency/quality before and after reorder                          |
-| `hermes-core`  | `bmp_payload_layout`  | Criterion              | Sparse payload layouts under diffuse/clustered locality                  |
-| `hermes-core`  | `core_structures`     | Criterion              | Production posting containers, collectors, fast fields, and directories  |
-| `hermes-core`  | `search_pipeline`     | Criterion              | Multi-segment text/vector/fusion search plumbing                         |
-| `hermes-core`  | `rust_hot_paths`      | Criterion              | Range materialization, closures, and code-generation probes              |
-| `hermes-core`  | `segment_merge`       | Criterion              | RAM segment merges, deleted-row compaction, and PK deletion commits      |
-| `hermes-core`  | `hermes_benchmark`    | Standalone             | Dataset-driven dense MRL/nprobe, sparse, and single-term BM25 evaluation |
-| `hermes-llm`   | `moe_layer`           | Standalone; Linux CUDA | MoE forward/backward with and without router losses                      |
-| `hermes-llm`   | `moe_primitives`      | Standalone; Linux CUDA | Routing, packing, and expert-kernel costs                                |
-| `hermes-llm`   | `memory_reserve`      | Standalone             | Paired static/dormant and active-slot memory overhead                    |
-| `hermes-train` | `wake_tier_step`      | Standalone             | Complete wake step at due/non-due memory-tier clocks                     |
+| Package        | Target                | Harness                | Measures                                                                           |
+| -------------- | --------------------- | ---------------------- | ---------------------------------------------------------------------------------- |
+| `hermes-core`  | `compression`         | Criterion              | Zstd encode/decode across sizes and levels                                         |
+| `hermes-core`  | `indexing`            | Criterion              | Text ingestion, commit, and document storage                                       |
+| `hermes-core`  | `posting_compression` | Criterion              | Standalone posting codecs, distributions, seek, decode, and summary                |
+| `hermes-core`  | `vector_indexing`     | Criterion              | Coarse training, TQ block scoring, and IVF-TQ query plans                          |
+| `hermes-core`  | `binary_vectors`      | Criterion              | Hamming kernels and binary coarse routing/build assignment                         |
+| `hermes-core`  | `scann_vectors`       | Criterion              | Persisted float/binary ScaNN routing and FastScan scoring                          |
+| `hermes-core`  | `dense_ann`           | Criterion              | Float routing, on-disk IVF-TQ search, and exact scoring kernels                    |
+| `hermes-core`  | `bmp_vs_maxscore`     | Criterion              | Synthetic sparse retrieval, recall, latency, and build cost                        |
+| `hermes-core`  | `bmp_hot_path`        | Criterion              | Wide-query BMP executor hot paths                                                  |
+| `hermes-core`  | `bmp_reorder`         | Standalone             | Sparse latency/quality before and after reorder                                    |
+| `hermes-core`  | `bmp_payload_layout`  | Criterion              | Sparse payload layouts under diffuse/clustered locality                            |
+| `hermes-core`  | `core_structures`     | Criterion              | Production posting containers, collectors, fast fields, and directories            |
+| `hermes-core`  | `collector_selection` | Criterion              | Heap, bounded partial selection, and loser-tree collection with threshold feedback |
+| `hermes-core`  | `search_pipeline`     | Criterion              | Multi-segment text/vector/fusion search plumbing                                   |
+| `hermes-core`  | `rust_hot_paths`      | Criterion              | Range materialization, closures, and code-generation probes                        |
+| `hermes-core`  | `segment_merge`       | Criterion              | RAM segment merges, deleted-row compaction, and PK deletion commits                |
+| `hermes-core`  | `hermes_benchmark`    | Standalone             | Dataset-driven dense MRL/nprobe, sparse, and single-term BM25 evaluation           |
+| `hermes-llm`   | `moe_layer`           | Standalone; Linux CUDA | MoE forward/backward with and without router losses                                |
+| `hermes-llm`   | `moe_primitives`      | Standalone; Linux CUDA | Routing, packing, and expert-kernel costs                                          |
+| `hermes-llm`   | `memory_reserve`      | Standalone             | Paired static/dormant and active-slot memory overhead                              |
+| `hermes-train` | `wake_tier_step`      | Standalone             | Complete wake step at due/non-due memory-tier clocks                               |
 
 Sources: [core benches](../hermes-core/benches/),
 [LLM benches](../hermes-llm/benches/), and [training benches](../hermes-train/benches/).

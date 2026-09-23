@@ -22,6 +22,9 @@ claim as implemented or as current performance.
 - [Wikipedia benchmark results and evidence](search-benchmark-results.md)
 - [Score-bound follow-up and exact-ranking evidence](search-benchmark-ratio-results.md)
 - [Lucene 11 performance research](lucene-11-performance-research.md): pinned source findings and Hermes experiments.
+- [IResearch optimization and Linux I/O audit](iresearch-optimization-audit.md): benchmark-pinned mechanisms, Hermes coverage, remaining collector/codec gaps, and io_uring findings.
+- [Collector selection benchmark](collector-benchmark.md): heap, bounded partial selection, and loser-tree experiments.
+- [Yonik Searchbench comparison](searchbench-comparison.md): measured throughput, analyzer/count differences, and non-RGB/RGB phrase optimizations.
 - [Bulk-scoring follow-up](search-benchmark-bulk-results.md) — full-corpus exact-count batching results and remaining gaps.
 - [Bounded posting validation reuse](search-benchmark-validation-results.md): correctness, resource policy and measurements.
 - [Dictionary block and allocation experiments](search-benchmark-dictionary-results.md)
@@ -32,6 +35,7 @@ claim as implemented or as current performance.
 
 - [Hermes Schema Definition Language (SDL)](schema.md)
 - [Query language](query-language.md): required/prohibited clauses, precedence, and strict parsing.
+- [Wildcard queries](wildcard-query.md): whole-term core API, shared prefix execution and expansion budgets.
 - [Dynamic per-document stemming and wire-level phrase queries](dynamic-tokenizer-and-phrase.md)
 - [Chunked text fields: BM25 over passages with ordinals](chunked-text-fields.md)
 - [BM25 over equal-length chunks](chunked-bm25.md)
@@ -44,6 +48,7 @@ claim as implemented or as current performance.
 ## Storage, operations, and distributed search
 
 - [Hermes broker](broker.md)
+- [Topic-aware placement and N→M redistribution](topic-aware-placement.md) — proposed intra-shard topic routing, stable cells, similarity-aware merges, and local rewrite flows.
 - [Segment Lifecycle and Recovery](segment-lifecycle.md)
 - [Row deletion, upserts, and compaction](row-deletion.md)
 - [Content-hash deduplication](content-deduplication.md)

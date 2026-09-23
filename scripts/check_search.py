@@ -24,6 +24,7 @@ BENCHES = (
     "segment_merge",
     "search_pipeline",
     "core_structures",
+    "collector_selection",
     "bmp_hot_path",
     "rust_hot_paths",
 )
