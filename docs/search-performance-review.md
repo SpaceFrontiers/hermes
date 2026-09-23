@@ -20,9 +20,18 @@ stemmed/unstemmed fields, stop-word-only input, strict parsing, and plain-text
 fallback. The original regression failed before the fix; all 28 parser tests
 pass afterward with both default features and native-without-sync. The WASM
 release build and all 39 browser tests pass, including the new multilingual
-regression. The standard `python3 scripts/check_search.py check` passes ownership
-and formatting checks but stops at existing `stop_words::LANGUAGE` deprecations
-in `tokenizer/mod.rs`, because it treats warnings as errors.
+regression. The initial `python3 scripts/check_search.py check` run passed
+ownership and formatting checks but stopped at `stop_words::LANGUAGE`
+deprecations in `tokenizer/mod.rs`, because it treats warnings as errors.
+
+September 23 follow-up: the shared stop-word language mapping now uses
+`stop_words::Language`, imported as `StopWordLanguage` to distinguish it from
+Hermes's own `Language`. Comparing the old and new APIs for all 18 supported
+languages confirms byte-identical stop-word lists. Both APIs are generated from
+the same upstream enum definition; tokenizer behavior, serialized formats and
+allocation costs are unchanged. Strict search-stack and full-workspace Clippy
+now pass without allowing deprecations. The WASM release build and all 39 browser
+tests also pass.
 
 September 19: [range bitset word materialization](range-word-materialization.md)
 reduces measured warm filter-construction time by 39–66% on four Apple M4
