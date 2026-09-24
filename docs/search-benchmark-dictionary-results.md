@@ -43,7 +43,7 @@ reads smaller blocks. See the [preparation and invariants](search-benchmark-game
 
 Frozen dictionary-v1, before the later bounded writer-error follow-up and Zstd
 capacity fix. Full 5,032,104-document corpus, 962 official queries, same Cascade
-Lake n2-highmem-8 VM and Rust 1.98.1 native LTO. CPU 2, upstream complete-workload
+Lake n2-highmem-8 machine and Rust 1.98.1 native LTO. CPU 2, upstream complete-workload
 passes, ten-second warmup and seven samples. Values are geometric means of
 per-query median microseconds, including parsing and pipe round-trip, excluding
 index open and hydration. Both block and byte caps are identical across the
@@ -134,7 +134,7 @@ query sets and index manifests. The full executable archive has 136 verified
 members, 27,178,425 bytes, SHA-256
 `5a2129da5db4769146be22af82325cc5b15c3a8604b239263f5a4ff09ea35550`.
 All three fixture manifests and the original Hermes/Tantivy index manifests
-remain unchanged after timing. The VM remains in use for the separate allocation
+remain unchanged after timing. The machine remains in use for the separate allocation
 and conjunction experiments.
 
 ## ARM behavior and limitations
@@ -177,7 +177,7 @@ Dictionary-v2 passes the full eight-phase harness: 1,671 native tests, 26 ignore
 portable/native-without-sync compilation, API docs and real-server broker tests,
 plus the WASM build and 20 tests. The allocation candidate adds five regression
 and frame-boundary tests; its focused harness passes 1,676 native tests and the
-portable build, with all 20 WASM tests passing. Both dictionary and allocation evidence archives are verified. The VM remains
+portable build, with all 20 WASM tests passing. Both dictionary and allocation evidence archives are verified. The machine remains
 active for the execution-profile follow-up.
 
 A five-round paired ARM storage repeat now isolates the allocation change with

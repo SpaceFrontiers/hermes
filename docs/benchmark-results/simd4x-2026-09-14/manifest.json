@@ -20,7 +20,7 @@
     "Binaries and perf data are omitted from this compact bundle; exact hashes, frozen source, locks, run scripts, raw latency samples and gates are included.",
     "V1 uses library BitPacker4x for full blocks and exact horizontal tails. V2 retains existing rounded tails. Both are opt-in; the default remains rounded.",
     "Cloud rebuilds have different document-order hashes because indexing used four threads. Rebuild comparisons measure resulting indexes, not an isolated codec effect. Both ARM fixtures have matching document-order hashes across layouts.",
-    "Document-order binary arrays remain on the VM; the archives retain their SHA256, length and regeneration audit. Index files are represented by complete per-file manifests.",
+    "Document-order binary arrays remain on the machine; the archives retain their SHA256, length and regeneration audit. Index files are represented by complete per-file manifests.",
     "The whole-vocabulary impact-envelope storage audit is an offline format estimate, not a query speedup measurement or the actual future format size.",
     "CPU software sampling and smaps_rollup are diagnostic, separate from uninstrumented latency measurements.",
     "ARM results cover the same first 100,000 documents with canonical and normally merged position streams; they are not the full 5,032,104-document corpus."

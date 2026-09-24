@@ -31,7 +31,7 @@ python3 docs/benchmark-results/seismic-forward/summarize.py "$FORWARD_EVIDENCE"
 `FORWARD_QUERIES` points to the original CSR queries. `FORWARD_PRESSURE=1` adds
 Linux cgroup probes capped at 1 GiB with swap disabled, repeated in reverse
 order; these commands use the
-benchmark VM's `pasha` account. Warm trials have balanced ordering, 200 queries,
+benchmark machine's `pasha` account. Warm trials have balanced ordering, 200 queries,
 three passes with the first excluded, four search workers, and a 64 MiB metadata
 pin budget per segment. Independent top-10 and exhaustive probes compare IDs
 and scores with the clean baseline. Compiler overlap is monitored and rejected.

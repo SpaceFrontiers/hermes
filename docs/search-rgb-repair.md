@@ -462,8 +462,8 @@ process stop or script mutation. Those controls were not added and this run was
 not restarted. The latest pair-sums source has paired ARM RGB-off timings and
 x86 exact references; its x86 RGB-off latency was not remeasured. The earlier
 eight-engine x86 comparison remains a separate result. All immutable-index
-audits and the complete timing/memory export are verified before VM shutdown.
+audits and the complete timing/memory export are verified before machine shutdown.
 
-The VM is independently verified **TERMINATED** after all required downloads
+The machine is independently verified **TERMINATED** after all required downloads
 and correctness checks. Changes remain uncommitted. Shutdown polling lost its
 connection; the subsequent independent status check confirms completion.

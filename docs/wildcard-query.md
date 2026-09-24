@@ -33,8 +33,9 @@ the previous prefix path omitted this mapping.
 
 The type is exposed through the public core API, explicit query-language syntax
 `field:wildcard("pattern")` or `field:foo*bar?`, and the benchmark's declared wildcard families.
-A dedicated production protobuf variant and Lucene regexp syntax are separate
-interfaces, not implied by this API. This does not make the 826
+A dedicated production protobuf variant is a separate interface.
+[RegexQuery](regex-query.md) now supports whole-term regular expressions through
+the core API and explicit query-language syntax. This does not make the 826
 benchmark queries comparable: analyzer rebuilding, sloppy-phrase matching and
 escaped query syntax are still required. Broad patterns may exhaust explicit
 expansion budgets, as prefixes already do.
@@ -54,7 +55,7 @@ let query = WildcardQuery::text(body_field, "foo*bar?")?;
 ```
 
 The benchmark HTTP adapter accepts `wildcard`, `wildcard_scan` and
-`wildcard_lead` through this API. Its regex family remains explicitly unsupported.
+`wildcard_lead` through this API. Its regex family now uses the separate `RegexQuery`.
 The query-string API accepts `field:wildcard("pattern")` or unqualified
 `wildcard("pattern")` over the default fields. Pattern arguments use JSON string
 escaping, so a literal star is written as `wildcard("a\\*b")`. Bare patterns are
@@ -62,7 +63,7 @@ consumed as one query: `th*e` is no longer split into prefix `th*` OR term `e`.
 A single trailing star retains `PrefixQuery` execution. No full-corpus
 wildcard throughput or count agreement is claimed yet.
 
-A post-change capability check submits all 826 published expressions to the real
+The initial post-wildcard capability check submitted all 826 published expressions to the real
 HTTP adapter over a four-document fixture: **801 accepted, 25 explicit errors**
 (13 regex and 12 escaped-query syntax cases). All 145 wildcard expressions are
 accepted. This fixture deliberately does not establish 10M-corpus count agreement
@@ -72,3 +73,7 @@ Raw responses and binary/query hashes are retained in
 The native-only preflight separately accepts 730 expressions; its 83 syntax
 rejections include 71 sloppy phrases handled by the HTTP adapter's existing
 `PhraseQuery` translation, plus those same 12 escaped expressions.
+
+The subsequent [regex and escaped-literal follow-up](regex-query.md) accepts
+826/826 expressions on the same small fixture. This does not remove expansion
+limits or establish full-corpus parity.

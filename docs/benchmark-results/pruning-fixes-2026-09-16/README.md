@@ -80,10 +80,10 @@ claim. Failed setup logs remain identifiable as diagnostics.
 Native formatting, Clippy, tests and the native build without default sync
 features are recorded under `checks/`. Corruption, merge and exact-score
 regressions remain enabled. WASM builds are skipped per the user's instruction.
-The benchmark VM is stopped after the exported evidence is verified locally.
+The benchmark machine is stopped after the exported evidence is verified locally.
 The rejected inverse candidate was stopped after complete top-10 and top-1000
 measurements; its unfinished commands are excluded. All its child processes
 were drained before compiling and measuring the selected reader. Its separate
 planned residency audit was canceled; `memory-selected` is the final audit.
 
-The benchmark VM was confirmed `TERMINATED` after local export verification.
+The benchmark machine was confirmed `TERMINATED` after local export verification.

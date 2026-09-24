@@ -2122,6 +2122,5 @@
       ],
       "binary_sha256": "89f6d1d75194df3f536065cafabf75b509bfb3002047a57eaf083087f8268ea8"
     }
-  ],
-  "cleanup": "Ephemeral VM and boot disk deleted after archive hash verification; both resource-list queries returned no entries."
+  ]
 }

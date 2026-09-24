@@ -156,7 +156,7 @@ receive a separate full native/WASM run because it was also rejected.
 
 Apple M4 alternating runs reduced the million-document piecewise scan from
 3.325/3.643 ms to 1.614/1.684 ms. Unaffected controls were noisy and sometimes
-slower, so a dedicated Cascade Lake VM repeated the comparison with matching
+slower, so a dedicated Cascade Lake machine repeated the comparison with matching
 Hermes 1.8.146 binaries, Rust 1.98.1, unchanged release flags and CPU affinity.
 Both run orders confirmed the compressed-data improvement and the ordinary-filter
 regression. Compiler outlining shifted between the shared codec dispatcher and
@@ -182,7 +182,7 @@ runs is 36.21–36.38 MiB before and 36.06–36.15 MiB after on x86; the M4 rang
 are 39.42–40.05 and 39.38–40.27 MiB. These small differences do not establish
 retained-memory savings. Column encodings and output bitset sizes are unchanged.
 The remote archive was downloaded and SHA256-verified before deleting the
-isolated VM and its boot disk.
+isolated machine and its boot disk.
 
 The x86 matrix uses 13 cases, two alternating before/after pairs, two-second
 warmups and four-second measurements. The final boundary experiment uses six
@@ -272,7 +272,7 @@ avoid regression; their small gains are not attributed to lazy scorer batching.
 
 The final x86 RSS pairs peak at 36.21–36.34 MiB before and 36.39–36.51 MiB after.
 CPU 2 records zero steal ticks across all measured processes. The remote archive
-was downloaded and SHA256-verified before deleting the VM and boot disk.
+was downloaded and SHA256-verified before deleting the machine and boot disk.
 
 The complete `check` harness passes 2,031 tests (25 normally ignored), strict
 Clippy, native-without-sync and standalone broker compilation. All four async-only

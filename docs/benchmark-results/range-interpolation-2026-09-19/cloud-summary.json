@@ -1083,6 +1083,5 @@
       ],
       "binary_sha256": "d90f9e13e29e1e72c13f834127a97759f9562e6b6d41e1cfa8d90e99dca66e51"
     }
-  ],
-  "cleanup": "VM and boot disk deleted; both resource-list queries returned no entries."
+  ]
 }

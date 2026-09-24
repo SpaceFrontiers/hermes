@@ -1850,31 +1850,6 @@
       "bytes": 1826,
       "sha256": "4c627a8a2f9111692144ec69a91cb3feaae2cf241874686fc77ae4a1cb5d0cf7"
     },
-    "delivered/arm/vm-after-stop.json": {
-      "archive_path": "delivered/arm/vm-after-stop.json",
-      "bytes": 271,
-      "sha256": "0f0d52bdc50955596199533791a5353210894c9ef2191ee0cb5769f7034c7d22"
-    },
-    "delivered/arm/vm-after-stop.log": {
-      "archive_path": "adaptive-probe/arm/official/complete",
-      "bytes": 0,
-      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-    },
-    "delivered/arm/vm-final-status.json": {
-      "archive_path": "delivered/arm/vm-final-status.json",
-      "bytes": 273,
-      "sha256": "c198636038b523d12b6dda42fa1c34d2740a9744b8a16a16bc2dd5d406f03d93"
-    },
-    "delivered/arm/vm-final-status.log": {
-      "archive_path": "adaptive-probe/arm/official/complete",
-      "bytes": 0,
-      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-    },
-    "delivered/arm/vm-stop.log": {
-      "archive_path": "delivered/arm/vm-stop.log",
-      "bytes": 523,
-      "sha256": "a32cd9ee48967dae931bfaa88bdc08dca2bc4d837fc249fa90478c814727bdd4"
-    },
     "fine-graph/arm/build.log": {
       "archive_path": "fine-graph/arm/build.log",
       "bytes": 188,
@@ -3424,11 +3399,6 @@
       "archive_path": "adaptive-probe/arm/verify-compact.log",
       "bytes": 79,
       "sha256": "34dc991f2997e6fc6d707e9946a83fadbc1a80b1046a9cbc3e03c6e8069bc728"
-    },
-    "initial/arm/vm-start.log": {
-      "archive_path": "initial/arm/vm-start.log",
-      "bytes": 290,
-      "sha256": "8b552946b90bc3a7ed84a8119d53f47352122a2adca3ab5b6352ecf166a1ab5d"
     },
     "initial/arm/work-after-compact.jsonl": {
       "archive_path": "initial/arm/work-after-compact.jsonl",

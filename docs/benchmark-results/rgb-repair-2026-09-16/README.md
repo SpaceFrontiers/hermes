@@ -59,7 +59,7 @@ construction are documented in the
 6. Run the native harness and focused diagnostics. Portable compilation is
    recorded; WASM was skipped under the standing instruction.
 
-Scripts capture workspace and VM paths; adapt them deliberately. Do not overlap
+Scripts capture workspace and machine paths; adapt them deliberately. Do not overlap
 latency with builds, work diagnostics or memory sampling on the same machine.
 The rejected stale-build admission run and overlapping ARM warmup are excluded
 from all performance claims; their rejection is documented in the review.
@@ -97,6 +97,6 @@ its verification covers RGB-off, original RGB and SIMD RGB. The stale first
 release artifact was detected by hash before use and rebuilt from verified
 selected sources. `delivered` records the rejection, fresh build and verification.
 
-The VM is independently verified **TERMINATED** after all required downloads
+The machine is independently verified **TERMINATED** after all required downloads
 and correctness checks. Changes remain uncommitted. Shutdown polling lost its
 connection; the subsequent independent status check confirms completion.

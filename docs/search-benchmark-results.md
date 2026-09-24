@@ -6,7 +6,7 @@ reference engines, but Hermes still trails Tantivy by 2.24–3.59× across the f
 commands. Frequent standalone-term ranking remains the largest gap.
 
 This is the full 5,032,104-document Search Benchmark, the Game workload, with
-962 official queries, measured on a dedicated GCloud `n2-highmem-8` VM (Intel
+962 official queries, measured on a dedicated GCloud `n2-highmem-8` machine (Intel
 Xeon 2.80 GHz, 64 GiB RAM). Search drivers and children were pinned to CPU 2;
 indexing, compilation and profiling did not overlap timed search. Both Rust
 engines used rustc 1.98.1 / LLVM 22.1.8, native CPU instructions and release LTO.
@@ -337,7 +337,7 @@ with that evidence to recreate the paired baseline. The final workspace overlay
 and its manifest are also saved locally as `.context/final-workspace-overlay.tar.gz`
 and `.context/final-workspace-manifest.json`.
 
-The benchmark VM and its auto-delete boot disk were removed after the full
+The benchmark machine and its auto-delete boot disk were removed after the full
 archive checksum and all frozen binary checksums were verified. No benchmark
 cloud resources remain.
 

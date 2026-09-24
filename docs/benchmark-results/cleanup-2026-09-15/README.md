@@ -29,7 +29,7 @@ cloud results. The `cloud/` prefix preserves downloaded remote evidence.
 Executable binaries and corpus/index payloads are omitted from this compact
 archive; their hashes are retained. The full downloaded remote archive was
 verified against its external SHA-256 and all 62 manifest entries before the
-owned VM was stopped. Its disks and fixtures remain preserved.
+owned machine was stopped. Its disks and fixtures remain preserved.
 
 ## Reproducing the comparisons
 
@@ -44,7 +44,7 @@ restored separately from the preserved benchmark workspace.
   Tantivy binary hashes, tests the candidate, checks both variants' raw oracles,
   and launches `cloud/inputs/cloud-paired.py`. Its workspace paths and create-only
   output directories require adapting for a fresh rerun.
-- Cloud latency uses the same Cascade Lake VM, Rust 1.98.1, native CPU flags,
+- Cloud latency uses the same Cascade Lake machine, Rust 1.98.1, native CPU flags,
   release LTO, CPU 2, unchanged 5,032,104-document indexes, 962 official queries
   and 714 supplemental terms. Seven complete passes rotate engine order after
   at least ten seconds of command warmup. Reports use geometric means of

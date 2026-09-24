@@ -8840,16 +8840,6 @@
       "bytes": 1104,
       "sha256": "5e636cd0bf3581407b8ba2042ff10303943de4870dd5286e11483447321009fc"
     },
-    "compact-text/vm-status.log": {
-      "archive_path": "compact-text/vm-status.log",
-      "bytes": 11,
-      "sha256": "95823108f25102c15d88f11839509742d2684a5813846901b96ee527ed3f4e63"
-    },
-    "compact-text/vm-stop.log": {
-      "archive_path": "compact-text/vm-stop.log",
-      "bytes": 523,
-      "sha256": "a32cd9ee48967dae931bfaa88bdc08dca2bc4d837fc249fa90478c814727bdd4"
-    },
     "compact-text/write-report.py": {
       "archive_path": "compact-text/write-report.py",
       "bytes": 8544,

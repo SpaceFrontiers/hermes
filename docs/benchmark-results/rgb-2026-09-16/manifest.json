@@ -530,16 +530,6 @@
       "bytes": 856,
       "sha256": "1517244d4aa944ea52141cb7296af16eb03513470d36937e03bf98e4993e3703"
     },
-    "arm/vm-status.json": {
-      "archive_path": "arm/vm-status.json",
-      "bytes": 123,
-      "sha256": "f0638938604315a17e6f47dedda69daa5aead4940324521557b0dde8e2a4cfff"
-    },
-    "arm/vm-stop.log": {
-      "archive_path": "arm/vm-stop.log",
-      "bytes": 525,
-      "sha256": "3fcd73548f06e2ef7bda30980a9f7ae9ae3f2c2c194f9926a29a5f758fe93520"
-    },
     "arm/work-compact.jsonl": {
       "archive_path": "arm/work-compact.jsonl",
       "bytes": 3886839,

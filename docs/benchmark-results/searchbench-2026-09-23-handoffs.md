@@ -197,10 +197,10 @@ to both Hermes variants. No indexing or corpus rewriting occurs. RGB and impact
 indexes remain separate; impacts remain disabled. Normal builds do not enable
 query diagnostics.
 
-Before and after were built on the same 8-vCPU build VM during one boot, with
+Before and after were built on the same 8-vCPU build machine during one boot, with
 the pinned Rust 1.98.1 toolchain, release mode and `-C target-cpu=native`. All
 transfers and compilation finished before timing on the 32-vCPU Cascade Lake
-benchmark VM. The standard baseline includes the same diagnostic scaffolding
+benchmark machine. The standard baseline includes the same diagnostic scaffolding
 compiled out, isolating the response representation change. This is a fresh
 paired comparison, not a comparison against selected numbers from an earlier
 boot or session.
@@ -265,7 +265,7 @@ rerun; no production protocol or lifecycle mechanism changed.
 An initial local example compile failed because the new serializer required a
 direct `serde` dev-dependency; the manifest/lock entry was corrected using the
 already pinned workspace version. The subsequent tests and builds pass. The
-build VM's cloud stop command lost its polling connection, but independent cloud
+build machine's cloud stop command lost its polling connection, but independent cloud
 status confirmed shutdown; no timed sample was affected.
 
 The source/build archive is downloaded and SHA-256 verified as
@@ -288,7 +288,7 @@ profile was taken in this follow-up; earlier raw profiles remain in the
 
 Temporary transfer keys are removed and host restrictions are restored. Both
 cloud stop commands lost their polling connection; independent cloud status
-confirms **both VMs `TERMINATED`** after evidence verification. No benchmark work
+confirms **both machines `TERMINATED`** after evidence verification. No benchmark work
 remains running. Final documentation links, ownership contracts, Python checks
 and `git diff --check` pass.
 

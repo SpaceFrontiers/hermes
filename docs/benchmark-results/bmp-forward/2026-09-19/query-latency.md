@@ -109,7 +109,7 @@ measurement did not add another runtime scorer, codec or compatibility reader.
 
 ## Fixture and query workload
 
-Measured on 2026-09-19. The follow-up uses a separate isolated Linux VM and public `Searcher::search`
+Measured on 2026-09-19. The follow-up uses a separate isolated Linux machine and public `Searcher::search`
 and `Searcher::score_candidates` APIs. Nine 100,000-row windows of genuine
 retained passage vectors preserve document grouping (42,596 documents total).
 No production query set was available: 216 deterministic 16-term queries come
@@ -161,7 +161,7 @@ not saturated concurrent throughput. Per-query time includes query preparation,
 retrieval where selected, candidate scoring and final sorting. It excludes index
 open, correctness serialization, RPC, document hydration and model inference.
 
-The benchmark uses an isolated 8-vCPU Intel Cascade Lake Linux VM and a
+The benchmark uses an isolated 8-vCPU Intel Cascade Lake Linux machine and a
 1,000 GiB Google Cloud pd-ssd disk, Rust 1.98.1, release thin LTO,
 one codegen unit and `-C target-cpu=native`. Both binaries use the same dependency
 lockfile and compiler. Metadata pin mode is `copy` with a 64 MiB per-segment
@@ -173,7 +173,7 @@ isolated memory/I/O evidence.
 
 The first memory trials had no `io.stat` because systemd's I/O controller was
 not enabled for service cgroups. Their disk-read values are recorded as absent,
-not zero. I/O accounting was enabled on the isolated VM during the reversed
+not zero. I/O accounting was enabled on the isolated machine during the reversed
 1 GiB raw pipeline run; that partial interval is also excluded from I/O totals.
 Subsequent runs expose counters before and after the workload. Page-fault and
 memory measurements are available for every completed trial. The checked-in
@@ -228,7 +228,7 @@ forward storage. It does not imply that ordinary sparse retrieval needs this
 additional scoring pass.
 
 This measures one sparse field in one rebuilt segment, one request at a time,
-on the stated VM/storage. It does not establish production-server latency,
+on the stated machine/storage. It does not establish production-server latency,
 concurrent QPS, relevance/recall, BP rebuild cost, or performance for other query
 widths, ranking plans and candidate limits. The standalone ARM row benchmark
 uses a different accumulator and omits the full candidate pipeline; its CPU
@@ -246,7 +246,7 @@ All **52 runs / 9,856 timed requests** completed, with **26 matching raw/packet
 pairs** for every returned document ID and score bit. An independent offline
 comparison matched all **900,000 source vectors / 146,460,740 entries**, their
 logical document/ordinal mapping, and the unchanged **900,363,945-byte** inverted
-prefix. The archive was downloaded and SHA-256 verified. The VM is confirmed
+prefix. The archive was downloaded and SHA-256 verified. The machine is confirmed
 `TERMINATED`; production files and settings were only read.
 
 This task added benchmark tooling and documentation, without changing the

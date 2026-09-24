@@ -32,5 +32,5 @@ The larger local `.context/hermes-ratio-benchmark-evidence.tar.gz` additionally
 contains frozen source overlays, the base Git bundle, Linux/ARM binaries,
 complete cloud evidence and the ARM corpus prefix. It has a checksum sidecar.
 The older `.context/hermes-benchmark-evidence.tar.gz` and original versioned
-results bundle remain intact. The follow-up VM is deleted after preservation;
+results bundle remain intact. The follow-up machine is deleted after preservation;
 cleanup evidence is included with this bundle.

@@ -191,15 +191,15 @@ cell. The separate count-repeatability run uses four fresh processes in
 before/borrowed/borrowed/before order, with the same 30/4 settings, ten seconds of
 warmup and three ten-second repetitions for conjunction counts at 32 clients.
 All throughput comparisons use uninstrumented builds. No compile, copy, index
-build or competing benchmark overlaps a timed session on the benchmark VM.
+build or competing benchmark overlaps a timed session on the benchmark machine.
 
 The before and borrowed-response binaries are the previously paired release
 builds from the same 8-vCPU build-host boot, pinned Rust 1.98.1 and
 `-C target-cpu=native`. They are reused without rebuilding. All runs here share
-one fresh boot of the 32-vCPU Cascade Lake benchmark VM, one immutable ordinary
+one fresh boot of the 32-vCPU Cascade Lake benchmark machine, one immutable ordinary
 10M-document index, and the same disjoint server/driver CPU allocation. Prior
 session throughput is context only; it is not the control for this experiment.
-The build VM remains stopped throughout.
+The build machine remains stopped throughout.
 
 ## Correctness, scope and validation
 
@@ -224,9 +224,9 @@ Ruff 0.16.0, Python compilation and CLI parsing. WASM and full production RPC te
 were not rerun in this configuration-only follow-up; the preceding WASM release
 build and 39 JavaScript tests remain the latest validation of the unchanged code.
 
-The VM start command lost its cloud polling connection and the first SSH attempt
+The machine start command lost its cloud polling connection and the first SSH attempt
 arrived before port 22 was ready. Independent status and a successful retry
-established the running VM before timing; no timed cell was affected. A scheduled
+established the running machine before timing; no timed cell was affected. A scheduled
 shutdown was installed before the campaign. Raw failures and recovery are retained.
 
 Borrowed-response binary SHA-256:
@@ -272,8 +272,8 @@ Final evidence is downloaded, size-checked and SHA-256 verified as
 settings, binary hashes, source scripts and run logs. No new `perf` profile was
 taken; the prior handoff diagnostics and conjunction perf profiles remain separate evidence.
 
-Host restrictions are restored and no temporary inter-VM transfer keys were
+Host restrictions are restored and no temporary inter-machine transfer keys were
 created. The benchmark stop command lost its polling connection; independent
-cloud status confirms **both VMs `TERMINATED`** after evidence verification.
+cloud status confirms **both machines `TERMINATED`** after evidence verification.
 No benchmark work remains running. Final documentation links, ownership
 contracts, Python/Ruff and diff checks pass.

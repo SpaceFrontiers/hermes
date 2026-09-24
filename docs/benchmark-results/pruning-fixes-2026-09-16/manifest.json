@@ -1255,26 +1255,6 @@
       "bytes": 1998,
       "sha256": "cc7a99272550b737aec71d40e2747601275cdc65ec6388ea3bce6cc9d94966a2"
     },
-    "arm/vm-final-status.json": {
-      "archive_path": "arm/vm-final-status.json",
-      "bytes": 70,
-      "sha256": "74b9a09d3cc70d0658770eb94a99995ea1e009c54cce7ea09457e06a2e571666"
-    },
-    "arm/vm-platform-before-stop.json": {
-      "archive_path": "arm/vm-platform-before-stop.json",
-      "bytes": 66,
-      "sha256": "b76ab613dcd0bbe0a692cc443f973bb1d1f1aae4ce91957be156cf03e9a14902"
-    },
-    "arm/vm-start.log": {
-      "archive_path": "arm/vm-start.log",
-      "bytes": 287,
-      "sha256": "81d73f9e77a0e596de89c3e7b50984603ed69817f9e6685d382dc40eacac72fa"
-    },
-    "arm/vm-stop.log": {
-      "archive_path": "arm/vm-stop.log",
-      "bytes": 523,
-      "sha256": "a32cd9ee48967dae931bfaa88bdc08dca2bc4d837fc249fa90478c814727bdd4"
-    },
     "baseline-work/arm-quantized.jsonl": {
       "archive_path": "baseline-work/arm-quantized.jsonl",
       "bytes": 14440188,

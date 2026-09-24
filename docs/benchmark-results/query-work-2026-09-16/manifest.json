@@ -159,10 +159,6 @@
     "bytes": 143257,
     "sha256": "14849099df26be696f47ddfddd34bb9ccc18f300936c093e92c6c6e25e6984f7"
   },
-  "checks/vm-status.log": {
-    "bytes": 11,
-    "sha256": "95823108f25102c15d88f11839509742d2684a5813846901b96ee527ed3f4e63"
-  },
   "reports/query-work-diagnostics.md": {
     "bytes": 5555,
     "sha256": "547a741dc2df80b994ccd06841f53e1670cd89190670989a40c46e1765fca0f0"

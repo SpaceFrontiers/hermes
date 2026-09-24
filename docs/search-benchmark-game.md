@@ -56,7 +56,7 @@ masked ranked-search or deletion-publication performance.
 ## Measurement plan
 
 Run Hermes and upstream Tantivy 0.26, then Lucene 10.4.0 where its build is
-available, on the same dedicated Linux VM. Pin compiler and release flags
+available, on the same dedicated Linux machine. Pin compiler and release flags
 (`-C target-cpu=native` for both Rust engines). Keep upstream query order,
 commands, warmup and repetitions, retaining all samples as well as its minimum
 statistic. Also report per-query median ratios and grouped p50/p95/p99, so one

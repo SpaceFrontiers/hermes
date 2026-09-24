@@ -12,4 +12,4 @@ admission changes are outside this snapshot.
 sizes are in `manifest.json`. The complete executable archive remains in the
 workspace as `.context/zstd-capacity-cloud-evidence.tar.gz` (18,519,983 bytes), SHA-256
 `60a9c95e44c5a52f7682ca444a4dacae25da3bcac7edf60c4d3b2c81a439c11a`. Every member and unchanged index manifest was verified after download.
-The VM remains available for follow-up experiments.
+The machine remains available for follow-up experiments.

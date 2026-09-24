@@ -65,7 +65,7 @@ collection. All immutable index bytes match after timing and audits.
 
 WASM is not rebuilt per user instruction. Cold-cache, concurrent merge/ingest,
 lifecycle/RPC `full`, and other CPU architectures are unrun for this traversal
-change. Hardware cache/branch counters are unavailable on the VM. Existing RGB
+change. Hardware cache/branch counters are unavailable on the machine. Existing RGB
 merge/lifecycle work is separate and unfinished. No format/default or norm
 precision change is included. Source changes remain uncommitted.
 
@@ -90,6 +90,6 @@ latency result was changed and failed logs remain in the archive.
 - [SHA-256 manifest](manifest.json)
 
 All timing, memory and byte audit archives are verified locally. The owned
-validation VM is confirmed **TERMINATED**. The stop operation's polling
+validation machine is confirmed **TERMINATED**. The stop operation's polling
 connection reset; a separate direct status query confirmed termination, and
 both logs are preserved.

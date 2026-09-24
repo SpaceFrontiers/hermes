@@ -27,7 +27,7 @@ top-10 and phrase top-10/count. Profiles warm for at least five seconds then
 sample CPU time for at least ten seconds, with DWARF stacks. Profile timings are
 not used as latency evidence. Hardware PMU events were unsupported; unresolved
 stack frames limit inclusive attribution. Raw self reports and process memory
-are retained; large `perf.data` captures remain on the stopped owned VM.
+are retained; large `perf.data` captures remain on the stopped owned machine.
 
 Every logical file is listed in `manifest.json`, with size, SHA-256 and
 `archive_path`. Byte-identical files share a stored ZIP entry. All downloaded
@@ -85,6 +85,6 @@ Clippy. Portable compilation passes with an existing dead-code warning for
 WASM is skipped under the standing user instruction. Lifecycle/RPC, cold-cache,
 concurrent-ingest, p95/p99 and the upstream runner are not new measurements here.
 
-`cloud-stopped.log` confirms the owned VM is TERMINATED. The stop command lost
+`cloud-stopped.log` confirms the owned machine is TERMINATED. The stop command lost
 its connection while polling; direct status verification resolved its state.
-All downloads and evidence members were verified before stopping the VM.
+All downloads and evidence members were verified before stopping the machine.

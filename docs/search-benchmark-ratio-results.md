@@ -1,15 +1,15 @@
 # Score-bound follow-up (2026-09-13)
 
 The final candidate improves all 714 terms by **2.89× for TOP_10** and
-**1.65× for TOP_1000**, on the same full-corpus index and VM. The official
+**1.65× for TOP_1000**, on the same full-corpus index and machine. The official
 962-query ranked commands improve by only **1.8–3.2%** overall; Hermes still
 trails Tantivy by **2.12–3.37×** across the five commands. This is a targeted
 improvement, not a fastest-engine claim.
 
 This follow-up targets the frequent-term ranking gap identified in the
 [initial full-corpus benchmark](search-benchmark-results.md). Results below are
-from a new dedicated VM and newly built index; absolute times must not be
-compared with the previous VM. The original report remains historical evidence.
+from a new dedicated machine and newly built index; absolute times must not be
+compared with the previous machine. The original report remains historical evidence.
 
 ## Why Hermes still trails
 
@@ -81,7 +81,7 @@ workload has complete exact membership and exhaustive ranking gates.
 The corpus has 5,032,104 documents; the upstream suite has 962 queries. The
 supplement contains all 714 distinct terms from those queries, without selection.
 Upstream revision, corpus and query hashes are the same as the original report.
-The new VM is `hermes-bounds-moroni`, GCloud `n2-highmem-8`, Intel Cascade Lake,
+The new machine is `benchmark-host`, GCloud `n2-highmem-8`, Intel Cascade Lake,
 64 GiB RAM, Ubuntu 24.04. Both Rust engines use rustc 1.98.1, native instructions
 and release LTO. Each index is merged to one segment; the corpus has ordinary
 positioned text and no deletions. Deletion and chunk correctness are tested
@@ -160,7 +160,7 @@ The main same-index comparison has essentially unchanged peak process RSS:
 RSS includes resident mmap pages and heap; it is not a measurement of heap
 allocation alone. These are `/usr/bin/time -v` peaks for each fresh process
 through warmup and all timed repetitions. Tantivy search RSS was not instrumented
-in this follow-up; the original report's memory comparison belongs to its own VM.
+in this follow-up; the original report's memory comparison belongs to its own machine.
 
 A separate same-binary/same-index cache comparison raises dictionary capacity
 from 256 to 1,024 blocks. Across all 714 terms, TOP_10 is 438.655/322.501 µs
@@ -191,7 +191,7 @@ before/after total-size comparison; changed dictionary offsets can also affect
 compression. The arrays are mmap-backed and evictable, not all forced into
 resident heap. The builder took 6m51.64s and peaked at 14,416,680 KiB RSS; no
 indexing-speed claim is made because there is no paired build-time baseline on
-this VM. The 2 GB builder setting is not a process RSS limit.
+this machine. The 2 GB builder setting is not a process RSS limit.
 
 The final single-term diagnostic records 329,714 scored blocks and 451,011
 skipped blocks (57.77%), including 8,315 group skips. Its block counts are not
@@ -294,6 +294,6 @@ is `IndexConfig.term_cache_blocks`. See the [complete protocol and runtime
 controls](search-benchmark-game.md#runtime-controls) for normal indexing arguments,
 compiler flags, commands and exact/exhaustive verification.
 
-The temporary VM `hermes-bounds-moroni` and its automatic-delete boot disk were
+The temporary machine `benchmark-host` and its automatic-delete boot disk were
 deleted after the cloud archive was downloaded and verified. Both resource
 list checks return empty; cleanup evidence is included in the local bundle.

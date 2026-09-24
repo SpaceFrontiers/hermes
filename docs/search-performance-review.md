@@ -1,5 +1,51 @@
 # Core/server review — 2026-09-05
 
+September 24 query compatibility: [whole-term regex queries and escaped literals](regex-query.md)
+add the 13 missing benchmark regex expressions and 12 punctuation/escape cases.
+Regex and wildcard share bounded dictionary matching and the existing union
+scorer, including constant scores, logical RGB IDs and chunked-field rejection.
+Pattern calls reject unindexed/nontext/unknown fields explicitly. The parser
+unescapes literal terms once, preserving field analysis, and rejects malformed
+regex calls and dangling escapes. No format, schema, worker or scoring default
+changes; no index rebuild is needed for the query types.
+
+The [reproducible HTTP probe](benchmark-results/query-support-2026-09-24/README.md)
+accepts 826/826 expressions on the unchanged four-document fixture, up from 801.
+Every previously accepted response is unchanged. Regression tests first failed
+on missing regex behavior and punctuation parsing, then passed for all 13 regex
+patterns with nonempty exact-ID/count oracles, Unicode/case/anchoring, Boolean
+composition, duplicate terms, RGB mapping, invalid syntax and expansion errors.
+
+Validation: the search `check` harness passes all five stages, 2,054 tests
+(25 ignored), strict Clippy, native-without-sync and standalone broker checks.
+All eight focused regex/wildcard tests also pass with async-only native features.
+The WASM release build and all 41 JavaScript tests pass. Documentation and Python
+checks pass. No lifecycle or wire protocol changed; the full RPC harness was not
+rerun. Capability checks are not performance measurements. Remaining work is
+full-corpus count/ranking agreement, standard-analyzer compatibility, sloppy-phrase
+semantics and broader bounded expansion; the throughput gate remains 15/826.
+
+September 24: the [ranked conjunction and phrase follow-up](ranked-pruning-followup.md)
+retains fixed-block cursor seeks, locally guarded rare-term conjunction seeking,
+certified phrase bounds/singleton probes, serial two-term native reader setup,
+and a bounded score-floor pilot for expensive mapped ranked phrases. On the
+same immutable 10M indexes, two reversed-order rounds improve RGB low-phrase
+top-10 throughput 155.0% and medium-phrase top-100 44.0%; ordinary
+conjunction top-10 changes +3.1% and still trails fresh Luxir. Exact audit and
+response bytes agree. The report includes CPU/request, RSS and anonymous RSS,
+count controls, rejected variants and measured ARM regressions, including the
+noisy +17.8% RGB rare-conjunction/top-100 cell. This targeted 15-query run is not
+the complete 826-query suite or an isolated RGB ablation. No persisted format,
+schema or public configuration default changes; no reindex is needed.
+
+Validation passes the search `check` harness (2,049 tests, 25 ignored), strict
+Clippy, native-without-sync, focused async regressions, diagnostic-feature checks,
+and the WASM build plus 40 JavaScript tests. Remaining work includes all-query,
+cold, multi-segment and further ARM measurements. Evidence was verified and both
+cloud machines were confirmed stopped. The separate [score-guided traversal research](score-guided-traversal.md)
+proposes longer skips and query-dependent region ordering; no new persisted
+hierarchy is claimed as implemented.
+
 September 23: issue #185 reproduced at the index boundary: with `en_stem` before
 `lex(segmenter: unicode)`, `棕毛狐狸` returned no hits although the qualified
 Chinese query matched. Both unqualified terms and the permissive plain-text
@@ -3211,7 +3257,7 @@ the final x86 core suite passes 1,442 tests (17 ignored). All official and
 supplemental exactness gates pass. Raw samples, source/binary hashes, profiles
 and logs are preserved in the checksum-verified evidence archive.
 
-The benchmark VM and boot disk were deleted after evidence verification.
+The benchmark machine and boot disk were deleted after evidence verification.
 
 ## Score-bound follow-up — 2026-09-13
 
@@ -3241,7 +3287,7 @@ ranked commands improve by only 1.8–3.2%; exact-count commands remain flat, an
 Hermes still trails Tantivy by 2.12–3.37× across the five commands. Peak process
 RSS increases by 0.38–1.27 MiB per official command. All 1,676 final x86 query
 gates pass, including exact counts against Tantivy and ordered Hermes IDs/score
-bits against exhaustive scoring. These measurements use a new VM/index and
+bits against exhaustive scoring. These measurements use a new machine/index and
 must not be multiplied into the original report's speedups.
 
 The ratio arrays occupy 104,200,464 bytes (99.37 MiB), 1.92% of this index;
@@ -3375,7 +3421,7 @@ Full harness and WASM pass, with 1,656 native tests including two supplemental
 mmap/admission tests, plus all 1,676 ARM exact-count/score-bit gates under both
 budgets. Official ARM commands improve 1–3%; the supplemental terms instead slow
 roughly 1–3%. Single-term COUNT varies even though it bypasses external postings.
-Full-corpus x86 timing, RSS and profiles are complete below; the VM remains
+Full-corpus x86 timing, RSS and profiles are complete below; the machine remains
 active for the next dictionary experiment.
 
 The validation-cache full-corpus follow-up is complete: unchanged index bytes,
@@ -3400,7 +3446,7 @@ The final writer-fix run confirms the layout gain: matched 16/4 KiB
 TOP100+exact count is 1,961.198 / 1,749.443 µs, versus Tantivy 852.032 µs.
 All 136 executable-archive members and unchanged index manifests are verified;
 the report links a compact reproducible bundle. Allocation and conjunction
-cloud runs remain separate and in progress, with the VM still active.
+cloud runs remain separate and in progress, with the machine still active.
 
 ## Adaptive conjunction counting (2026-09-13, in progress)
 
@@ -3491,7 +3537,7 @@ algorithms, while retaining independent exact-count and exhaustive-ranking gates
 Both engines were profiled sequentially on the same CPU and immutable indexes,
 using all 962 official queries and all 714 supplemental terms. Each scope ran
 complete warm-up passes for at least five seconds and sampled complete workload
-passes for at least twenty seconds. The VM exposes no hardware performance
+passes for at least twenty seconds. The machine exposes no hardware performance
 counters; results use `cpu-clock:u` at 997 Hz and software task-clock. Instrumented
 throughput is diagnostic, not a replacement latency benchmark. Stack unwinding
 is incomplete, so the following attribution uses self samples only.
@@ -3851,7 +3897,7 @@ Both full archives were downloaded and every manifest entry verified: V1
 `a19f929e8289f04e6a9f93bcf74fbf4055761df14cd7c9ffc062c68d13cbad43`,
 144 files. The compact bundle verifies 362 entries and retains frozen source,
 locks, exact commands, raw results and index/document-order manifests; raw
-binaries/perf data remain in full archives, and document-order arrays on the VM.
+binaries/perf data remain in full archives, and document-order arrays on the machine.
 Its SHA-256 is `7fa3a3b8e3d49475a9b235b8e7ea216a8750660fd4b9ef5d3a9ec15fbdcf126d`.
 
 ### Competitive-impact implementation, before timing
@@ -5201,7 +5247,7 @@ canonical fixture and 55,279,616/54,640,640 on the merged fixture. RSS includes
 mapped pages and is not a heap or scratch-capacity measurement.
 
 Cloud authentication is restored. The full-corpus continuation builds both
-frozen sources on the original Cascade Lake VM, with the same compiler, native
+frozen sources on the original Cascade Lake machine, with the same compiler, native
 CPU flags, LTO and unchanged indexes. It independently gates both binaries
 against exhaustive ranking, the prior cross-source score-bit oracle and Tantivy
 counts before timing all queries. Compilation, validation, hashing and profiling
@@ -5256,7 +5302,7 @@ pins the selected source hashes. WASM was not rebuilt, per the user's instructio
 now concentrated in intersections (537.637 versus 360.507), phrases (607.099
 versus 474.557) and standalone terms, not in query-shape execution gaps.
 Original upstream-runner confirmation for the phrase and required-window
-changes has not been run. The benchmark VM is stopped, not deleted; its indexes
+changes has not been run. The benchmark machine is stopped, not deleted; its indexes
 and evidence remain on its boot disk.
 
 ### Proposed score rejection before heap-key comparison
@@ -5445,7 +5491,7 @@ deletion predicates (addressed for composites in the continuation below); reuse 
 proofs without warming or retaining corpus payloads; and address the larger
 intersection/phrase/single-term execution gap. These are proposals, not selected
 changes. Original upstream-runner confirmation of post-OR changes, cold-cache,
-concurrent-ingest and tail-latency measurements remain unrun. The preserved VM
+concurrent-ingest and tail-latency measurements remain unrun. The preserved machine
 is stopped after successful archive download and verification.
 
 ### Filtered collection windows — proposal, September 15
@@ -5532,7 +5578,7 @@ rounded, grouped-impact and Tantivy index hashes are unchanged. Three downloaded
 archives have verified external hashes and exact entry manifests; each entry's
 size and SHA-256 is checked before packaging.
 
-Same preserved Cascade Lake VM, Rust 1.98.1, native CPU flags, LTO, CPU 2,
+Same preserved Cascade Lake machine, Rust 1.98.1, native CPU flags, LTO, CPU 2,
 5,032,104 documents; seven rotated complete passes and ten-second warmup.
 Fixed-mask before/after geometric means of per-query medians (µs):
 
@@ -5592,7 +5638,7 @@ selective filters, masked ranked pruning, cold-cache, concurrent-ingest and
 tail-latency measurements remain unrun. Original upstream-runner confirmation
 of post-OR changes is also outstanding.
 
-The preserved benchmark VM was stopped after all jobs and verified downloads;
+The preserved benchmark machine was stopped after all jobs and verified downloads;
 its final cloud status is `TERMINATED`.
 
 ### Parity and BMP-equivalent MaxScore reordering — September 15 proposal
@@ -5798,7 +5844,7 @@ full native checks (local archive `benchmark-results/parity-2026-09-15/native-ch
 selected, rejected and invalid attempts, with explicit identities and corrected
 rebuild recipes. Every transferred archive and packaged entry is hash-verified.
 
-The owned benchmark VM is confirmed `TERMINATED` after all runs and verified
+The owned benchmark machine is confirmed `TERMINATED` after all runs and verified
 downloads. The stop command's status polling encountered a connection reset;
 a subsequent direct status check confirmed shutdown. Changes remain uncommitted.
 
@@ -5837,7 +5883,7 @@ byte-gap SIMD decode 7.26%, seek wrapper 6.99%. Phrase TOP_10: candidate alignme
 identify where this binary spends CPU time, not predicted speedups or latency
 measurements. DWARF call stacks contain unresolved frames; self symbols are used
 for attribution. Hardware cycles, instruction, branch and cache counters are
-unsupported on this VM, so the profiles do not establish a cache-miss rate or
+unsupported on this machine, so the profiles do not establish a cache-miss rate or
 cycles per decoded posting. No page faults occurred during the sampled AND run.
 
 A separate proposed seek experiment narrows the iterator's decoded suffix by
@@ -6482,7 +6528,7 @@ to executor dispatch, 9.69% to block bounds, 8.32% to checked ID decoding and
 8.27% to canonical scoring. The actual binary emits a four-way unrolled scalar
 loop with an ID bounds branch, 16-bit load and output store per lane. Both engine
 profiles, binary hashes and 17 archive members are verified. No hardware cycles,
-branch or cache counters are exposed by this VM; perf reports them unsupported.
+branch or cache counters are exposed by this machine; perf reports them unsupported.
 Sampling fractions are not a predicted latency reduction.
 
 Test an owning-structures primitive that gathers eight little-endian u16 lengths
@@ -6544,7 +6590,7 @@ COUNT query and after each of three complete passes of each command. Aggregate
 RSS/PSS/anonymous/locked bytes by mapped file, retain high-water RSS, and compare
 pass stability. This is a memory attribution run with no latency claims. Verify
 index hashes afterward and package every snapshot and script before stopping
-the VM.
+the machine.
 
 ### Vector document-length gather — rejected
 
@@ -6737,7 +6783,7 @@ TOP10 still attributes 25.81% of sampled self CPU to `DocLengths::gather_lengths
 10.86% to block bounds and 9.36% to checked doc-ID decoding. Phrase COUNT has
 23.12% in posting seek, 10.53% in position reads and 6.38% in logical position
 lookup. Hardware cycles/instructions/branch/cache counters are unsupported on
-the VM; CPU-clock samples work. These samples select experiments, not substitute
+the machine; CPU-clock samples work. These samples select experiments, not substitute
 for unprofiled latency or prove that file size alone causes the runtime gap.
 
 ### Final cache-plus-position source — verified September 16
@@ -6885,7 +6931,7 @@ concurrent performance and judged relevance are unmeasured.
 Final 335-file source SHA-256:
 `fa9e4bf6c205058c84f35717015c4527e1aa3d19196e11b0dd18a79c52ff2260`.
 Main, ARM and cloud source hashes agree; the immutable legacy/Tantivy indexes
-are unchanged. The downloaded cloud archive verifies 1,503 members. The VM
+are unchanged. The downloaded cloud archive verifies 1,503 members. The machine
 stop command lost its connection, but a subsequent direct status query confirms
 `TERMINATED`. [Verified source, scripts, raw measurements, checks and profiles](benchmark-results/compact-text-2026-09-16/README.md).
 
@@ -7765,7 +7811,7 @@ deficit:
 OR queries remain 33.8% slower; the wider exact-length lookup worsens that path.
 These timings do not isolate whether lookup dependencies, cache pressure,
 instruction layout or vectorization caused the regression. Hardware performance
-counters are unavailable on this VM (`cycles` reports no supported events).
+counters are unavailable on this machine (`cycles` reports no supported events).
 
 A separate 15-second userspace CPU-clock sample over official OR queries
 (499 Hz, after warmup, no lost samples) attributes 14.59% of baseline CPU to
@@ -8099,9 +8145,9 @@ the workspace byte-for-byte. Verification and source identity are saved under
 `.context/rgb-or-cost/late-evidence-verification.json` and `accepted-source.json`.
 Benchmark artifacts remain gitignored. No commits or pushes were made.
 
-The VM is confirmed **TERMINATED**. The stop command lost its connection while
+The machine is confirmed **TERMINATED**. The stop command lost its connection while
 polling the operation, but an independent `instances describe` completed with
-status `TERMINATED`; the result is recorded in `vm-stop-confirmed.json`.
+status `TERMINATED`; the result is recorded in `machine-stop-confirmed.json`.
 
 ### September 17 — cleanup after acceptance of the measured results
 
@@ -8153,7 +8199,7 @@ Validation for this cleanup:
   layout**, RGB on and off: ranked IDs/raw score bits at k=10/100/1000,
   complete top-100, and exact counts. Logs: `verify-rgb.log` and `verify-off.log`
   under `.context/scoring-cleanup/`.
-- The cloud/x86 benchmark is not rerun for this source-only cleanup; the VM
+- The cloud/x86 benchmark is not rerun for this source-only cleanup; the machine
   remains stopped. Local ARM measurements below compare the accepted frozen
   executable against the cleanup on identical fixtures/compiler/flags. They
   check for local regressions and do not replace the earlier full-corpus x86
@@ -8294,7 +8340,7 @@ per process. The main comparison has three interleaved process rounds. Rust
 CPU wheels and their shipped compiler/dispatch. No server, response hydration,
 network, cold-I/O, concurrent ingest, or tail-latency claim follows from these
 warm native timings. ARM is an Apple M4 shared desktop with matched thread QoS;
-x86 is a dedicated eight-vCPU Intel Xeon VM using AVX2. The x86 CPU lacks
+x86 is a dedicated eight-vCPU Intel Xeon machine using AVX2. The x86 CPU lacks
 AVX-512 VPOPCNTDQ, so that Hamming path was not performance-tested.
 
 ### Retained changes
@@ -8371,7 +8417,7 @@ columns remain byte-identical, with rebased IDs and 512 post-merge query checks
 per width. Faiss's codes and rebased IDs match its sources too. Hermes streams
 the persisted output, while Faiss first merges heap lists and then serializes;
 these are different timing/durability contracts, so no merge speedup is claimed.
-The first wide merge ran out of VM disk space; after removing build-cache
+The first wide merge ran out of machine disk space; after removing build-cache
 artifacts, the retry and byte/query checks passed.
 
 ### Remaining storage work and validation
@@ -8392,7 +8438,7 @@ batch/run boundaries, serial/parallel collectors, and complete ordinal output.
 The shared Hamming test explicitly exercises scalar and runtime-selected kernels
 across widths and tail counts. Lifecycle/RPC code and persisted formats are
 unchanged; the full lifecycle/RPC harness was not rerun for these scanner changes.
-The benchmark VM was confirmed `TERMINATED` after results were collected.
+The benchmark machine was confirmed `TERMINATED` after results were collected.
 
 All benchmark adapters, fixtures, raw samples, hashes, failed exploratory runs,
 and experiment scripts stay ignored under `.context/binary-ivf/`; they are not
@@ -9792,7 +9838,7 @@ the default; no format, schema or query-budget setting changes.
 The fixture contains 1M documents in four source segments, with approximately
 3.537 GB of live files. Both versions use the same source, Rust 1.98.1, release
 thin LTO, one codegen unit and `-C target-cpu=native`, on a dedicated GCP
-`n2-highmem-8` Linux/x86-64 VM with a 1 TB SSD persistent disk. Each mode has
+`n2-highmem-8` Linux/x86-64 machine with a 1 TB SSD persistent disk. Each mode has
 three before and three after trials, alternating in the order before, after,
 after, before, before, after. Inputs are warmed identically; outputs use the
 unchanged cold writer. No compiler runs overlap timing. The fallback mode forces
@@ -10047,7 +10093,7 @@ coalescing follow-up was removed as well. The earlier low-memory improvements
 from that candidate are therefore not claims about the retained implementation.
 
 Final measurements use the same 1M/four-source fixture, dedicated Linux/x86-64
-VM, Rust 1.98.1, release settings and four search workers as above. The control
+machine, Rust 1.98.1, release settings and four search workers as above. The control
 already includes the 2.25x copy-merge fix. Warm query and merge trials alternate
 before/after three times each, with identical warming and no compiler overlap.
 
@@ -10196,7 +10242,7 @@ sources. Downloaded cloud logs, results, scripts, payload audits, compatibility
 checks and executable/source fingerprints are retained in
 `.context/seismic-compact/cloud-evidence/`. The verified evidence archive SHA-256
 is `e27ba8433b1de8743461bcc8cd158f7b75ea22fec740397fcf82a9258719f91d`.
-The benchmark VM was stopped after download and independently verified as
+The benchmark machine was stopped after download and independently verified as
 `TERMINATED`; a connection reset interrupted the stop command's status polling,
 not the completed shutdown. Final documentation, ownership contracts and
 `git diff --check` pass.
@@ -10315,7 +10361,7 @@ Cloud evidence was downloaded and extracted under
 `.context/seismic-occurrences/cloud-evidence/`. The archive SHA-256 is
 `f4d7916e8ec4b180c5e623c58d161cea484c26ba7a2d6fa2d673a3a3ce9a31af`;
 all 287 recorded source hashes match the local tested core sources.
-The benchmark VM `hermes-validation-moroni` was stopped and independently
+The benchmark machine `benchmark-host` was stopped and independently
 confirmed `TERMINATED` after the download.
 
 ## Release review: module ownership and shared implementations
@@ -10442,8 +10488,8 @@ universal speedup. The shifted wide-ID sample averages 10.23/10.46/10.72 ms.
 See [the measurements and limits](benchmark-results/seismic-forward/2026-09-19/README.md)
 for full distributions, cgroup counters, environment, hashes, and validation.
 
-The benchmark VM is confirmed `TERMINATED` after the evidence export and local
-checksum/source verification. No benchmark process or cloud VM was left running.
+The benchmark machine is confirmed `TERMINATED` after the evidence export and local
+checksum/source verification. No benchmark process or cloud machine was left running.
 
 ### Default selection and BMP applicability
 
@@ -10593,7 +10639,7 @@ inverted prefix. No pressure run recorded an OOM. Early 1 GiB I/O counters were
 unavailable and remain null; the checked-in driver now enables I/O accounting
 up front. The exact measured driver, binaries' hashes, timings, profiles and
 input provenance are archived. The evidence was downloaded and hash-verified,
-and the VM is confirmed stopped. This follow-up changes benchmark tooling and
+and the machine is confirmed stopped. This follow-up changes benchmark tooling and
 documentation; runtime validation remains the preceding full native/WASM run.
 
 ## BMP rescoring accumulator optimization (2026-09-19)
@@ -10605,7 +10651,7 @@ matches, exact score bits and serialized index bytes are preserved. The change
 belongs solely to the shared query scorer; there is no new codec, allocation,
 validation pass, cache policy or default.
 
-On the same 900,000-vector fixture and Cascade Lake VM, paired warm k=1,000
+On the same 900,000-vector fixture and Cascade Lake machine, paired warm k=1,000
 pipeline backfill falls from 116.88 to 45.97 ms (2.54× faster). Total mean/p95
 falls from 143.21/214.48 to 72.07/106.65 ms. Fixed 1,000-document scoring falls
 from 38.94 to 16.06 ms; retrieval alone remains about 7.6 ms. Peak warm pipeline
@@ -10626,7 +10672,7 @@ from 144.72 to 73.62 ms at effectively unchanged 892 MiB peak cgroup memory;
 all eight capped runs have zero OOM events. The annotated optimized loop removes
 the large error-state copies; the hottest sampled instruction is now in SIMD
 gap unpacking. Full evidence was downloaded and hash-verified, and the isolated
-VM is confirmed `TERMINATED`.
+machine is confirmed `TERMINATED`.
 
 Final pre-merge review: traced SDL/schema conversion, the shared dimension codec,
 BMP and Seismic writers/readers, candidate scorers, copy merge, compaction and
@@ -10639,7 +10685,7 @@ paired score/byte measurements above cover the unchanged runtime implementation.
 
 ### Searchbench restart and HTTP adapter — September 22, 2026
 
-The authorized GCP benchmark VM is running; the verified 10M corpus is ready and the
+The authorized GCP benchmark machine is running; the verified 10M corpus is ready and the
 four-engine campaign (including Luxir 0.1.0) started at 19:23 UTC. The native benchmark HTTP adapter uses canonical
 writers/searchers/count collection and fast-column IDs. Native end-to-end smoke
 passed on macOS and Linux. The repository check passed on a serial rerun after
@@ -10734,7 +10780,7 @@ The frozen phrase source passed the native harness at
 passed on the x86 host, exercising both vector kernels. Initial perf permission
 failure was recovered by a temporary host setting change; prior settings were
 restored. The archive was downloaded and SHA-256 verified before stopping the
-8-vCPU VM; independent cloud status confirms `TERMINATED`.
+8-vCPU machine; independent cloud status confirms `TERMINATED`.
 
 The completed [32-client, 32-vCPU report](benchmark-results/searchbench-2026-09-23-32cpu.md)
 uses 30 server hardware threads on 15 physical cores with SMT and reserves the
@@ -10805,7 +10851,7 @@ rejections include 71 sloppy phrases handled by the HTTP adapter's existing
 `PhraseQuery` translation, plus those same 12 escaped expressions.
 
 The final 32-client evidence archive is downloaded and SHA-256 verified. Both
-`hermes-validation-moroni` and `hermes-benchmark-32-moroni` are independently
+`benchmark-host` and `benchmark-host` are independently
 confirmed `TERMINATED`; temporary transfer keys are removed and changed host
 restrictions restored. The completed report preserves the startup/transfer
 failures and successful recovery; no benchmark work remains running.
@@ -10855,7 +10901,7 @@ The final evidence archive (including raw perf) is downloaded and SHA-256
 verified as `4b535604f4f5c8f9875d12e750bbb1e3d01da8de0b1d2358033979f6aab83188`
 (65,645,432 bytes). Temporary transfer keys are removed and changed host settings
 restored. Both cloud stop commands lost their polling connection, but independent
-status confirms **both VMs `TERMINATED`**. No benchmark work remains running.
+status confirms **both machines `TERMINATED`**. No benchmark work remains running.
 
 ## Borrowed-ID responses and shared-pool handoff measurements
 
@@ -10916,7 +10962,7 @@ Final evidence is downloaded and checksum-verified as
 
 Temporary transfer keys are removed and host restrictions are restored. Both
 cloud stop commands lost their polling connection; independent cloud status
-confirms **both VMs `TERMINATED`** after evidence verification. No benchmark work
+confirms **both machines `TERMINATED`** after evidence verification. No benchmark work
 remains running. Final documentation links, ownership contracts, Python checks
 and `git diff --check` pass.
 
@@ -10965,13 +11011,13 @@ the preceding WASM release/39 JavaScript tests validate the unchanged code.
 
 Final evidence is downloaded, size-checked and SHA-256 verified as
 `f8f8b4ffe0accb6a89547d16348de102cc1a688b4258ecf17b1caec000cffa2d`
-(1,139,078 bytes). The build VM remained stopped. Initial cloud-start polling and
+(1,139,078 bytes). The build machine remained stopped. Initial cloud-start polling and
 an early SSH connection failed; independent status and a successful retry
-established the benchmark VM before timing. No timed sample was affected.
+established the benchmark machine before timing. No timed sample was affected.
 
-Host restrictions are restored and no temporary inter-VM transfer keys were
+Host restrictions are restored and no temporary inter-machine transfer keys were
 created. The benchmark stop command lost its polling connection; independent
-cloud status confirms **both VMs `TERMINATED`** after evidence verification.
+cloud status confirms **both machines `TERMINATED`** after evidence verification.
 No benchmark work remains running. Final documentation links, ownership
 contracts, Python/Ruff and diff checks pass.
 
@@ -11034,13 +11080,13 @@ Final combined evidence is downloaded and SHA-256 verified as
 (1,828,573 bytes), with source/build artifacts, raw Criterion data and validation
 logs retained separately. The report records the pre-timing launch failures and
 separate-boot repeats. Transfer credentials are removed and host restrictions
-restored. Independent final cloud state confirms **both VMs `TERMINATED`**.
+restored. Independent final cloud state confirms **both machines `TERMINATED`**.
 
 ## Range interpolation experiment (2026-09-19; rejected)
 
 An exact quotient/remainder recurrence speeds warm BlockwiseLinear bitset scans
 by about 2× on Apple M4 and 3.7× on Cascade Lake, but changes compiler decisions
-in shared scan code. On a dedicated x86 VM, all four ordinary shuffled bitpacked
+in shared scan code. On a dedicated x86 machine, all four ordinary shuffled bitpacked
 controls regress 8.1–8.3% in alternating runs. A final explicit kernel boundary
 still regresses them 9.4–9.6%. No runtime change or new default is retained.
 
@@ -11049,7 +11095,7 @@ record exact candidate patches, same-version/compiler/fixture comparisons,
 confidence intervals, correctness and process-memory measurements. The main
 prototype passed 2,031 native tests, three async-only range tests, and the WASM
 build with 38 tests. Remote evidence was downloaded and hash-verified; the
-isolated VM and boot disk were deleted. The lazy scorer follow-up below implements
+isolated machine and boot disk were deleted. The lazy scorer follow-up below implements
 bounded batching; accepting fully covered block spans through the shared reader
 scan protocol remains unimplemented.
 
@@ -11075,7 +11121,7 @@ include per-run confidence intervals, exact patches, compiler/host information,
 assembly findings, correctness and memory measurements. The complete check
 harness passes 2,031 native tests, all four async-only range tests pass, and WASM
 builds with all 38 tests passing. Evidence was hash-verified before deleting the
-VM and boot disk. Cold/concurrent full-query, RPC and GPU checks were not run.
+machine and boot disk. Cold/concurrent full-query, RPC and GPU checks were not run.
 
 Remaining experiments: accept fully covered block spans without decoding, and
 batch multi-value offsets/first values in their owning reader. Neither follows

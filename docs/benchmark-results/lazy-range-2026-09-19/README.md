@@ -40,5 +40,5 @@ these do not change the measured fixture or default-feature operation.
 
 Encoded formats and writers are unchanged. The benchmark uses warm in-memory
 segments and public scorer/bitset APIs; it does not measure cold storage,
-concurrent full-query throughput or RPC latency. The VM archive hash was verified
-before deleting the temporary VM and boot disk. Archive hashes are in the summaries.
+concurrent full-query throughput or RPC latency. The machine archive hash was verified
+before deleting the temporary machine and boot disk. Archive hashes are in the summaries.

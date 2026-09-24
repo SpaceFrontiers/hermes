@@ -109,7 +109,7 @@ It contains raw replay JSON, memory samples, correctness audits, experiment logs
 profiles, and the same-session Luxir c32/t4 health control. No transport correction
 is applied to search QPS. Its median health throughput is 257,594 QPS.
 The stop command lost its polling connection, but an independent cloud describe
-confirmed the eight-vCPU VM is `TERMINATED`.
+confirmed the eight-vCPU machine is `TERMINATED`.
 
 Later wildcard/core-parser work is **not present** in the timed binaries and does
 not enlarge these 15/826 admitted queries. Native/WASM validation of the combined

@@ -144,7 +144,7 @@ default release flags and separately with
 `RUSTFLAGS='-C target-cpu=x86-64-v3'` (AVX2). All four builds completed before
 tests and timings began. Each process was pinned with `taskset -c 0,1,2,3`
 to four distinct physical cores; BP retained its fixed four-thread pool.
-This was a cloud VM, not a dedicated physical host.
+This was a cloud machine, not a dedicated physical host.
 
 As on M4, each process had one warmup and three timed calls per fixture;
 three process pairs alternated before/after execution order. Ranges below

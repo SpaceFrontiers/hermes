@@ -1,0 +1,7444 @@
+{
+  "scope": "Four-document HTTP capability fixture; not 10M corpus counts, throughput or cross-engine parity",
+  "counts": {
+    "200": 826
+  },
+  "results": [
+    {
+      "class": "high_term",
+      "query": "the",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "of",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "in",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "and",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "to",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "for",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "on",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "is",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "as",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "by",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "ref",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "was",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "with",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "http",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "from",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "that",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "at",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "name",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "title",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "this",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "date",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "which",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "also",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "first",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "are",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "or",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "his",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "cite",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "not",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "new",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "1",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "s",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "2",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "one",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "were",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "url",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "has",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "but",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "have",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "publisher",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "other",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "after",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "had",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "year",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_term",
+      "query": "accessdate",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "most",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "up",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "world",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "2007",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "during",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "people",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "years",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "such",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "12",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "over",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "can",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "references",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "city",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "6",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "american",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "news",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "history",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "0",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "made",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "out",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "11",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "used",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "links",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "state",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "many",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "would",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "page",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "national",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "than",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "thumb",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "7",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "place",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "if",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "university",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "8",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "external",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "between",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "where",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "right",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "20",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "under",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "these",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "march",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "br",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "book",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "p",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "article",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "known",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_term",
+      "query": "then",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "husband",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "file",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "alexander",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "executive",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "entry",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "nearly",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "comics",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "mission",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "justice",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "false",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "initially",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "nine",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "noted",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "1957",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "joe",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "deal",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "picture",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "comment",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "spring",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "types",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "room",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "activities",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "surface",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "stop",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "awarded",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "bob",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "1970s",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "minutes",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "friend",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "port",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "assembly",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "col",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "candidate",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "golden",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "cast",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "victoria",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "comes",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "professor",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "really",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "1948",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "hot",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "towns",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "believed",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "1946",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "forced",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "10px",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_term",
+      "query": "stars",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+of +s",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+date +he",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+cite +2005",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+date +2009",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+for +cite",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+as +its",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+which +2011",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+have +see",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+first +accessdate",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+first +new",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+publisher +web",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+states +work",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+more +work",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+1 +their",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+http +an",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+year +5",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+4 +there",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+s +who",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+who +may",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+united +time",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+time +when",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+that +cite",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+to +its",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+2011 +2008",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+been +2005",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+1 +year",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+was +more",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+3 +2005",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+a +they",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+s +time",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+in +2011",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+a +work",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+they +4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+and +2",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+to +an",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+an +which",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+was +also",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+this +see",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+all +2010",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+2 +2010",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+first +work",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+he +10",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+http +that",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+new +2011",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+as +by",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+there +2008",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_high",
+      "query": "+is +they",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+has +please",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+he +battle",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+be +century",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+may +studio",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+have +level",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+web +place",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+all +close",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+as +chart",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+ref +appropriate",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+be +put",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+and +called",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+been +four",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+url +whether",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+with +day",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+a +famous",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+it +nature",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+his +although",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+1 +artists",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+title +digital",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+that +37",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+was +free",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+5 +west",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+had +reference",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+in +sports",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+its +interview",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+url +took",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+and +los",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+last +english",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+not +lee",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+their +few",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+they +round",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+cite +area",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+two +lake",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+time +8",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+this +winning",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+only +performed",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+when +books.google.com",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+who +legal",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+2009 +keep",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+http +running",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+5 +grand",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+it +man",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+had +entertainment",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+with +200px",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+had +van",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+was +track",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+10 +corporation",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+other +make",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+first +results",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_med",
+      "query": "+2010 +unreferenced",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+2008 +extracting",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+new +term_start5",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+his +utcursch",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+date +1188",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+united +dhl",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+2005 +historiography",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+on +104th",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+a +user\\:ed",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+time +workman",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+no +magma",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+two +overthrowing",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+for +lotte",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+4 +turkmen",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+are +sticky",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+no +haitian",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+title +backstory",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+accessdate +wickets2",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+name +intuition",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+a +manipur",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+is +86th",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+2006 +pastry",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+5 +harvests",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+in +cymru",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+on +spores",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+an +phoneme",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+also +mutated",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+url +selena",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+they +1589",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+a +epsilon",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+the +1127",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+one +radars",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+there +gravesite",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+on +mcghee",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+last +user_talk\\:piotrus",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+in +user\\:robert",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+4 +ll.b",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+of +ffebcd",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+after +crack",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+also +staring",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+last +navies",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+two +swami",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+who +revolts",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+all +genghis",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+2006 +aural",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+no +1393",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+the +kuhn",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+been +category\\:languages",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+on +crosstown",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+about +alexandru",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "and_high_low",
+      "query": "+who +whiteley",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "as ref",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "is 2011",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "in are",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "first had",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "were work",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "the its",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "was 2011",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "have 2010",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "first 2",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "this but",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "url 2009",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "2 but",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "had 5",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "has united",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "which after",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "not their",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "was 1",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "but 2009",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "one 3",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "and their",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "on have",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "its 2008",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "new 4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "they 2009",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "his been",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "states last",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "in on",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "its work",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "to 4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "was date",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "were url",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "has 10",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "his 4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "their they",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "more last",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "and its",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "states 2009",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "not 2",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "web may",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "of last",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "publisher other",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_high",
+      "query": "by work",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "there background",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "name cd",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "when regular",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "1 called",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "may force",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "1 regular",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "s 1986",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "2011 co",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "2009 him",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "at interest",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "and 1959",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "had few",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "this era",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "also video",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "into capital",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "who los",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "as working",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "accessdate status",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "cite soviet",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "see reading",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "all area",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "his influence",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "new less",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "states 14",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "http wife",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "had stories",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "this established",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "other source",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "1 alone",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "and per",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "into larger",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "to book",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "at london",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "at km",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "in convert",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "s yet",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "1 1973",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "1 yet",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "3 preserved",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "when various",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "his result",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "into film",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "was leader",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "see list",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_med",
+      "query": "first institute",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "with fijian",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "been p.n.e",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "been 1565",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "has watchlist",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "their 12.6",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "may user\\:rogerd",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "cite saviour",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "the hill's",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "2006 1702",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "the waller",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "some crossings",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "in washes",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "10 navies",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "states marston",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "which markers",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "2006 dub",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "year sheikh",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "ref macintyre",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "1 disperse",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "publisher district_type",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "work forgive",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "year cpp",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "by downfall",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "on chao",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "was billionaire",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "its rembrandt",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "last deficiencies",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "that rockaway",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "from www.fas.org",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "who accuses",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "to 25.6",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "5 meade",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "only marksman",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "more fanciful",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "first bakery",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "2005 787",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "1 commander1",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "which evangelion",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "their coulthard",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "had xiaoping",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "who government_location",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "had bahr",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "1 protesting",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "states mariner",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "2011 560",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "or_high_low",
+      "query": "year flashpt",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"of the\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"to the\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"ref name\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"on the\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"and the\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"url http\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"at the\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"by the\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"is a\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"from the\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"with the\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"ref cite\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"cite web\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"as the\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"united states\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"to be\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"in a\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"of a\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"ref http\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"the first\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"web url\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"the united\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"it was\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"external links\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"one of\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"ref the\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"that the\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"such as\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"he was\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_phrase",
+      "query": "\"was a\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"new york\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"list of\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"references reflist\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"during the\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"for a\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"was the\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"to a\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"the new\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"part of\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"see also\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"the same\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"has been\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"cite news\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"as well\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"of his\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"links http\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"after the\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"is an\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"can be\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"known as\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"on a\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"cite book\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"have been\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"into the\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"as an\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"place of\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"a new\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"and was\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"number of\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"well as\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"the most\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"under the\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"date of\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"is not\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"university of\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"due to\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"of death\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"this is\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"out of\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"of birth\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"should be\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"the world\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"according to\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"in his\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"2011 ref\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_phrase",
+      "query": "\"alternative names\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"to become\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"class boilerplate\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"is preserved\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"solid aaaaaa\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"date july\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"would have\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"the village\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"births category:living\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"the story\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"the number\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"http news.bbc.co.uk\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"in 2006\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"an attempt\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"for this\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"much of\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"the three\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"0 10px\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"parts of\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"10px 0\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"10px border\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"up the\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"that of\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"released in\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"not to\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"used as\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"date may\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"associated with\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"web last\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"a series\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"addition to\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"town of\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"utc the\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"20th century\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"and also\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"with no\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"the us\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"dates date\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"the way\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"19th century\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"of it\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"deletion of\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"links commons\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"the uk\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"time of\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"used by\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"and later\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"debate was\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"proposed deletion\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"the local\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_phrase",
+      "query": "\"the western\"",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_sloppy_phrase",
+      "query": "\"ref name\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_sloppy_phrase",
+      "query": "\"url http\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_sloppy_phrase",
+      "query": "\"cite web\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_sloppy_phrase",
+      "query": "\"united states\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_sloppy_phrase",
+      "query": "\"external links\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_sloppy_phrase",
+      "query": "\"such as\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "high_sloppy_phrase",
+      "query": "\"he was\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_sloppy_phrase",
+      "query": "\"new york\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_sloppy_phrase",
+      "query": "\"list of\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_sloppy_phrase",
+      "query": "\"references reflist\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_sloppy_phrase",
+      "query": "\"during the\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_sloppy_phrase",
+      "query": "\"see also\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_sloppy_phrase",
+      "query": "\"the same\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_sloppy_phrase",
+      "query": "\"has been\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_sloppy_phrase",
+      "query": "\"cite news\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_sloppy_phrase",
+      "query": "\"as well\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_sloppy_phrase",
+      "query": "\"links http\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_sloppy_phrase",
+      "query": "\"is an\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_sloppy_phrase",
+      "query": "\"can be\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_sloppy_phrase",
+      "query": "\"known as\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_sloppy_phrase",
+      "query": "\"cite book\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_sloppy_phrase",
+      "query": "\"have been\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_sloppy_phrase",
+      "query": "\"place of\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_sloppy_phrase",
+      "query": "\"number of\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_sloppy_phrase",
+      "query": "\"well as\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_sloppy_phrase",
+      "query": "\"the most\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_sloppy_phrase",
+      "query": "\"under the\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_sloppy_phrase",
+      "query": "\"due to\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_sloppy_phrase",
+      "query": "\"of death\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_sloppy_phrase",
+      "query": "\"this is\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_sloppy_phrase",
+      "query": "\"of birth\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_sloppy_phrase",
+      "query": "\"should be\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_sloppy_phrase",
+      "query": "\"according to\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "med_sloppy_phrase",
+      "query": "\"alternative names\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"to become\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"class boilerplate\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"solid aaaaaa\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"date july\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"would have\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"births category:living\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"the story\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"the number\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"http news.bbc.co.uk\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"an attempt\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"much of\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"the three\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"0 10px\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"parts of\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"10px 0\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"10px border\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"up the\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"that of\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"released in\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"date may\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"associated with\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"web last\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"addition to\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"utc the\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"20th century\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"and also\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"with no\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"dates date\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"the way\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"19th century\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"deletion of\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"time of\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"used by\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"and later\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"debate was\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"proposed deletion\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "low_sloppy_phrase",
+      "query": "\"the western\"~4",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "mos*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "wor*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "200*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "dur*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "peo*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "yea*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "suc*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "ove*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "can*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "ref*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "cit*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "ame*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "new*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "his*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "mad*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "out*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "use*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "lin*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "sta*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "man*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "wou*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "pag*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "nat*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "tha*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "thu*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "pla*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "uni*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "ext*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "bet*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 3
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "whe*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "rig*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "und*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "the*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "mar*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "boo*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "art*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "kno*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "sty*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "lat*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "thr*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "cat*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "joh*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "par*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "lef*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "dec*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "apr*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "lis*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "sma*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "jan*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "prefix3",
+      "query": "bef*",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "th*e",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "an*d",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "fo*r",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "re*f",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "wa*s",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "wi*h",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "ht*p",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "fr*m",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "th*t",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "na*e",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "th*s",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "da*e",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "wh*h",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "al*o",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "fi*t",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "ar*e",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "hi*s",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "ci*e",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "no*t",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "ne*w",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "on*e",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "we*e",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "ur*l",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "ha*s",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "bu*t",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "ha*e",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "pu*r",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "ot*r",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "af*r",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "ha*d",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "ye*r",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "ac*e",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "al*l",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "un*d",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "wh*o",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "it*s",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "th*r",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "we*b",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "tw*o",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "ma*y",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "se*e",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "be*n",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "st*s",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "wh*n",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "th*y",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "mo*e",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "la*t",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "20*0",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard",
+      "query": "20*6",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "h*band",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "a*nder",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "e*tive",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "n*arly",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "c*mics",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "m*sion",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "j*tice",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "i*ally",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "p*ture",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "c*ment",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "s*ring",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "a*ties",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "s*face",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "a*rded",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "m*utes",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "f*iend",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "a*mbly",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "c*date",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "g*lden",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "v*oria",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "p*ssor",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "r*ally",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "b*eved",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "f*rced",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "r*ican",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "v*tory",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "m*ster",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "r*rove",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "m*sing",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "u*nown",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "c*imed",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "e*cept",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "q*tion",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "d*ctly",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "s*ster",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "c*tion",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "p*ical",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "c*lina",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "s*read",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "q*lity",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "s*phen",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "c*idge",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "e*ence",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "a*ress",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "h*olds",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "a*ysis",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "b*ming",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "g*itar",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_scan",
+      "query": "f*nder",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*sband",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*ander",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*utive",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*early",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*omics",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*ssion",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*stice",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*ially",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*cture",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*mment",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*pring",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*rface",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*arded",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*nutes",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*riend",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*embly",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*idate",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*olden",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*toria",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*essor",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*eally",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*ieved",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*orced",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*lican",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*ctory",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*aster",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*prove",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*ssing",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*known",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*aimed",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*xcept",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*stion",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*ectly",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*ition",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*sical",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*olina",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*pread",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*ality",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*ephen",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*ridge",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*ience",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*tress",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*holds",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*lysis",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*oming",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*uitar",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "wildcard_lead",
+      "query": "*under",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "regex",
+      "query": "[0-9]{4}",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "regex",
+      "query": "(19|20)[0-9]{2}",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "regex",
+      "query": "[0-9]{4}s",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "regex",
+      "query": "[0-9]{7}",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "regex",
+      "query": "[0-9]{1,3}",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "regex",
+      "query": "(www|http|https)",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "regex",
+      "query": "(mon|tues|wednes|thurs|fri|satur|sun)day",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "regex",
+      "query": "colou?r",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "regex",
+      "query": "(re|un)[a-z]*ing",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "regex",
+      "query": "[jkqxz][a-z]*ess",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "regex",
+      "query": "[a-f0-9]{8,}",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "regex",
+      "query": ".*(tion|sion)",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    },
+    {
+      "class": "regex",
+      "query": ".*0th",
+      "status": 200,
+      "response": {
+        "docs": [],
+        "found": 0
+      }
+    }
+  ],
+  "binary_sha256": "b7263a5fde4128db7461f039e7b891e872acd76fbfe798be2c0e776f7d325c73",
+  "queries_sha256": "f39aab1f4624e61a2b72f3526c292a4b2f557b35836d7e4bd3f433ce6406f8cf"
+}

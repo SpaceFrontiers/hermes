@@ -1,4 +1,4 @@
-"""Serial latency comparison on an isolated Linux VM; never point at live indexes."""
+"""Serial latency comparison on an isolated Linux machine; never point at live indexes."""
 
 import hashlib
 import json
