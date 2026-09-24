@@ -47,7 +47,7 @@ kernel benchmark. These establish local costs, not standalone HTTP gains for
 each change.
 
 A four-instance prototype ABBA repeat and the corrected all-15 campaign run
-after a VM restart. Both use the same CPU model, executable hashes and index;
+after a machine restart. Both use the same CPU model, executable hashes and index;
 only paired comparisons within each boot are interpreted. The first boot's
 absolute QPS is not used as the corrected campaign's baseline.
 
@@ -273,8 +273,8 @@ runs' reserved driver core.
 
 The first campaign archive was downloaded and verified before its automatic
 shutdown. The extra repeat was initially attempted while that shutdown was
-already in flight; both VMs were independently confirmed stopped, then only the
-benchmark VM restarted. The corrected adapter required a short build-VM restart.
+already in flight; both machines were independently confirmed stopped, then only the
+benchmark machine restarted. The corrected adapter required a short build-machine restart.
 A corrected-run output-path collision failed before any timing began; the output
 directory was renamed and the clean run completed. Those logs remain in the
 archive. No timed sample from an aborted launch is included.
@@ -284,7 +284,7 @@ Final combined evidence: SHA-256
 The separate source/build artifacts and the first campaign archive are also
 retained under `.context/yonik-benchmark/dispatch-directory/`, together with raw
 Criterion data, allocation-test failure/success, validation logs and cloud-state
-receipts. Host restrictions are restored. **Both VMs are confirmed
+receipts. Host restrictions are restored. **Both machines are confirmed
 `TERMINATED` after verified collection.** Nothing is committed or pushed.
 
 - [Corrected comparison CSV](searchbench-2026-09-23-dispatch-directory.csv)

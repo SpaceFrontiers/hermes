@@ -22,7 +22,7 @@ The complete x86 archive, source/binary identity and query/pass matrices have
 been verified. RSS is essentially unchanged: 1,011.7 MiB after RGB top-10, with
 5.79 MiB anonymous; most residency is mapped index data. Tradeoffs remain: RGB
 phrase top-10 regresses 1.1%, and RGB-off supplemental top-1000 regresses 1.5%.
-Nothing has been committed. The validation VM is confirmed **TERMINATED**.
+Nothing has been committed. The validation machine is confirmed **TERMINATED**.
 
 [Implementation, rejected experiments, validation and verified evidence](search-performance-review.md#september-17-optional-probing-and-window-work).
 
@@ -139,7 +139,7 @@ See [format, merge and compatibility rules](compact-text-format.md).
 ## Same-run x86 latency
 
 5,032,104 Wikipedia documents, 962 official queries and 714 standalone terms.
-Rust 1.98.1 / LLVM 22.1.8, release LTO and native CPU flags, same Cascade Lake VM,
+Rust 1.98.1 / LLVM 22.1.8, release LTO and native CPU flags, same Cascade Lake machine,
 CPU 2. A sixth same-run engine retains the first byte-norm reader to isolate the final
 header/payload cleanup. Seven rotated complete query passes follow at least ten seconds of warmup
 per engine/command. Values below are geometric means of per-query median

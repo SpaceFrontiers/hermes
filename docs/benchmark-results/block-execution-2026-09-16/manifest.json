@@ -3465,11 +3465,6 @@
       "bytes": 1651,
       "sha256": "c3d91270f5c24597d4ccbf836f6f6e21a566c9e89be50bb335008db9bf90fb5f"
     },
-    "arm/vm-start.log": {
-      "archive_path": "arm/vm-start.log",
-      "bytes": 295,
-      "sha256": "493f3118b04524797a6d44204bca9463fc8fe8008a34e109c9502a843124a824"
-    },
     "arm/work-arm.py": {
       "archive_path": "arm/work-arm.py",
       "bytes": 2158,

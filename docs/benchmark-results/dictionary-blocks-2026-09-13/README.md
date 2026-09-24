@@ -14,5 +14,5 @@ ZIP: 5,581,334 bytes; SHA-256 `bf9ab3a6c36397694038abc4ce7222a21b04b8054fd0182c2
 `5a2129da5db4769146be22af82325cc5b15c3a8604b239263f5a4ff09ea35550`.
 All 136 members and unchanged index manifests were verified after capture.
 Later Zstd allocation and conjunction changes are separate experiments; their
-results and build inputs are outside this snapshot. The cloud VM remains in
+results and build inputs are outside this snapshot. The cloud machine remains in
 use for those experiments.

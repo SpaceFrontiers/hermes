@@ -40,7 +40,7 @@ Key logical directories under `compact-text/`:
 - `arm-latency/` and `compact-text-evidence/` hold the first implementation's
   paired runs, audits and memory snapshots. `profiles-v3/` and
   `compact-text-profiles/` hold its CPU-clock text profiles. Hardware counters
-  remain unsupported on this VM. Profiles are diagnostics, not latency trials.
+  remain unsupported on this machine. Profiles are diagnostics, not latency trials.
 - `reader-v4/` and `compact-text-reader-v4-evidence/` hold final ARM/x86 paired
   results, raw samples, exact oracles, checks and the final x86 residency audit.
 - `arm-gather-latency/`, `gather-prototype.patch` and associated build logs record
@@ -99,4 +99,4 @@ compact/norm integration test passes. The final focused posting suite passes
 220 tests. WASM is not rebuilt, following the user's instruction. Cold and
 concurrent performance and judged relevance remain unmeasured.
 
-The owned VM is stopped after verified evidence download. Changes are uncommitted.
+The owned machine is stopped after verified evidence download. Changes are uncommitted.

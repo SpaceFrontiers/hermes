@@ -54,7 +54,7 @@ and exact oracles, and then time complete rotated workload passes. Adapt their
 workspace paths and create-only output directories before rerunning. Restore
 the corpus/index fixtures separately from the preserved benchmark workspace;
 they are not included here. The full-corpus host is the preserved Cascade Lake
-VM with 5,032,104 documents and query/driver affinity to CPU 2.
+machine with 5,032,104 documents and query/driver affinity to CPU 2.
 
 Ordinary runs use all 962 official queries and 714 supplemental terms, all four
 commands, and the same frozen Tantivy binary. Cloud runs use seven rotated

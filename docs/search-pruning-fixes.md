@@ -202,6 +202,6 @@ The selected source has a complete separate run and residency audit.
 
 [Archived samples, source, hashes, checks and reproduction runners](benchmark-results/pruning-fixes-2026-09-16/README.md)
 include the isolated stages and ideal-threshold probes. The exported evidence
-is verified locally before stopping the benchmark VM.
+is verified locally before stopping the benchmark machine.
 
-The benchmark VM was confirmed `TERMINATED` after local export verification.
+The benchmark machine was confirmed `TERMINATED` after local export verification.

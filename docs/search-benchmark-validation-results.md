@@ -65,14 +65,14 @@ Single-term COUNT does not read external postings; its 2–6% variation across t
 processes limits how confidently small changes can be assigned to this mechanism.
 These data do not justify a default change or a universal speedup claim. The
 full-corpus run separately measured the reader refactor and enabled cache against
-Tantivy on a dedicated Cascade Lake VM, with unchanged index bytes and RSS capture.
+Tantivy on a dedicated Cascade Lake machine, with unchanged index bytes and RSS capture.
 
 ## Full-corpus Cascade Lake comparison
 
 All 5,032,104 documents and all 962 official queries, with a separate 714-term
 coverage workload. Rust 1.98.1, native LTO, n2-highmem-8, pinned CPU 2, ten seconds
 of warmup and seven complete passes per command using the upstream harness.
-Both Hermes builds and Tantivy 0.26 use the same VM; builds and profiles do not
+Both Hermes builds and Tantivy 0.26 use the same machine; builds and profiles do not
 overlap timing. Hermes index files are identical before/after. Values are
 geometric means of per-query median microseconds, including query parsing and
 pipe round-trip, excluding index open and document hydration.

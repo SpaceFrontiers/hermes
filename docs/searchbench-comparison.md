@@ -25,9 +25,9 @@ versus fresh Luxir's 1,510 and 3,524. Hermes leads both phrase top-100 cells;
 medium-phrase top-10 and exact counting remain behind.
 
 The monitoring process lost GCP authentication after 19:36 UTC. The remote job
-continued and finished; result collection and VM shutdown were delayed until
+continued and finished; result collection and machine shutdown were delayed until
 access recovered on September 23. Evidence for that campaign is available under
-`.context/yonik-benchmark/evidence/`; the VM was stopped after collection and
+`.context/yonik-benchmark/evidence/`; the machine was stopped after collection and
 restarted for the non-RGB follow-up described below.
 
 ## Pinned workload
@@ -60,14 +60,14 @@ and source presets define the workload; this is distinct from our existing
 The article's hardware is a Ryzen 9 9955HX with 64 GB RAM, 14 physical server
 cores and two driver cores. Measurements on another host must rerun all engines
 on that host; do not combine Hermes numbers with the article's absolute QPS.
-The existing GCP instance `hermes-validation-moroni` in `us-east1-b` is running (`n2-highmem-8`: 8 vCPUs, 62 GiB usable RAM). Server affinity is
+The existing GCP instance `benchmark-host` in `us-east1-b` is running (`n2-highmem-8`: 8 vCPUs, 62 GiB usable RAM). Server affinity is
 `0-2,4-6` (three physical cores with SMT); driver affinity is `3,7` (one physical
 core with SMT). This differs substantially from the article's host. New artifacts
 live on the existing mounted 1 TB data disk under
 `/mnt/hermes-copy/searchbench-20260922`; the full boot disk is not used for new
 build outputs or indexes.
 
-The user authorized restarting this VM. The September 22 run uses a benchmark
+The user authorized restarting this machine. The September 22 run uses a benchmark
 HTTP example with a shared immutable searcher, bounded blocking execution, and
 fast-column ID projection. The experiment will keep body analysis explicit
 (`lex` with Unicode segmentation, no stemming/folding/variants, maximum token
@@ -234,7 +234,7 @@ and WASM rebuild were not run: this adds only a native benchmark example.
 At the user's request, the campaign now includes Luxir, using its official
 [0.1.0 release](https://github.com/luxir-search/luxir/releases/tag/v0.1.0), published
 September 21. The Linux x86-64-v4 binary passes the published SHA-256 check and
-runs on the VM's AVX-512-capable Intel CPU. This is a pinned public release, not
+runs on the machine's AVX-512-capable Intel CPU. This is a pinned public release, not
 the unpublished local release build used in the article. The upstream Luxir
 adapter, feed script, and startup flags are reused, with the query cache disabled.
 Its probe participates in the same four-engine count gate; its timings will use
@@ -242,7 +242,7 @@ the same resulting subset, corpus, CPU allocation, warmup, and repetitions.
 
 ## Run and evidence
 
-The completed run executed sequentially on `hermes-validation-moroni`: reference
+The completed run executed sequentially on `benchmark-host`: reference
 index construction, Hermes construction, all four count probes, and the common
 subset timing matrix. Repository changes are uncommitted.
 
@@ -250,15 +250,15 @@ Remote progress: `/mnt/hermes-copy/searchbench-20260922/status.txt` and
 `campaign.log`. The local detached supervisor records progress in
 `.context/yonik-benchmark/supervisor.log`. On completion it downloads the raw
 results, count exclusions, memory samples, and logs to
-`.context/yonik-benchmark/evidence/`, then stops the dedicated VM. A 12-hour bound
-prevents an unattended run from keeping the VM running indefinitely. A failed
+`.context/yonik-benchmark/evidence/`, then stops the dedicated machine. A 12-hour bound
+prevents an unattended run from keeping the machine running indefinitely. A failed
 run is preserved as a failure, without generating a completed comparison.
 
 The [report generator](../scripts/searchbench/report.py) produces
 `results/comparison.md` and `results/comparison.csv` only after all four engines
 have completion markers and identical cell coverage. It retains repetition
 spread and memory alongside median QPS. Inspect `completion.json` beside the
-supervisor log for the benchmark and VM-shutdown exit statuses.
+supervisor log for the benchmark and machine-shutdown exit statuses.
 
 ## Count and throughput investigation — September 23
 
@@ -267,7 +267,7 @@ classify every exclusion and compare canonical exact counts with exhaustive
 scorer enumeration. Small punctuation and repeated/sloppy-phrase fixtures will
 separate analysis differences from matching rules. Then profile the slow phrase
 queries and compare any optimization against the unchanged binary/index on the
-same VM and CPU allocation. Counts and ranked IDs/scores must remain equal;
+same machine and CPU allocation. Counts and ranked IDs/scores must remain equal;
 byte formats, analyzer semantics and production defaults are outside the
 performance rewrite. Diagnostic scratch retains only a bounded ID sample.
 
@@ -514,7 +514,7 @@ for all 27 fresh cells, paired correctness, remaining profiles and validation.
 Impact metadata remains opt-in. The current-format RGB smoke passed; the earlier
 full-corpus RGB throughput remains a distinct experiment.
 
-Evidence collection is complete; the benchmark VM is confirmed `TERMINATED`.
+Evidence collection is complete; the benchmark machine is confirmed `TERMINATED`.
 
 ### Remaining-gap experiments (September 23)
 

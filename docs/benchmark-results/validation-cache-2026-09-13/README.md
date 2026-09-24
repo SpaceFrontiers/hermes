@@ -11,4 +11,4 @@ ZIP: 2,197,447 bytes; SHA-256 `309d49ae6e10ddf5e8e23e0d28b8555d9d8d01d78f292096d
 `manifest.json`. Full executable/perf-data archive is retained in the workspace
 as `.context/validation-cloud-evidence.tar.gz` (27,262,114 bytes), SHA-256
 `6593272b203f11654d38ad00200bc7175d45fd4d5207a81e8a3ee1f8e6b13b45`.
-The cloud VM remains active for the next experiment.
+The cloud machine remains active for the next experiment.

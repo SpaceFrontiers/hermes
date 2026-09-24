@@ -39,7 +39,7 @@ workload timing runs; only same-run comparisons are asserted.
 The archive excludes executables, corpus/index files and duplicate full oracle
 rows. Binary hashes, source hashes and raw samples remain. Each archive member
 has its byte length and SHA-256 in `manifest.json`. The cloud download was checked
-against its remote archive hash and all 50 member hashes before stopping the VM.
+against its remote archive hash and all 50 member hashes before stopping the machine.
 
 ## Download
 

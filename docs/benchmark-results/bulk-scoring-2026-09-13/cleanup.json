@@ -2,9 +2,9 @@
   "checked_at_utc": "2026-09-13T17:34:28.489544+00:00",
   "project": "REDACTED",
   "zone": "us-east1-b",
-  "instance": "hermes-bulk-moroni",
+  "instance": "benchmark-host",
   "instance_list": [],
   "disk_list": [],
-  "deletion_result": "Deleted [https://www.googleapis.com/compute/v1/projects/REDACTED/zones/us-east1-b/instances/hermes-bulk-moroni].",
+  "deletion_result": "Deleted [https://www.googleapis.com/compute/v1/projects/REDACTED/zones/us-east1-b/instances/benchmark-host].",
   "evidence_archive_sha256": "18cc7ac181e8fc61bafb1484b94bfc52f5edb12d425b3a28f34bc7d5da09fc39"
 }

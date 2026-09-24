@@ -48,7 +48,7 @@ Hermes uses a benchmark HTTP frontend over core, not its production gRPC service
 ## Interpretation and limits
 
 This is a new same-host comparison, not a rescaling of the 8-vCPU report. The
-n2-highmem-32 VM exposes 16 physical Cascade Lake cores with SMT across two
+n2-highmem-32 machine exposes 16 physical Cascade Lake cores with SMT across two
 sockets. Fifteen physical cores serve requests; one physical core runs replay.
 The 32-client load therefore measures concurrency on 30 server hardware threads.
 The prior and optimized Hermes binaries read exactly the same immutable ordinary
@@ -141,4 +141,4 @@ or lifecycle mechanism changed.
 
 Evidence collection is complete. Temporary transfer keys were removed and
 AppArmor user-namespace restriction restored to its prior setting. Independent
-cloud status confirms both benchmark VMs `TERMINATED` after collection.
+cloud status confirms both benchmark machines `TERMINATED` after collection.

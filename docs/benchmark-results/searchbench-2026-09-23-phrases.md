@@ -96,4 +96,4 @@ source identity are retained in
 check is `.context/search-harness/20260923T064244.392846Z-check`.
 [CSV with repetition ranges and RSS](searchbench-2026-09-23-phrases.csv).
 
-Evidence collection is complete; the benchmark VM is confirmed `TERMINATED`.
+Evidence collection is complete; the benchmark machine is confirmed `TERMINATED`.

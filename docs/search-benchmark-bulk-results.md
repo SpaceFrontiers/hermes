@@ -11,7 +11,7 @@ This follows the [ratio-bound experiment](search-benchmark-ratio-results.md) and
 [Lucene research](lucene-11-performance-research.md). The retained source is
 `hermes-bulk-final-v1`: v2 bulk scoring, standalone term windows and posting
 validation, without the experimental phrase hint. Absolute times belong to this
-VM and protocol; compare implementations within each phase.
+machine and protocol; compare implementations within each phase.
 
 ## Retained build: full-corpus results
 
@@ -135,7 +135,7 @@ are retained and do not support a broad ranking acceleration claim.
 
 ## Protocol and correctness
 
-VM: `hermes-bulk-moroni`, GCloud `n2-highmem-8`, Intel Cascade Lake, 64 GiB RAM,
+machine: `benchmark-host`, GCloud `n2-highmem-8`, Intel Cascade Lake, 64 GiB RAM,
 Ubuntu 24.04, zone `us-east1-b`. Rust engines use rustc 1.98.1, native instructions
 and release LTO. The public benchmark revision is
 `a7c75473e91746280c5f01e69bf594ece5fca560`; corpus and queries follow the previous
@@ -188,7 +188,7 @@ costs. No sparse-index speedup has been measured in this pass.
 Raw results and exact source overlays are in the
 [versioned evidence package](benchmark-results/bulk-scoring-2026-09-13/README.md). The final capture contains 228 hash-verified evidence files, and full manifests
 confirm both index byte sets are unchanged across every candidate. Source hashes
-distinguish all prototypes from the retained build. The VM and its auto-deleted boot disk are gone;
+distinguish all prototypes from the retained build. The machine and its auto-deleted boot disk are gone;
 [the cleanup audit](benchmark-results/bulk-scoring-2026-09-13/cleanup.json) records
 the empty instance/disk listings after verified local capture.
 

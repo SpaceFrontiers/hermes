@@ -106,9 +106,9 @@ Production gRPC and core search defaults are unchanged. This bounded heuristic
 has been measured on this host; it is not claimed optimal across workloads or
 architectures.
 
-All final Hermes variants were compiled on the same 8-vCPU Cascade Lake build VM
+All final Hermes variants were compiled on the same 8-vCPU Cascade Lake build machine
 using Rust 1.98.1, release mode and `RUSTFLAGS='-C target-cpu=native'`, then run on
-the same 32-vCPU Cascade Lake benchmark VM. Builds and transfers finished before
+the same 32-vCPU Cascade Lake benchmark machine. Builds and transfers finished before
 timing. All use the same immutable ordinary 10M-document index; RGB and impacts
 remain separate and impacts remain disabled. The new wildcard implementation is
 present in these rebuilt binaries but is not exercised by the seven conjunctions.
@@ -213,7 +213,7 @@ The first profile attempt omitted a required replay shuffle seed and failed
 before timing. The corrected profile is retained separately as
 `conjunction-profile-2`; the failed attempt is preserved. A direct system-Python
 documentation check lacked `markdown_it`; the documented `uv run` check passes.
-Both VM stop commands lost their cloud polling connections; independent status
+Both machine stop commands lost their cloud polling connections; independent status
 checks are used to confirm actual shutdown. These operational failures are not timed samples.
 
 Final uninstrumented executable SHA-256:
@@ -241,5 +241,5 @@ binary hashes and restored host settings. Remote/local SHA-256 matches:
 (65,645,432 bytes). Temporary transfer keys are removed, AppArmor user-namespace
 restriction restored to 1 and perf paranoia restored to 4.
 
-Independent cloud status confirms both `hermes-validation-moroni` and
-`hermes-benchmark-32-moroni` are `TERMINATED` after evidence collection.
+Independent cloud status confirms both `benchmark-host` and
+`benchmark-host` are `TERMINATED` after evidence collection.

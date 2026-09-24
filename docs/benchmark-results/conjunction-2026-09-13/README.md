@@ -12,4 +12,4 @@ admission changes are outside this snapshot.
 sizes are in `manifest.json`. The complete executable archive remains in the
 workspace as `.context/conjunction-cloud-evidence.tar.gz` (17,239,936 bytes), SHA-256
 `4304750b4f13aeecd1972b6bd73bd7ad6e7501ca1264d813f5b323411043ff35`. Every member and unchanged index manifest was verified after download.
-The VM remains available for follow-up experiments.
+The machine remains available for follow-up experiments.

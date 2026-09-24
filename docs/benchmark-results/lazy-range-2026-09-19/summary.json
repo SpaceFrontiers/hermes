@@ -1103,6 +1103,5 @@
   "archive_sha256": {
     "local-evidence.tar.gz": "6d76144142ac5c3d68034f6d46d1c29ecc4551dc52f6abbc440354f86c1929da",
     "cloud-evidence.tar.gz": "b10c516c4f04db16fe0241956f4360218bc8268071b98a55f763c848dc8ee6b3"
-  },
-  "cleanup": "Ephemeral VM and boot disk deleted after archive hash verification; both resource-list queries returned no entries."
+  }
 }

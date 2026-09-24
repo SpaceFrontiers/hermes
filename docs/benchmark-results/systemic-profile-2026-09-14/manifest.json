@@ -10,7 +10,7 @@
   "notes": [
     "Full sample archive verified against all 83 manifest entries locally.",
     "Reports omit binaries and perf data; source overlay, locks, build metadata, query lists, index manifests and run script are included.",
-    "Software CPU-clock sampling; this VM does not expose hardware performance counters.",
+    "Software CPU-clock sampling; this machine does not expose hardware performance counters.",
     "Inclusive stacks have incomplete unwinding; use self costs for attribution.",
     "Instrumented task-clock/query includes harness overhead and is not a latency benchmark."
   ]

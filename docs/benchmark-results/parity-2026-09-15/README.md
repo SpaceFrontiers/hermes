@@ -123,6 +123,6 @@ all-required windows regress official top-10 3.0% and top-1000 11.9%; both
 architectures reject that prototype. The invalid first attempts remain labeled
 by `provenance.json`, and do not establish gains for either algorithm.
 
-The owned benchmark VM is confirmed `TERMINATED` after all runs and verified
+The owned benchmark machine is confirmed `TERMINATED` after all runs and verified
 downloads. The stop command's status polling encountered a connection reset;
 a subsequent direct status check confirmed shutdown. Changes remain uncommitted.

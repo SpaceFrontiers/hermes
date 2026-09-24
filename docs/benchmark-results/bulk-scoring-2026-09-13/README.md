@@ -61,4 +61,4 @@ not a claim that Lucene was benchmarked in this pass.
 ZIP integrity: 662 members, 10,862,250 bytes, SHA-256
 `f407485762b90515122be879d21eeb7ae53c366c0f1f997dd97ec640ab6ab911`.
 
-The VM and boot disk were deleted after capture; see [the cleanup audit](cleanup.json).
+The machine and boot disk were deleted after capture; see [the cleanup audit](cleanup.json).

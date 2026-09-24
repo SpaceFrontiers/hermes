@@ -76,6 +76,8 @@ status and fixture before treating a result as current behavior or performance.
 - [Posting validation cache experiment (superseded)](search-benchmark-validation-results.md)
 - [Text formats and memory](text-format-comparison.md)
 - [Query-work diagnosis](search-work-diagnosis.md) and [pruning fixes](search-pruning-fixes.md)
+- [Ranked conjunction and phrase follow-up](ranked-pruning-followup.md)
+- [Score-guided posting traversal research](score-guided-traversal.md)
 - [RGB diagnosis](search-rgb-benchmark.md) and [repair results](search-rgb-repair.md)
 - [Lucene research](lucene-11-performance-research.md)
 - [BMP forward-search experiment (removed)](bmp-forward-search.md)
@@ -92,3 +94,5 @@ status and fixture before treating a result as current behavior or performance.
 Run `uv run scripts/check_docs.py` to validate local links, anchors, guide
 coverage, and benchmark targets. Keep current contracts separate from dated
 results; follow the [reporting rules](benchmarks.md#recorded-results-and-reporting).
+
+- [Latest performance table for posts](search-performance-post.md)

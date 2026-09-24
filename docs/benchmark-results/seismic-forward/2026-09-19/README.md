@@ -3,7 +3,7 @@
 Baseline: clean main commit `782227808a54c560b231d19e0a4d46662ecca334`.
 Candidate: the production source hashes in [manifest.json](manifest.json).
 Both runners use identical dependency lockfiles, Rust 1.98.1, release/thin LTO,
-one codegen unit, and `-C target-cpu=native`. The VM has an x86 Xeon 2.8 GHz,
+one codegen unit, and `-C target-cpu=native`. The machine has an x86 Xeon 2.8 GHz,
 eight vCPUs and approximately 62 GiB RAM. Search uses four workers and copy
 pinning with a 64 MiB per-segment budget. See [environment.json](environment.json)
 and the [reproduction instructions](../README.md).
@@ -81,5 +81,5 @@ Its checksum, measured binaries, identical runner lockfiles, and all recorded
 production-source hashes were verified after download. Large artifacts stay in
 `.context/forward-compression/forward-final-evidence.tar.gz`: raw hits/logs,
 source archives, binaries, and rejected-prototype measurements. The latter are
-not included in the final tables. The VM is stopped after export; its status is
-confirmed as `TERMINATED` in [vm-status.json](vm-status.json).
+not included in the final tables. The machine is stopped after export; its status is
+confirmed as `TERMINATED` in [machine-status.json](machine-status.json).

@@ -13,7 +13,7 @@ cache policy and settings are unchanged. No per-vector allocation is added.
 
 ## Measurement protocol
 
-This follow-up uses the same isolated 8-vCPU Intel Cascade Lake VM, Rust 1.98.1,
+This follow-up uses the same isolated 8-vCPU Intel Cascade Lake machine, Rust 1.98.1,
 release thin LTO, one codegen unit, and `-C target-cpu=native` as the
 [format comparison](query-latency.md). Both binaries read **the same BMPB files**:
 900,000 real retained vectors, 146,460,740 nonzeros and 42,596 documents. The
@@ -116,7 +116,7 @@ source snapshots, executed scripts and full annotated profiles. It is saved at
 `.context/bmp-query/optimization/accumulator-evidence.zip` (15,676,712 bytes),
 SHA256 `97c9dc7f79e4f0a7901ec93eb571c068f6a58c8adb4d983a489e56043a25a2e7`.
 
-The archive was downloaded and hash-verified before shutdown. The benchmark VM
+The archive was downloaded and hash-verified before shutdown. The benchmark machine
 is confirmed `TERMINATED`; the stop client lost its connection while polling,
 and a separate instance-status request confirmed completion.
 

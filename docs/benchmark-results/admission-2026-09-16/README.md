@@ -86,6 +86,6 @@ the corrected passing run are retained.
 
 WASM was not rebuilt, following the user's instruction. Cold/concurrent workload
 and full lifecycle/RPC checks were not rerun. Hardware cycle/instruction/branch/
-cache counters are unsupported on this VM; CPU-clock profiling works. Quantiles
+cache counters are unsupported on this machine; CPU-clock profiling works. Quantiles
 in the archive summarize per-query medians, not concurrent-service tail latency.
-The owned VM is stopped after verified evidence download. Changes are uncommitted.
+The owned machine is stopped after verified evidence download. Changes are uncommitted.
