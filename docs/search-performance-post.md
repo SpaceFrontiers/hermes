@@ -33,3 +33,7 @@ Against its own September 24 baseline, RGB improves low-frequency phrase top-10
 throughput by **155%** and medium-frequency phrase top-100 by **44%**. Counts
 and some controls regress slightly; ordinary conjunction top-10 remains behind
 Luxir. Existing indexes benefit without schema changes or rebuilding.
+
+These timings precede the regex/escaped-literal additions. The new query support
+passes an [826-expression capability probe](benchmark-results/query-support-2026-09-24/README.md),
+but the newly supported families have no full-corpus throughput measurements yet.

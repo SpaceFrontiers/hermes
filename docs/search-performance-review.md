@@ -1,5 +1,30 @@
 # Core/server review — 2026-09-05
 
+September 24 query compatibility: [whole-term regex queries and escaped literals](regex-query.md)
+add the 13 missing benchmark regex expressions and 12 punctuation/escape cases.
+Regex and wildcard share bounded dictionary matching and the existing union
+scorer, including constant scores, logical RGB IDs and chunked-field rejection.
+Pattern calls reject unindexed/nontext/unknown fields explicitly. The parser
+unescapes literal terms once, preserving field analysis, and rejects malformed
+regex calls and dangling escapes. No format, schema, worker or scoring default
+changes; no index rebuild is needed for the query types.
+
+The [reproducible HTTP probe](benchmark-results/query-support-2026-09-24/README.md)
+accepts 826/826 expressions on the unchanged four-document fixture, up from 801.
+Every previously accepted response is unchanged. Regression tests first failed
+on missing regex behavior and punctuation parsing, then passed for all 13 regex
+patterns with nonempty exact-ID/count oracles, Unicode/case/anchoring, Boolean
+composition, duplicate terms, RGB mapping, invalid syntax and expansion errors.
+
+Validation: the search `check` harness passes all five stages, 2,054 tests
+(25 ignored), strict Clippy, native-without-sync and standalone broker checks.
+All eight focused regex/wildcard tests also pass with async-only native features.
+The WASM release build and all 41 JavaScript tests pass. Documentation and Python
+checks pass. No lifecycle or wire protocol changed; the full RPC harness was not
+rerun. Capability checks are not performance measurements. Remaining work is
+full-corpus count/ranking agreement, standard-analyzer compatibility, sloppy-phrase
+semantics and broader bounded expansion; the throughput gate remains 15/826.
+
 September 24: the [ranked conjunction and phrase follow-up](ranked-pruning-followup.md)
 retains fixed-block cursor seeks, locally guarded rare-term conjunction seeking,
 certified phrase bounds/singleton probes, serial two-term native reader setup,

@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result, bail};
 use hermes_core::dsl::{Field, QueryLanguageParser};
-use hermes_core::query::{PhraseQuery, Query, WildcardQuery};
+use hermes_core::query::{PhraseQuery, Query, RegexQuery, WildcardQuery};
 use hermes_core::tokenizer::{BoxedTokenizer, Purpose};
 use serde_json::Value;
 
@@ -62,6 +62,7 @@ impl Envelope {
     ) -> Result<Request> {
         let text = self.text.as_str();
         let query: Box<dyn Query> = match self.class.as_str() {
+            "regex" => Box::new(RegexQuery::new(field, text)?),
             "wildcard" | "wildcard_scan" | "wildcard_lead" => {
                 Box::new(WildcardQuery::text(field, text)?)
             }

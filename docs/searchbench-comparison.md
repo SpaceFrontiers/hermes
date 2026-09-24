@@ -1,5 +1,10 @@
 # Yonik Searchbench comparison and phrase optimization
 
+September 24 capability update: [regex and escaped literals](regex-query.md)
+raise acceptance to **826/826 expressions** on the four-document HTTP fixture.
+This closes the previous 25 syntax/query-type errors; it does not change the
+historical full-corpus count gate or expand the measured 15-query throughput set.
+
 Status: September 23, 2026. **The four-engine 10M campaign completed successfully**
 on September 22 at 21:06 UTC (September 23, 00:06 Moscow). All 108 measured cells
 completed without request errors. Only **15/826 queries** passed the full-corpus

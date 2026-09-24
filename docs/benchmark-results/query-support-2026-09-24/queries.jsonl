@@ -1,0 +1,826 @@
+{"query": "the", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 1, "source_query": "the", "metadata": "freq=8217362"}}
+{"query": "of", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 2, "source_query": "of", "metadata": "freq=8184358"}}
+{"query": "in", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 3, "source_query": "in", "metadata": "freq=7320987"}}
+{"query": "and", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 4, "source_query": "and", "metadata": "freq=7318061"}}
+{"query": "to", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 6, "source_query": "to", "metadata": "freq=6155577"}}
+{"query": "for", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 7, "source_query": "for", "metadata": "freq=4380011"}}
+{"query": "on", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 8, "source_query": "on", "metadata": "freq=4074624"}}
+{"query": "is", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 9, "source_query": "is", "metadata": "freq=4074455"}}
+{"query": "as", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 10, "source_query": "as", "metadata": "freq=3925535"}}
+{"query": "by", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 11, "source_query": "by", "metadata": "freq=3826691"}}
+{"query": "ref", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 12, "source_query": "ref", "metadata": "freq=3793973"}}
+{"query": "was", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 13, "source_query": "was", "metadata": "freq=3763623"}}
+{"query": "with", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 14, "source_query": "with", "metadata": "freq=3709421"}}
+{"query": "http", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 15, "source_query": "http", "metadata": "freq=3493581"}}
+{"query": "from", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 16, "source_query": "from", "metadata": "freq=3224339"}}
+{"query": "that", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 17, "source_query": "that", "metadata": "freq=2931020"}}
+{"query": "at", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 18, "source_query": "at", "metadata": "freq=2857534"}}
+{"query": "name", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 19, "source_query": "name", "metadata": "freq=2827713"}}
+{"query": "title", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 22, "source_query": "title", "metadata": "freq=2397378"}}
+{"query": "this", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 23, "source_query": "this", "metadata": "freq=2224932"}}
+{"query": "date", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 25, "source_query": "date", "metadata": "freq=2020626"}}
+{"query": "which", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 26, "source_query": "which", "metadata": "freq=1963428"}}
+{"query": "also", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 27, "source_query": "also", "metadata": "freq=1959419"}}
+{"query": "first", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 28, "source_query": "first", "metadata": "freq=1933372"}}
+{"query": "are", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 29, "source_query": "are", "metadata": "freq=1877802"}}
+{"query": "or", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 30, "source_query": "or", "metadata": "freq=1858841"}}
+{"query": "his", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 31, "source_query": "his", "metadata": "freq=1777780"}}
+{"query": "cite", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 32, "source_query": "cite", "metadata": "freq=1741194"}}
+{"query": "not", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 33, "source_query": "not", "metadata": "freq=1713264"}}
+{"query": "new", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 35, "source_query": "new", "metadata": "freq=1657293"}}
+{"query": "1", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 36, "source_query": "1", "metadata": "freq=1641090"}}
+{"query": "s", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 37, "source_query": "s", "metadata": "freq=1581243"}}
+{"query": "2", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 38, "source_query": "2", "metadata": "freq=1549245"}}
+{"query": "one", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 39, "source_query": "one", "metadata": "freq=1527689"}}
+{"query": "were", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 40, "source_query": "were", "metadata": "freq=1524630"}}
+{"query": "url", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 41, "source_query": "url", "metadata": "freq=1513595"}}
+{"query": "has", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 42, "source_query": "has", "metadata": "freq=1502961"}}
+{"query": "but", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 43, "source_query": "but", "metadata": "freq=1456553"}}
+{"query": "have", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 44, "source_query": "have", "metadata": "freq=1297121"}}
+{"query": "publisher", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 45, "source_query": "publisher", "metadata": "freq=1289029"}}
+{"query": "other", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 46, "source_query": "other", "metadata": "freq=1269961"}}
+{"query": "after", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 47, "source_query": "after", "metadata": "freq=1247398"}}
+{"query": "had", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 48, "source_query": "had", "metadata": "freq=1246743"}}
+{"query": "year", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 49, "source_query": "year", "metadata": "freq=1235231"}}
+{"query": "accessdate", "class": "high_term", "tags": ["luceneutil:HighTerm"], "luceneutil": {"source_line": 50, "source_query": "accessdate", "metadata": "freq=1228887"}}
+{"query": "most", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 85, "source_query": "most", "metadata": "freq=819634"}}
+{"query": "up", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 86, "source_query": "up", "metadata": "freq=818546"}}
+{"query": "world", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 87, "source_query": "world", "metadata": "freq=808563"}}
+{"query": "2007", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 88, "source_query": "2007", "metadata": "freq=801586"}}
+{"query": "during", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 89, "source_query": "during", "metadata": "freq=798114"}}
+{"query": "people", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 90, "source_query": "people", "metadata": "freq=790960"}}
+{"query": "years", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 91, "source_query": "years", "metadata": "freq=789628"}}
+{"query": "such", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 92, "source_query": "such", "metadata": "freq=787877"}}
+{"query": "12", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 93, "source_query": "12", "metadata": "freq=774572"}}
+{"query": "over", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 94, "source_query": "over", "metadata": "freq=774312"}}
+{"query": "can", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 95, "source_query": "can", "metadata": "freq=765163"}}
+{"query": "references", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 96, "source_query": "references", "metadata": "freq=760306"}}
+{"query": "city", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 97, "source_query": "city", "metadata": "freq=760272"}}
+{"query": "6", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 98, "source_query": "6", "metadata": "freq=759234"}}
+{"query": "american", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 99, "source_query": "american", "metadata": "freq=758337"}}
+{"query": "news", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 100, "source_query": "news", "metadata": "freq=756063"}}
+{"query": "history", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 101, "source_query": "history", "metadata": "freq=755471"}}
+{"query": "0", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 102, "source_query": "0", "metadata": "freq=754451"}}
+{"query": "made", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 103, "source_query": "made", "metadata": "freq=742313"}}
+{"query": "out", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 104, "source_query": "out", "metadata": "freq=733775"}}
+{"query": "11", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 105, "source_query": "11", "metadata": "freq=730505"}}
+{"query": "used", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 106, "source_query": "used", "metadata": "freq=708455"}}
+{"query": "links", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 107, "source_query": "links", "metadata": "freq=703350"}}
+{"query": "state", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 108, "source_query": "state", "metadata": "freq=702598"}}
+{"query": "many", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 109, "source_query": "many", "metadata": "freq=694439"}}
+{"query": "would", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 110, "source_query": "would", "metadata": "freq=690480"}}
+{"query": "page", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 111, "source_query": "page", "metadata": "freq=681036"}}
+{"query": "national", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 112, "source_query": "national", "metadata": "freq=677281"}}
+{"query": "than", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 113, "source_query": "than", "metadata": "freq=676864"}}
+{"query": "thumb", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 114, "source_query": "thumb", "metadata": "freq=672667"}}
+{"query": "7", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 115, "source_query": "7", "metadata": "freq=660220"}}
+{"query": "place", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 116, "source_query": "place", "metadata": "freq=654158"}}
+{"query": "if", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 118, "source_query": "if", "metadata": "freq=640551"}}
+{"query": "university", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 119, "source_query": "university", "metadata": "freq=636959"}}
+{"query": "8", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 120, "source_query": "8", "metadata": "freq=635822"}}
+{"query": "external", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 121, "source_query": "external", "metadata": "freq=635450"}}
+{"query": "between", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 122, "source_query": "between", "metadata": "freq=630650"}}
+{"query": "where", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 123, "source_query": "where", "metadata": "freq=630647"}}
+{"query": "right", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 124, "source_query": "right", "metadata": "freq=630423"}}
+{"query": "20", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 125, "source_query": "20", "metadata": "freq=624967"}}
+{"query": "under", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 126, "source_query": "under", "metadata": "freq=623872"}}
+{"query": "these", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 127, "source_query": "these", "metadata": "freq=623267"}}
+{"query": "march", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 128, "source_query": "march", "metadata": "freq=620393"}}
+{"query": "br", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 129, "source_query": "br", "metadata": "freq=617824"}}
+{"query": "book", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 130, "source_query": "book", "metadata": "freq=617297"}}
+{"query": "p", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 131, "source_query": "p", "metadata": "freq=616159"}}
+{"query": "article", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 132, "source_query": "article", "metadata": "freq=610650"}}
+{"query": "known", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 133, "source_query": "known", "metadata": "freq=607158"}}
+{"query": "then", "class": "med_term", "tags": ["luceneutil:MedTerm"], "luceneutil": {"source_line": 134, "source_query": "then", "metadata": "freq=606159"}}
+{"query": "husband", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 585, "source_query": "husband", "metadata": "freq=82137"}}
+{"query": "file", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 586, "source_query": "file", "metadata": "freq=82102"}}
+{"query": "alexander", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 587, "source_query": "alexander", "metadata": "freq=82087"}}
+{"query": "executive", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 588, "source_query": "executive", "metadata": "freq=82058"}}
+{"query": "entry", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 589, "source_query": "entry", "metadata": "freq=82050"}}
+{"query": "nearly", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 590, "source_query": "nearly", "metadata": "freq=81998"}}
+{"query": "comics", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 591, "source_query": "comics", "metadata": "freq=81961"}}
+{"query": "mission", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 593, "source_query": "mission", "metadata": "freq=81858"}}
+{"query": "justice", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 594, "source_query": "justice", "metadata": "freq=81845"}}
+{"query": "false", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 595, "source_query": "false", "metadata": "freq=81763"}}
+{"query": "initially", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 596, "source_query": "initially", "metadata": "freq=81755"}}
+{"query": "nine", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 597, "source_query": "nine", "metadata": "freq=81743"}}
+{"query": "noted", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 598, "source_query": "noted", "metadata": "freq=81718"}}
+{"query": "1957", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 599, "source_query": "1957", "metadata": "freq=81630"}}
+{"query": "joe", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 600, "source_query": "joe", "metadata": "freq=81403"}}
+{"query": "deal", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 602, "source_query": "deal", "metadata": "freq=81109"}}
+{"query": "picture", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 603, "source_query": "picture", "metadata": "freq=81045"}}
+{"query": "comment", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 604, "source_query": "comment", "metadata": "freq=80932"}}
+{"query": "spring", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 605, "source_query": "spring", "metadata": "freq=80886"}}
+{"query": "types", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 606, "source_query": "types", "metadata": "freq=80824"}}
+{"query": "room", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 607, "source_query": "room", "metadata": "freq=80801"}}
+{"query": "activities", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 608, "source_query": "activities", "metadata": "freq=80726"}}
+{"query": "surface", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 609, "source_query": "surface", "metadata": "freq=80702"}}
+{"query": "stop", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 610, "source_query": "stop", "metadata": "freq=80640"}}
+{"query": "awarded", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 611, "source_query": "awarded", "metadata": "freq=80591"}}
+{"query": "bob", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 612, "source_query": "bob", "metadata": "freq=80553"}}
+{"query": "1970s", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 613, "source_query": "1970s", "metadata": "freq=80548"}}
+{"query": "minutes", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 614, "source_query": "minutes", "metadata": "freq=80502"}}
+{"query": "friend", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 615, "source_query": "friend", "metadata": "freq=80456"}}
+{"query": "port", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 617, "source_query": "port", "metadata": "freq=80320"}}
+{"query": "assembly", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 618, "source_query": "assembly", "metadata": "freq=80224"}}
+{"query": "col", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 619, "source_query": "col", "metadata": "freq=80105"}}
+{"query": "candidate", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 620, "source_query": "candidate", "metadata": "freq=80091"}}
+{"query": "golden", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 621, "source_query": "golden", "metadata": "freq=80071"}}
+{"query": "cast", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 622, "source_query": "cast", "metadata": "freq=79857"}}
+{"query": "victoria", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 623, "source_query": "victoria", "metadata": "freq=79813"}}
+{"query": "comes", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 624, "source_query": "comes", "metadata": "freq=79772"}}
+{"query": "professor", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 625, "source_query": "professor", "metadata": "freq=79746"}}
+{"query": "really", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 626, "source_query": "really", "metadata": "freq=79667"}}
+{"query": "1948", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 627, "source_query": "1948", "metadata": "freq=79559"}}
+{"query": "hot", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 628, "source_query": "hot", "metadata": "freq=79557"}}
+{"query": "towns", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 629, "source_query": "towns", "metadata": "freq=79459"}}
+{"query": "believed", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 630, "source_query": "believed", "metadata": "freq=79407"}}
+{"query": "1946", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 631, "source_query": "1946", "metadata": "freq=79388"}}
+{"query": "forced", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 632, "source_query": "forced", "metadata": "freq=79373"}}
+{"query": "10px", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 633, "source_query": "10px", "metadata": "freq=79262"}}
+{"query": "stars", "class": "low_term", "tags": ["luceneutil:LowTerm"], "luceneutil": {"source_line": 634, "source_query": "stars", "metadata": "freq=79261"}}
+{"query": "+of +s", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2085, "source_query": "+of +s", "metadata": "freq=8184358 freq=1581243"}}
+{"query": "+date +he", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2086, "source_query": "+date +he", "metadata": "freq=2020626 freq=1659434"}}
+{"query": "+cite +2005", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2087, "source_query": "+cite +2005", "metadata": "freq=1741194 freq=835460"}}
+{"query": "+date +2009", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2089, "source_query": "+date +2009", "metadata": "freq=2020626 freq=887702"}}
+{"query": "+for +cite", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2090, "source_query": "+for +cite", "metadata": "freq=4380011 freq=1741194"}}
+{"query": "+as +its", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2091, "source_query": "+as +its", "metadata": "freq=3925535 freq=1173450"}}
+{"query": "+which +2011", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2092, "source_query": "+which +2011", "metadata": "freq=1963428 freq=871410"}}
+{"query": "+have +see", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2093, "source_query": "+have +see", "metadata": "freq=1297121 freq=1044180"}}
+{"query": "+first +accessdate", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2094, "source_query": "+first +accessdate", "metadata": "freq=1933372 freq=1228887"}}
+{"query": "+first +new", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2096, "source_query": "+first +new", "metadata": "freq=1933372 freq=1657293"}}
+{"query": "+publisher +web", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2097, "source_query": "+publisher +web", "metadata": "freq=1289029 freq=1118334"}}
+{"query": "+states +work", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2098, "source_query": "+states +work", "metadata": "freq=1034872 freq=853422"}}
+{"query": "+more +work", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2099, "source_query": "+more +work", "metadata": "freq=963533 freq=853422"}}
+{"query": "+1 +their", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2100, "source_query": "+1 +their", "metadata": "freq=1641090 freq=1158682"}}
+{"query": "+http +an", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2101, "source_query": "+http +an", "metadata": "freq=3493581 freq=2628056"}}
+{"query": "+year +5", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2102, "source_query": "+year +5", "metadata": "freq=1235231 freq=891361"}}
+{"query": "+4 +there", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2103, "source_query": "+4 +there", "metadata": "freq=986452 freq=956153"}}
+{"query": "+s +who", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2104, "source_query": "+s +who", "metadata": "freq=1581243 freq=1196171"}}
+{"query": "+who +may", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2105, "source_query": "+who +may", "metadata": "freq=1196171 freq=1071932"}}
+{"query": "+united +time", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2106, "source_query": "+united +time", "metadata": "freq=1196944 freq=1032071"}}
+{"query": "+time +when", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2108, "source_query": "+time +when", "metadata": "freq=1032071 freq=1027487"}}
+{"query": "+that +cite", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2109, "source_query": "+that +cite", "metadata": "freq=2931020 freq=1741194"}}
+{"query": "+to +its", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2110, "source_query": "+to +its", "metadata": "freq=6155577 freq=1173450"}}
+{"query": "+2011 +2008", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2111, "source_query": "+2011 +2008", "metadata": "freq=871410 freq=831253"}}
+{"query": "+been +2005", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2112, "source_query": "+been +2005", "metadata": "freq=1041183 freq=835460"}}
+{"query": "+1 +year", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2113, "source_query": "+1 +year", "metadata": "freq=1641090 freq=1235231"}}
+{"query": "+was +more", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2114, "source_query": "+was +more", "metadata": "freq=3763623 freq=963533"}}
+{"query": "+3 +2005", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2115, "source_query": "+3 +2005", "metadata": "freq=1148799 freq=835460"}}
+{"query": "+a +they", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2116, "source_query": "+a +they", "metadata": "freq=6560531 freq=1021945"}}
+{"query": "+s +time", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2117, "source_query": "+s +time", "metadata": "freq=1581243 freq=1032071"}}
+{"query": "+in +2011", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2118, "source_query": "+in +2011", "metadata": "freq=7320987 freq=871410"}}
+{"query": "+a +work", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2119, "source_query": "+a +work", "metadata": "freq=6560531 freq=853422"}}
+{"query": "+they +4", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2120, "source_query": "+they +4", "metadata": "freq=1021945 freq=986452"}}
+{"query": "+and +2", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2121, "source_query": "+and +2", "metadata": "freq=7318061 freq=1549245"}}
+{"query": "+to +an", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2122, "source_query": "+to +an", "metadata": "freq=6155577 freq=2628056"}}
+{"query": "+an +which", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2123, "source_query": "+an +which", "metadata": "freq=2628056 freq=1963428"}}
+{"query": "+was +also", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2124, "source_query": "+was +also", "metadata": "freq=3763623 freq=1959419"}}
+{"query": "+this +see", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2125, "source_query": "+this +see", "metadata": "freq=2224932 freq=1044180"}}
+{"query": "+all +2010", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2126, "source_query": "+all +2010", "metadata": "freq=1203572 freq=950573"}}
+{"query": "+2 +2010", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2127, "source_query": "+2 +2010", "metadata": "freq=1549245 freq=950573"}}
+{"query": "+first +work", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2128, "source_query": "+first +work", "metadata": "freq=1933372 freq=853422"}}
+{"query": "+he +10", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2129, "source_query": "+he +10", "metadata": "freq=1659434 freq=918339"}}
+{"query": "+http +that", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2130, "source_query": "+http +that", "metadata": "freq=3493581 freq=2931020"}}
+{"query": "+new +2011", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2131, "source_query": "+new +2011", "metadata": "freq=1657293 freq=871410"}}
+{"query": "+as +by", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2132, "source_query": "+as +by", "metadata": "freq=3925535 freq=3826691"}}
+{"query": "+there +2008", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2133, "source_query": "+there +2008", "metadata": "freq=956153 freq=831253"}}
+{"query": "+is +they", "class": "and_high_high", "tags": ["luceneutil:AndHighHigh"], "luceneutil": {"source_line": 2134, "source_query": "+is +they", "metadata": "freq=4074455 freq=1021945"}}
+{"query": "+has +please", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2585, "source_query": "+has +please", "metadata": "freq=1502961 freq=229602"}}
+{"query": "+he +battle", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2586, "source_query": "+he +battle", "metadata": "freq=1659434 freq=192357"}}
+{"query": "+be +century", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2587, "source_query": "+be +century", "metadata": "freq=2051702 freq=385541"}}
+{"query": "+may +studio", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2588, "source_query": "+may +studio", "metadata": "freq=1071932 freq=101979"}}
+{"query": "+have +level", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2589, "source_query": "+have +level", "metadata": "freq=1297121 freq=175382"}}
+{"query": "+web +place", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2590, "source_query": "+web +place", "metadata": "freq=1118334 freq=654158"}}
+{"query": "+all +close", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2591, "source_query": "+all +close", "metadata": "freq=1203572 freq=136706"}}
+{"query": "+as +chart", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2592, "source_query": "+as +chart", "metadata": "freq=3925535 freq=84194"}}
+{"query": "+ref +appropriate", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2593, "source_query": "+ref +appropriate", "metadata": "freq=3793973 freq=135343"}}
+{"query": "+be +put", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2594, "source_query": "+be +put", "metadata": "freq=2051702 freq=139882"}}
+{"query": "+and +called", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2595, "source_query": "+and +called", "metadata": "freq=7318061 freq=454580"}}
+{"query": "+been +four", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2596, "source_query": "+been +four", "metadata": "freq=1041183 freq=389818"}}
+{"query": "+url +whether", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2597, "source_query": "+url +whether", "metadata": "freq=1513595 freq=93965"}}
+{"query": "+with +day", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2598, "source_query": "+with +day", "metadata": "freq=3709421 freq=402096"}}
+{"query": "+a +famous", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2599, "source_query": "+a +famous", "metadata": "freq=6560531 freq=139092"}}
+{"query": "+it +nature", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2600, "source_query": "+it +nature", "metadata": "freq=2675552 freq=107428"}}
+{"query": "+his +although", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2601, "source_query": "+his +although", "metadata": "freq=1777780 freq=341432"}}
+{"query": "+1 +artists", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2602, "source_query": "+1 +artists", "metadata": "freq=1641090 freq=107145"}}
+{"query": "+title +digital", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2603, "source_query": "+title +digital", "metadata": "freq=2397378 freq=82650"}}
+{"query": "+that +37", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2604, "source_query": "+that +37", "metadata": "freq=2931020 freq=126429"}}
+{"query": "+was +free", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2605, "source_query": "+was +free", "metadata": "freq=3763623 freq=270199"}}
+{"query": "+5 +west", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2606, "source_query": "+5 +west", "metadata": "freq=891361 freq=431006"}}
+{"query": "+had +reference", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2607, "source_query": "+had +reference", "metadata": "freq=1246743 freq=111493"}}
+{"query": "+in +sports", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2608, "source_query": "+in +sports", "metadata": "freq=7320987 freq=178542"}}
+{"query": "+its +interview", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2609, "source_query": "+its +interview", "metadata": "freq=1173450 freq=98846"}}
+{"query": "+url +took", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2610, "source_query": "+url +took", "metadata": "freq=1513595 freq=247388"}}
+{"query": "+and +los", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2611, "source_query": "+and +los", "metadata": "freq=7318061 freq=145404"}}
+{"query": "+last +english", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2612, "source_query": "+last +english", "metadata": "freq=958437 freq=412061"}}
+{"query": "+not +lee", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2613, "source_query": "+not +lee", "metadata": "freq=1713264 freq=90461"}}
+{"query": "+their +few", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2614, "source_query": "+their +few", "metadata": "freq=1158682 freq=226422"}}
+{"query": "+they +round", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2615, "source_query": "+they +round", "metadata": "freq=1021945 freq=122499"}}
+{"query": "+cite +area", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2616, "source_query": "+cite +area", "metadata": "freq=1741194 freq=559023"}}
+{"query": "+two +lake", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2617, "source_query": "+two +lake", "metadata": "freq=1104053 freq=131603"}}
+{"query": "+time +8", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2618, "source_query": "+time +8", "metadata": "freq=1032071 freq=635822"}}
+{"query": "+this +winning", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2619, "source_query": "+this +winning", "metadata": "freq=2224932 freq=95704"}}
+{"query": "+only +performed", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2620, "source_query": "+only +performed", "metadata": "freq=875561 freq=104044"}}
+{"query": "+when +books.google.com", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2621, "source_query": "+when +books.google.com", "metadata": "freq=1027487 freq=119391"}}
+{"query": "+who +legal", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2622, "source_query": "+who +legal", "metadata": "freq=1196171 freq=90645"}}
+{"query": "+2009 +keep", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2623, "source_query": "+2009 +keep", "metadata": "freq=887702 freq=177996"}}
+{"query": "+http +running", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2624, "source_query": "+http +running", "metadata": "freq=3493581 freq=101764"}}
+{"query": "+5 +grand", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2625, "source_query": "+5 +grand", "metadata": "freq=891361 freq=139202"}}
+{"query": "+it +man", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2626, "source_query": "+it +man", "metadata": "freq=2675552 freq=278112"}}
+{"query": "+had +entertainment", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2627, "source_query": "+had +entertainment", "metadata": "freq=1246743 freq=117931"}}
+{"query": "+with +200px", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2628, "source_query": "+with +200px", "metadata": "freq=3709421 freq=102661"}}
+{"query": "+had +van", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2629, "source_query": "+had +van", "metadata": "freq=1246743 freq=116920"}}
+{"query": "+was +track", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2630, "source_query": "+was +track", "metadata": "freq=3763623 freq=148840"}}
+{"query": "+10 +corporation", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2631, "source_query": "+10 +corporation", "metadata": "freq=918339 freq=107425"}}
+{"query": "+other +make", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2632, "source_query": "+other +make", "metadata": "freq=1269961 freq=292607"}}
+{"query": "+first +results", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2633, "source_query": "+first +results", "metadata": "freq=1933372 freq=137248"}}
+{"query": "+2010 +unreferenced", "class": "and_high_med", "tags": ["luceneutil:AndHighMed"], "luceneutil": {"source_line": 2634, "source_query": "+2010 +unreferenced", "metadata": "freq=950573 freq=107803"}}
+{"query": "+2008 +extracting", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3085, "source_query": "+2008 +extracting", "metadata": "freq=831253 freq=1773"}}
+{"query": "+new +term_start5", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3086, "source_query": "+new +term_start5", "metadata": "freq=1657293 freq=1341"}}
+{"query": "+his +utcursch", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3087, "source_query": "+his +utcursch", "metadata": "freq=1777780 freq=886"}}
+{"query": "+date +1188", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3088, "source_query": "+date +1188", "metadata": "freq=2020626 freq=946"}}
+{"query": "+united +dhl", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3089, "source_query": "+united +dhl", "metadata": "freq=1196944 freq=822"}}
+{"query": "+2005 +historiography", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3090, "source_query": "+2005 +historiography", "metadata": "freq=835460 freq=3189"}}
+{"query": "+on +104th", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3091, "source_query": "+on +104th", "metadata": "freq=4074624 freq=982"}}
+{"query": "+a +user\\:ed", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3092, "source_query": "+a +user:ed", "metadata": "freq=6560531 freq=1218"}}
+{"query": "+time +workman", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3093, "source_query": "+time +workman", "metadata": "freq=1032071 freq=1750"}}
+{"query": "+no +magma", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3094, "source_query": "+no +magma", "metadata": "freq=1045000 freq=1937"}}
+{"query": "+two +overthrowing", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3095, "source_query": "+two +overthrowing", "metadata": "freq=1104053 freq=811"}}
+{"query": "+for +lotte", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3096, "source_query": "+for +lotte", "metadata": "freq=4380011 freq=997"}}
+{"query": "+4 +turkmen", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3097, "source_query": "+4 +turkmen", "metadata": "freq=986452 freq=1148"}}
+{"query": "+are +sticky", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3098, "source_query": "+are +sticky", "metadata": "freq=1877802 freq=2869"}}
+{"query": "+no +haitian", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3099, "source_query": "+no +haitian", "metadata": "freq=1045000 freq=3055"}}
+{"query": "+title +backstory", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3100, "source_query": "+title +backstory", "metadata": "freq=2397378 freq=1584"}}
+{"query": "+accessdate +wickets2", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3101, "source_query": "+accessdate +wickets2", "metadata": "freq=1228887 freq=3455"}}
+{"query": "+name +intuition", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3102, "source_query": "+name +intuition", "metadata": "freq=2827713 freq=2149"}}
+{"query": "+a +manipur", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3103, "source_query": "+a +manipur", "metadata": "freq=6560531 freq=1113"}}
+{"query": "+is +86th", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3104, "source_query": "+is +86th", "metadata": "freq=4074455 freq=1263"}}
+{"query": "+2006 +pastry", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3105, "source_query": "+2006 +pastry", "metadata": "freq=889954 freq=1729"}}
+{"query": "+5 +harvests", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3106, "source_query": "+5 +harvests", "metadata": "freq=891361 freq=864"}}
+{"query": "+in +cymru", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3107, "source_query": "+in +cymru", "metadata": "freq=7320987 freq=2384"}}
+{"query": "+on +spores", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3108, "source_query": "+on +spores", "metadata": "freq=4074624 freq=1231"}}
+{"query": "+an +phoneme", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3109, "source_query": "+an +phoneme", "metadata": "freq=2628056 freq=1698"}}
+{"query": "+also +mutated", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3110, "source_query": "+also +mutated", "metadata": "freq=1959419 freq=1833"}}
+{"query": "+url +selena", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3111, "source_query": "+url +selena", "metadata": "freq=1513595 freq=1246"}}
+{"query": "+they +1589", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3112, "source_query": "+they +1589", "metadata": "freq=1021945 freq=2285"}}
+{"query": "+a +epsilon", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3113, "source_query": "+a +epsilon", "metadata": "freq=6560531 freq=7179"}}
+{"query": "+the +1127", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3114, "source_query": "+the +1127", "metadata": "freq=8217362 freq=1445"}}
+{"query": "+one +radars", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3115, "source_query": "+one +radars", "metadata": "freq=1527689 freq=1580"}}
+{"query": "+there +gravesite", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3116, "source_query": "+there +gravesite", "metadata": "freq=956153 freq=912"}}
+{"query": "+on +mcghee", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3117, "source_query": "+on +mcghee", "metadata": "freq=4074624 freq=798"}}
+{"query": "+last +user_talk\\:piotrus", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3118, "source_query": "+last +user_talk:piotrus", "metadata": "freq=958437 freq=1039"}}
+{"query": "+in +user\\:robert", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3119, "source_query": "+in +user:robert", "metadata": "freq=7320987 freq=1789"}}
+{"query": "+4 +ll.b", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3120, "source_query": "+4 +ll.b", "metadata": "freq=986452 freq=1121"}}
+{"query": "+of +ffebcd", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3121, "source_query": "+of +ffebcd", "metadata": "freq=8184358 freq=1669"}}
+{"query": "+after +crack", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3122, "source_query": "+after +crack", "metadata": "freq=1247398 freq=6061"}}
+{"query": "+also +staring", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3123, "source_query": "+also +staring", "metadata": "freq=1959419 freq=1455"}}
+{"query": "+last +navies", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3124, "source_query": "+last +navies", "metadata": "freq=958437 freq=2282"}}
+{"query": "+two +swami", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3125, "source_query": "+two +swami", "metadata": "freq=1104053 freq=3743"}}
+{"query": "+who +revolts", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3126, "source_query": "+who +revolts", "metadata": "freq=1196171 freq=2087"}}
+{"query": "+all +genghis", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3127, "source_query": "+all +genghis", "metadata": "freq=1203572 freq=1636"}}
+{"query": "+2006 +aural", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3128, "source_query": "+2006 +aural", "metadata": "freq=889954 freq=844"}}
+{"query": "+no +1393", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3129, "source_query": "+no +1393", "metadata": "freq=1045000 freq=1038"}}
+{"query": "+the +kuhn", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3130, "source_query": "+the +kuhn", "metadata": "freq=8217362 freq=2229"}}
+{"query": "+been +category\\:languages", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3131, "source_query": "+been +category:languages", "metadata": "freq=1041183 freq=2272"}}
+{"query": "+on +crosstown", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3132, "source_query": "+on +crosstown", "metadata": "freq=4074624 freq=932"}}
+{"query": "+about +alexandru", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3133, "source_query": "+about +alexandru", "metadata": "freq=850283 freq=1572"}}
+{"query": "+who +whiteley", "class": "and_high_low", "tags": ["luceneutil:AndHighLow"], "luceneutil": {"source_line": 3134, "source_query": "+who +whiteley", "metadata": "freq=1196171 freq=826"}}
+{"query": "as ref", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3585, "source_query": "as ref", "metadata": "freq=3925535 freq=3793973"}}
+{"query": "is 2011", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3586, "source_query": "is 2011", "metadata": "freq=4074455 freq=871410"}}
+{"query": "in are", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3587, "source_query": "in are", "metadata": "freq=7320987 freq=1877802"}}
+{"query": "first had", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3588, "source_query": "first had", "metadata": "freq=1933372 freq=1246743"}}
+{"query": "were work", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3589, "source_query": "were work", "metadata": "freq=1524630 freq=853422"}}
+{"query": "the its", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3590, "source_query": "the its", "metadata": "freq=8217362 freq=1173450"}}
+{"query": "was 2011", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3591, "source_query": "was 2011", "metadata": "freq=3763623 freq=871410"}}
+{"query": "have 2010", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3592, "source_query": "have 2010", "metadata": "freq=1297121 freq=950573"}}
+{"query": "first 2", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3593, "source_query": "first 2", "metadata": "freq=1933372 freq=1549245"}}
+{"query": "this but", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3594, "source_query": "this but", "metadata": "freq=2224932 freq=1456553"}}
+{"query": "url 2009", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3596, "source_query": "url 2009", "metadata": "freq=1513595 freq=887702"}}
+{"query": "2 but", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3598, "source_query": "2 but", "metadata": "freq=1549245 freq=1456553"}}
+{"query": "had 5", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3600, "source_query": "had 5", "metadata": "freq=1246743 freq=891361"}}
+{"query": "has united", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3602, "source_query": "has united", "metadata": "freq=1502961 freq=1196944"}}
+{"query": "which after", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3603, "source_query": "which after", "metadata": "freq=1963428 freq=1247398"}}
+{"query": "not their", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3604, "source_query": "not their", "metadata": "freq=1713264 freq=1158682"}}
+{"query": "was 1", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3605, "source_query": "was 1", "metadata": "freq=3763623 freq=1641090"}}
+{"query": "but 2009", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3606, "source_query": "but 2009", "metadata": "freq=1456553 freq=887702"}}
+{"query": "one 3", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3607, "source_query": "one 3", "metadata": "freq=1527689 freq=1148799"}}
+{"query": "and their", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3608, "source_query": "and their", "metadata": "freq=7318061 freq=1158682"}}
+{"query": "on have", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3609, "source_query": "on have", "metadata": "freq=4074624 freq=1297121"}}
+{"query": "its 2008", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3611, "source_query": "its 2008", "metadata": "freq=1173450 freq=831253"}}
+{"query": "new 4", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3612, "source_query": "new 4", "metadata": "freq=1657293 freq=986452"}}
+{"query": "they 2009", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3613, "source_query": "they 2009", "metadata": "freq=1021945 freq=887702"}}
+{"query": "his been", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3614, "source_query": "his been", "metadata": "freq=1777780 freq=1041183"}}
+{"query": "states last", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3616, "source_query": "states last", "metadata": "freq=1034872 freq=958437"}}
+{"query": "in on", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3617, "source_query": "in on", "metadata": "freq=7320987 freq=4074624"}}
+{"query": "its work", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3618, "source_query": "its work", "metadata": "freq=1173450 freq=853422"}}
+{"query": "to 4", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3619, "source_query": "to 4", "metadata": "freq=6155577 freq=986452"}}
+{"query": "was date", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3620, "source_query": "was date", "metadata": "freq=3763623 freq=2020626"}}
+{"query": "were url", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3621, "source_query": "were url", "metadata": "freq=1524630 freq=1513595"}}
+{"query": "has 10", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3622, "source_query": "has 10", "metadata": "freq=1502961 freq=918339"}}
+{"query": "his 4", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3623, "source_query": "his 4", "metadata": "freq=1777780 freq=986452"}}
+{"query": "their they", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3624, "source_query": "their they", "metadata": "freq=1158682 freq=1021945"}}
+{"query": "more last", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3626, "source_query": "more last", "metadata": "freq=963533 freq=958437"}}
+{"query": "and its", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3627, "source_query": "and its", "metadata": "freq=7318061 freq=1173450"}}
+{"query": "states 2009", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3629, "source_query": "states 2009", "metadata": "freq=1034872 freq=887702"}}
+{"query": "not 2", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3630, "source_query": "not 2", "metadata": "freq=1713264 freq=1549245"}}
+{"query": "web may", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3631, "source_query": "web may", "metadata": "freq=1118334 freq=1071932"}}
+{"query": "of last", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3632, "source_query": "of last", "metadata": "freq=8184358 freq=958437"}}
+{"query": "publisher other", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3633, "source_query": "publisher other", "metadata": "freq=1289029 freq=1269961"}}
+{"query": "by work", "class": "or_high_high", "tags": ["luceneutil:OrHighHigh"], "luceneutil": {"source_line": 3634, "source_query": "by work", "metadata": "freq=3826691 freq=853422"}}
+{"query": "there background", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4085, "source_query": "there background", "metadata": "freq=956153 freq=314229"}}
+{"query": "name cd", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4087, "source_query": "name cd", "metadata": "freq=2827713 freq=87105"}}
+{"query": "when regular", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4088, "source_query": "when regular", "metadata": "freq=1027487 freq=93809"}}
+{"query": "1 called", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4089, "source_query": "1 called", "metadata": "freq=1641090 freq=454580"}}
+{"query": "may force", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4090, "source_query": "may force", "metadata": "freq=1071932 freq=198556"}}
+{"query": "1 regular", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4091, "source_query": "1 regular", "metadata": "freq=1641090 freq=93809"}}
+{"query": "s 1986", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4092, "source_query": "s 1986", "metadata": "freq=1581243 freq=167724"}}
+{"query": "2011 co", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4093, "source_query": "2011 co", "metadata": "freq=871410 freq=209086"}}
+{"query": "2009 him", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4095, "source_query": "2009 him", "metadata": "freq=887702 freq=507350"}}
+{"query": "at interest", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4096, "source_query": "at interest", "metadata": "freq=2857534 freq=108551"}}
+{"query": "and 1959", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4097, "source_query": "and 1959", "metadata": "freq=7318061 freq=87097"}}
+{"query": "had few", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4098, "source_query": "had few", "metadata": "freq=1246743 freq=226422"}}
+{"query": "this era", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4099, "source_query": "this era", "metadata": "freq=2224932 freq=95989"}}
+{"query": "also video", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4100, "source_query": "also video", "metadata": "freq=1959419 freq=202380"}}
+{"query": "into capital", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4101, "source_query": "into capital", "metadata": "freq=888684 freq=120421"}}
+{"query": "who los", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4102, "source_query": "who los", "metadata": "freq=1196171 freq=145404"}}
+{"query": "as working", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4104, "source_query": "as working", "metadata": "freq=3925535 freq=144617"}}
+{"query": "accessdate status", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4105, "source_query": "accessdate status", "metadata": "freq=1228887 freq=133818"}}
+{"query": "cite soviet", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4107, "source_query": "cite soviet", "metadata": "freq=1741194 freq=89070"}}
+{"query": "see reading", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4108, "source_query": "see reading", "metadata": "freq=1044180 freq=101214"}}
+{"query": "all area", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4109, "source_query": "all area", "metadata": "freq=1203572 freq=559023"}}
+{"query": "his influence", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4110, "source_query": "his influence", "metadata": "freq=1777780 freq=83101"}}
+{"query": "new less", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4111, "source_query": "new less", "metadata": "freq=1657293 freq=170266"}}
+{"query": "states 14", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4112, "source_query": "states 14", "metadata": "freq=1034872 freq=534005"}}
+{"query": "http wife", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4114, "source_query": "http wife", "metadata": "freq=3493581 freq=130807"}}
+{"query": "had stories", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4115, "source_query": "had stories", "metadata": "freq=1246743 freq=110223"}}
+{"query": "this established", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4116, "source_query": "this established", "metadata": "freq=2224932 freq=282471"}}
+{"query": "other source", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4117, "source_query": "other source", "metadata": "freq=1269961 freq=231838"}}
+{"query": "1 alone", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4118, "source_query": "1 alone", "metadata": "freq=1641090 freq=93166"}}
+{"query": "and per", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4119, "source_query": "and per", "metadata": "freq=7318061 freq=283568"}}
+{"query": "into larger", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4120, "source_query": "into larger", "metadata": "freq=888684 freq=87424"}}
+{"query": "to book", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4121, "source_query": "to book", "metadata": "freq=6155577 freq=617297"}}
+{"query": "at london", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4122, "source_query": "at london", "metadata": "freq=2857534 freq=348918"}}
+{"query": "at km", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4123, "source_query": "at km", "metadata": "freq=2857534 freq=233831"}}
+{"query": "in convert", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4124, "source_query": "in convert", "metadata": "freq=7320987 freq=267974"}}
+{"query": "s yet", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4125, "source_query": "s yet", "metadata": "freq=1581243 freq=100857"}}
+{"query": "1 1973", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4126, "source_query": "1 1973", "metadata": "freq=1641090 freq=125985"}}
+{"query": "1 yet", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4127, "source_query": "1 yet", "metadata": "freq=1641090 freq=100857"}}
+{"query": "3 preserved", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4128, "source_query": "3 preserved", "metadata": "freq=1148799 freq=111088"}}
+{"query": "when various", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4129, "source_query": "when various", "metadata": "freq=1027487 freq=224593"}}
+{"query": "his result", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4130, "source_query": "his result", "metadata": "freq=1777780 freq=276803"}}
+{"query": "into film", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4131, "source_query": "into film", "metadata": "freq=888684 freq=432758"}}
+{"query": "was leader", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4132, "source_query": "was leader", "metadata": "freq=3763623 freq=127591"}}
+{"query": "see list", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4133, "source_query": "see list", "metadata": "freq=1044180 freq=585922"}}
+{"query": "first institute", "class": "or_high_med", "tags": ["luceneutil:OrHighMed"], "luceneutil": {"source_line": 4134, "source_query": "first institute", "metadata": "freq=1933372 freq=136311"}}
+{"query": "with fijian", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4585, "source_query": "with fijian", "metadata": "freq=3709421 freq=2206"}}
+{"query": "been p.n.e", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4586, "source_query": "been p.n.e", "metadata": "freq=1041183 freq=1761"}}
+{"query": "been 1565", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4587, "source_query": "been 1565", "metadata": "freq=1041183 freq=2648"}}
+{"query": "has watchlist", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4589, "source_query": "has watchlist", "metadata": "freq=1502961 freq=2163"}}
+{"query": "their 12.6", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4590, "source_query": "their 12.6", "metadata": "freq=1158682 freq=3661"}}
+{"query": "may user\\:rogerd", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4591, "source_query": "may user:rogerd", "metadata": "freq=1071932 freq=1440"}}
+{"query": "cite saviour", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4592, "source_query": "cite saviour", "metadata": "freq=1741194 freq=2112"}}
+{"query": "the hill's", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4593, "source_query": "the hill's", "metadata": "freq=8217362 freq=1963"}}
+{"query": "2006 1702", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4594, "source_query": "2006 1702", "metadata": "freq=889954 freq=3505"}}
+{"query": "the waller", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4595, "source_query": "the waller", "metadata": "freq=8217362 freq=3158"}}
+{"query": "some crossings", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4596, "source_query": "some crossings", "metadata": "freq=839919 freq=5321"}}
+{"query": "in washes", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4597, "source_query": "in washes", "metadata": "freq=7320987 freq=927"}}
+{"query": "10 navies", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4598, "source_query": "10 navies", "metadata": "freq=918339 freq=2282"}}
+{"query": "states marston", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4599, "source_query": "states marston", "metadata": "freq=1034872 freq=2164"}}
+{"query": "which markers", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4600, "source_query": "which markers", "metadata": "freq=1963428 freq=5625"}}
+{"query": "2006 dub", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4601, "source_query": "2006 dub", "metadata": "freq=889954 freq=7424"}}
+{"query": "year sheikh", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4602, "source_query": "year sheikh", "metadata": "freq=1235231 freq=5664"}}
+{"query": "ref macintyre", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4603, "source_query": "ref macintyre", "metadata": "freq=3793973 freq=1380"}}
+{"query": "1 disperse", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4604, "source_query": "1 disperse", "metadata": "freq=1641090 freq=1761"}}
+{"query": "publisher district_type", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4605, "source_query": "publisher district_type", "metadata": "freq=1289029 freq=2512"}}
+{"query": "work forgive", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4606, "source_query": "work forgive", "metadata": "freq=853422 freq=3002"}}
+{"query": "year cpp", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4607, "source_query": "year cpp", "metadata": "freq=1235231 freq=986"}}
+{"query": "by downfall", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4608, "source_query": "by downfall", "metadata": "freq=3826691 freq=4359"}}
+{"query": "on chao", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4609, "source_query": "on chao", "metadata": "freq=4074624 freq=2819"}}
+{"query": "was billionaire", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4610, "source_query": "was billionaire", "metadata": "freq=3763623 freq=2176"}}
+{"query": "its rembrandt", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4611, "source_query": "its rembrandt", "metadata": "freq=1173450 freq=1530"}}
+{"query": "last deficiencies", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4612, "source_query": "last deficiencies", "metadata": "freq=958437 freq=2140"}}
+{"query": "that rockaway", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4613, "source_query": "that rockaway", "metadata": "freq=2931020 freq=1201"}}
+{"query": "from www.fas.org", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4614, "source_query": "from www.fas.org", "metadata": "freq=3224339 freq=2499"}}
+{"query": "who accuses", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4615, "source_query": "who accuses", "metadata": "freq=1196171 freq=3197"}}
+{"query": "to 25.6", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4616, "source_query": "to 25.6", "metadata": "freq=6155577 freq=2845"}}
+{"query": "5 meade", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4617, "source_query": "5 meade", "metadata": "freq=891361 freq=2725"}}
+{"query": "only marksman", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4618, "source_query": "only marksman", "metadata": "freq=875561 freq=929"}}
+{"query": "more fanciful", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4619, "source_query": "more fanciful", "metadata": "freq=963533 freq=1104"}}
+{"query": "first bakery", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4621, "source_query": "first bakery", "metadata": "freq=1933372 freq=2869"}}
+{"query": "2005 787", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4622, "source_query": "2005 787", "metadata": "freq=835460 freq=2676"}}
+{"query": "1 commander1", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4624, "source_query": "1 commander1", "metadata": "freq=1641090 freq=4768"}}
+{"query": "which evangelion", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4626, "source_query": "which evangelion", "metadata": "freq=1963428 freq=949"}}
+{"query": "their coulthard", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4627, "source_query": "their coulthard", "metadata": "freq=1158682 freq=1664"}}
+{"query": "had xiaoping", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4628, "source_query": "had xiaoping", "metadata": "freq=1246743 freq=863"}}
+{"query": "who government_location", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4629, "source_query": "who government_location", "metadata": "freq=1196171 freq=1511"}}
+{"query": "had bahr", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4630, "source_query": "had bahr", "metadata": "freq=1246743 freq=879"}}
+{"query": "1 protesting", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4631, "source_query": "1 protesting", "metadata": "freq=1641090 freq=2846"}}
+{"query": "states mariner", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4632, "source_query": "states mariner", "metadata": "freq=1034872 freq=3047"}}
+{"query": "2011 560", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4633, "source_query": "2011 560", "metadata": "freq=871410 freq=4709"}}
+{"query": "year flashpt", "class": "or_high_low", "tags": ["luceneutil:OrHighLow"], "luceneutil": {"source_line": 4634, "source_query": "year flashpt", "metadata": "freq=1235231 freq=1863"}}
+{"query": "\"of the\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5584, "source_query": "\"of the\"", "metadata": "freq=4957259|8184358|8217362"}}
+{"query": "\"to the\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5592, "source_query": "\"to the\"", "metadata": "freq=2070391|6155577|8217362"}}
+{"query": "\"ref name\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5596, "source_query": "\"ref name\"", "metadata": "freq=1687994|3793973|2827713"}}
+{"query": "\"on the\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5600, "source_query": "\"on the\"", "metadata": "freq=1668240|4074624|8217362"}}
+{"query": "\"and the\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5604, "source_query": "\"and the\"", "metadata": "freq=1662335|7318061|8217362"}}
+{"query": "\"url http\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5608, "source_query": "\"url http\"", "metadata": "freq=1439187|1513595|3493581"}}
+{"query": "\"at the\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5616, "source_query": "\"at the\"", "metadata": "freq=1206753|2857534|8217362"}}
+{"query": "\"by the\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5620, "source_query": "\"by the\"", "metadata": "freq=1124639|3826691|8217362"}}
+{"query": "\"is a\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5624, "source_query": "\"is a\"", "metadata": "freq=1092537|4074455|6560531"}}
+{"query": "\"from the\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5628, "source_query": "\"from the\"", "metadata": "freq=1069463|3224339|8217362"}}
+{"query": "\"with the\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5632, "source_query": "\"with the\"", "metadata": "freq=1051824|3709421|8217362"}}
+{"query": "\"ref cite\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5640, "source_query": "\"ref cite\"", "metadata": "freq=1037055|3793973|1741194"}}
+{"query": "\"cite web\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5644, "source_query": "\"cite web\"", "metadata": "freq=956589|1741194|1118334"}}
+{"query": "\"as the\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5648, "source_query": "\"as the\"", "metadata": "freq=916551|3925535|8217362"}}
+{"query": "\"united states\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5652, "source_query": "\"united states\"", "metadata": "freq=884811|1196944|1034872"}}
+{"query": "\"to be\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5656, "source_query": "\"to be\"", "metadata": "freq=828320|6155577|2051702"}}
+{"query": "\"in a\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5660, "source_query": "\"in a\"", "metadata": "freq=826777|7320987|6560531"}}
+{"query": "\"of a\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5664, "source_query": "\"of a\"", "metadata": "freq=803135|8184358|6560531"}}
+{"query": "\"ref http\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5668, "source_query": "\"ref http\"", "metadata": "freq=802122|3793973|3493581"}}
+{"query": "\"the first\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5672, "source_query": "\"the first\"", "metadata": "freq=739806|8217362|1933372"}}
+{"query": "\"web url\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5680, "source_query": "\"web url\"", "metadata": "freq=682349|1118334|1513595"}}
+{"query": "\"the united\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5688, "source_query": "\"the united\"", "metadata": "freq=638125|8217362|1196944"}}
+{"query": "\"it was\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5692, "source_query": "\"it was\"", "metadata": "freq=597463|2675552|3763623"}}
+{"query": "\"external links\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5696, "source_query": "\"external links\"", "metadata": "freq=594861|635450|703350"}}
+{"query": "\"one of\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5700, "source_query": "\"one of\"", "metadata": "freq=580631|1527689|8184358"}}
+{"query": "\"ref the\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5704, "source_query": "\"ref the\"", "metadata": "freq=551122|3793973|8217362"}}
+{"query": "\"that the\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5708, "source_query": "\"that the\"", "metadata": "freq=548919|2931020|8217362"}}
+{"query": "\"such as\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5712, "source_query": "\"such as\"", "metadata": "freq=547930|787877|3925535"}}
+{"query": "\"he was\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5720, "source_query": "\"he was\"", "metadata": "freq=527325|1659434|3763623"}}
+{"query": "\"was a\"", "class": "high_phrase", "tags": ["luceneutil:HighPhrase"], "luceneutil": {"source_line": 5724, "source_query": "\"was a\"", "metadata": "freq=497940|3763623|6560531"}}
+{"query": "\"new york\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5728, "source_query": "\"new york\"", "metadata": "freq=485732|1657293|521383"}}
+{"query": "\"list of\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5736, "source_query": "\"list of\"", "metadata": "freq=448150|585922|8184358"}}
+{"query": "\"references reflist\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5740, "source_query": "\"references reflist\"", "metadata": "freq=445401|760306|561253"}}
+{"query": "\"during the\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5744, "source_query": "\"during the\"", "metadata": "freq=445163|798114|8217362"}}
+{"query": "\"for a\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5748, "source_query": "\"for a\"", "metadata": "freq=435857|4380011|6560531"}}
+{"query": "\"was the\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5752, "source_query": "\"was the\"", "metadata": "freq=434767|3763623|8217362"}}
+{"query": "\"to a\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5756, "source_query": "\"to a\"", "metadata": "freq=426583|6155577|6560531"}}
+{"query": "\"the new\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5760, "source_query": "\"the new\"", "metadata": "freq=424184|8217362|1657293"}}
+{"query": "\"part of\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5764, "source_query": "\"part of\"", "metadata": "freq=422557|594224|8184358"}}
+{"query": "\"see also\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5772, "source_query": "\"see also\"", "metadata": "freq=389447|1044180|1959419"}}
+{"query": "\"the same\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5776, "source_query": "\"the same\"", "metadata": "freq=376257|8217362|420741"}}
+{"query": "\"has been\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5780, "source_query": "\"has been\"", "metadata": "freq=371036|1502961|1041183"}}
+{"query": "\"cite news\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5784, "source_query": "\"cite news\"", "metadata": "freq=365322|1741194|756063"}}
+{"query": "\"as well\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5788, "source_query": "\"as well\"", "metadata": "freq=358094|3925535|580011"}}
+{"query": "\"of his\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5792, "source_query": "\"of his\"", "metadata": "freq=354011|8184358|1777780"}}
+{"query": "\"links http\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5796, "source_query": "\"links http\"", "metadata": "freq=341770|703350|3493581"}}
+{"query": "\"after the\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5800, "source_query": "\"after the\"", "metadata": "freq=336591|1247398|8217362"}}
+{"query": "\"is an\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5804, "source_query": "\"is an\"", "metadata": "freq=332214|4074455|2628056"}}
+{"query": "\"can be\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5808, "source_query": "\"can be\"", "metadata": "freq=325314|765163|2051702"}}
+{"query": "\"known as\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5812, "source_query": "\"known as\"", "metadata": "freq=320185|607158|3925535"}}
+{"query": "\"on a\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5816, "source_query": "\"on a\"", "metadata": "freq=312622|4074624|6560531"}}
+{"query": "\"cite book\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5820, "source_query": "\"cite book\"", "metadata": "freq=311804|1741194|617297"}}
+{"query": "\"have been\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5824, "source_query": "\"have been\"", "metadata": "freq=311264|1297121|1041183"}}
+{"query": "\"into the\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5832, "source_query": "\"into the\"", "metadata": "freq=295756|888684|8217362"}}
+{"query": "\"as an\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5836, "source_query": "\"as an\"", "metadata": "freq=291789|3925535|2628056"}}
+{"query": "\"place of\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5844, "source_query": "\"place of\"", "metadata": "freq=291445|654158|8184358"}}
+{"query": "\"a new\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5848, "source_query": "\"a new\"", "metadata": "freq=289758|6560531|1657293"}}
+{"query": "\"and was\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5852, "source_query": "\"and was\"", "metadata": "freq=289713|7318061|3763623"}}
+{"query": "\"number of\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5856, "source_query": "\"number of\"", "metadata": "freq=288354|473154|8184358"}}
+{"query": "\"well as\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5860, "source_query": "\"well as\"", "metadata": "freq=285688|580011|3925535"}}
+{"query": "\"the most\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5864, "source_query": "\"the most\"", "metadata": "freq=283753|8217362|819634"}}
+{"query": "\"under the\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5868, "source_query": "\"under the\"", "metadata": "freq=281480|623872|8217362"}}
+{"query": "\"date of\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5872, "source_query": "\"date of\"", "metadata": "freq=279898|2020626|8184358"}}
+{"query": "\"is not\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5876, "source_query": "\"is not\"", "metadata": "freq=278574|4074455|1713264"}}
+{"query": "\"university of\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5880, "source_query": "\"university of\"", "metadata": "freq=272439|636959|8184358"}}
+{"query": "\"due to\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5884, "source_query": "\"due to\"", "metadata": "freq=269964|290531|6155577"}}
+{"query": "\"of death\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5888, "source_query": "\"of death\"", "metadata": "freq=268153|8184358|568895"}}
+{"query": "\"this is\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5892, "source_query": "\"this is\"", "metadata": "freq=267242|2224932|4074455"}}
+{"query": "\"out of\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5896, "source_query": "\"out of\"", "metadata": "freq=263661|733775|8184358"}}
+{"query": "\"of birth\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5900, "source_query": "\"of birth\"", "metadata": "freq=262503|8184358|425138"}}
+{"query": "\"should be\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5904, "source_query": "\"should be\"", "metadata": "freq=259231|401379|2051702"}}
+{"query": "\"the world\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5908, "source_query": "\"the world\"", "metadata": "freq=255987|8217362|808563"}}
+{"query": "\"according to\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5912, "source_query": "\"according to\"", "metadata": "freq=254888|256949|6155577"}}
+{"query": "\"in his\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5916, "source_query": "\"in his\"", "metadata": "freq=247878|7320987|1777780"}}
+{"query": "\"2011 ref\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5920, "source_query": "\"2011 ref\"", "metadata": "freq=245052|871410|3793973"}}
+{"query": "\"alternative names\"", "class": "med_phrase", "tags": ["luceneutil:MedPhrase"], "luceneutil": {"source_line": 5924, "source_query": "\"alternative names\"", "metadata": "freq=244990|322536|404796"}}
+{"query": "\"to become\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7728, "source_query": "\"to become\"", "metadata": "freq=74220|6155577|219753"}}
+{"query": "\"class boilerplate\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7732, "source_query": "\"class boilerplate\"", "metadata": "freq=74140|556838|74717"}}
+{"query": "\"is preserved\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7736, "source_query": "\"is preserved\"", "metadata": "freq=73919|4074455|111088"}}
+{"query": "\"solid aaaaaa\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7740, "source_query": "\"solid aaaaaa\"", "metadata": "freq=73827|142192|75598"}}
+{"query": "\"date july\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7744, "source_query": "\"date july\"", "metadata": "freq=73825|2020626|529655"}}
+{"query": "\"would have\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7748, "source_query": "\"would have\"", "metadata": "freq=73783|690480|1297121"}}
+{"query": "\"the village\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7752, "source_query": "\"the village\"", "metadata": "freq=73687|8217362|170348"}}
+{"query": "\"births category:living\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7756, "source_query": "\"births category:living\"", "metadata": "freq=73679|237033|127286"}}
+{"query": "\"the story\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7760, "source_query": "\"the story\"", "metadata": "freq=73657|8217362|292404"}}
+{"query": "\"the number\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7764, "source_query": "\"the number\"", "metadata": "freq=73429|8217362|473154"}}
+{"query": "\"http news.bbc.co.uk\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7768, "source_query": "\"http news.bbc.co.uk\"", "metadata": "freq=73293|3493581|73575"}}
+{"query": "\"in 2006\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7772, "source_query": "\"in 2006\"", "metadata": "freq=73233|7320987|889954"}}
+{"query": "\"an attempt\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7776, "source_query": "\"an attempt\"", "metadata": "freq=73219|2628056|131175"}}
+{"query": "\"for this\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7780, "source_query": "\"for this\"", "metadata": "freq=73171|4380011|2224932"}}
+{"query": "\"much of\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7784, "source_query": "\"much of\"", "metadata": "freq=72993|317670|8184358"}}
+{"query": "\"the three\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7788, "source_query": "\"the three\"", "metadata": "freq=72989|8217362|598349"}}
+{"query": "\"0 10px\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7792, "source_query": "\"0 10px\"", "metadata": "freq=72989|754451|79262"}}
+{"query": "\"parts of\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7796, "source_query": "\"parts of\"", "metadata": "freq=72953|123891|8184358"}}
+{"query": "\"10px 0\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7800, "source_query": "\"10px 0\"", "metadata": "freq=72851|79262|754451"}}
+{"query": "\"10px border\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7804, "source_query": "\"10px border\"", "metadata": "freq=72803|79262|238540"}}
+{"query": "\"up the\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7808, "source_query": "\"up the\"", "metadata": "freq=72725|818546|8217362"}}
+{"query": "\"that of\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7812, "source_query": "\"that of\"", "metadata": "freq=72544|2931020|8184358"}}
+{"query": "\"released in\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7816, "source_query": "\"released in\"", "metadata": "freq=72539|322473|7320987"}}
+{"query": "\"not to\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7820, "source_query": "\"not to\"", "metadata": "freq=72277|1713264|6155577"}}
+{"query": "\"used as\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7824, "source_query": "\"used as\"", "metadata": "freq=72160|708455|3925535"}}
+{"query": "\"date may\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7828, "source_query": "\"date may\"", "metadata": "freq=72085|2020626|1071932"}}
+{"query": "\"associated with\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7832, "source_query": "\"associated with\"", "metadata": "freq=72059|121019|3709421"}}
+{"query": "\"web last\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7836, "source_query": "\"web last\"", "metadata": "freq=72011|1118334|958437"}}
+{"query": "\"a series\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7840, "source_query": "\"a series\"", "metadata": "freq=71864|6560531|521861"}}
+{"query": "\"addition to\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7844, "source_query": "\"addition to\"", "metadata": "freq=71808|148149|6155577"}}
+{"query": "\"town of\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7848, "source_query": "\"town of\"", "metadata": "freq=71703|348598|8184358"}}
+{"query": "\"utc the\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7852, "source_query": "\"utc the\"", "metadata": "freq=71535|450225|8217362"}}
+{"query": "\"20th century\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7856, "source_query": "\"20th century\"", "metadata": "freq=71480|91135|385541"}}
+{"query": "\"and also\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7860, "source_query": "\"and also\"", "metadata": "freq=71453|7318061|1959419"}}
+{"query": "\"with no\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7864, "source_query": "\"with no\"", "metadata": "freq=71435|3709421|1045000"}}
+{"query": "\"the us\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7868, "source_query": "\"the us\"", "metadata": "freq=71394|8217362|421210"}}
+{"query": "\"dates date\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7872, "source_query": "\"dates date\"", "metadata": "freq=71247|121107|2020626"}}
+{"query": "\"the way\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7876, "source_query": "\"the way\"", "metadata": "freq=71189|8217362|318344"}}
+{"query": "\"19th century\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7880, "source_query": "\"19th century\"", "metadata": "freq=70979|93290|385541"}}
+{"query": "\"of it\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7884, "source_query": "\"of it\"", "metadata": "freq=70876|8184358|2675552"}}
+{"query": "\"deletion of\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7888, "source_query": "\"deletion of\"", "metadata": "freq=70866|166633|8184358"}}
+{"query": "\"links commons\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7892, "source_query": "\"links commons\"", "metadata": "freq=70633|703350|235235"}}
+{"query": "\"the uk\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7896, "source_query": "\"the uk\"", "metadata": "freq=70517|8217362|319211"}}
+{"query": "\"time of\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7900, "source_query": "\"time of\"", "metadata": "freq=70321|1032071|8184358"}}
+{"query": "\"used by\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7904, "source_query": "\"used by\"", "metadata": "freq=70175|708455|3826691"}}
+{"query": "\"and later\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7908, "source_query": "\"and later\"", "metadata": "freq=70103|7318061|604921"}}
+{"query": "\"debate was\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7912, "source_query": "\"debate was\"", "metadata": "freq=70055|177827|3763623"}}
+{"query": "\"proposed deletion\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7916, "source_query": "\"proposed deletion\"", "metadata": "freq=69985|150502|166633"}}
+{"query": "\"the local\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7920, "source_query": "\"the local\"", "metadata": "freq=69963|8217362|299012"}}
+{"query": "\"the western\"", "class": "low_phrase", "tags": ["luceneutil:LowPhrase"], "luceneutil": {"source_line": 7924, "source_query": "\"the western\"", "metadata": "freq=69871|8217362|232781"}}
+{"query": "\"ref name\"~4", "class": "high_sloppy_phrase", "tags": ["luceneutil:HighSloppyPhrase"], "luceneutil": {"source_line": 5597, "source_query": "\"ref name\"~4", "metadata": "freq=1687994|3793973|2827713"}}
+{"query": "\"url http\"~4", "class": "high_sloppy_phrase", "tags": ["luceneutil:HighSloppyPhrase"], "luceneutil": {"source_line": 5609, "source_query": "\"url http\"~4", "metadata": "freq=1439187|1513595|3493581"}}
+{"query": "\"cite web\"~4", "class": "high_sloppy_phrase", "tags": ["luceneutil:HighSloppyPhrase"], "luceneutil": {"source_line": 5645, "source_query": "\"cite web\"~4", "metadata": "freq=956589|1741194|1118334"}}
+{"query": "\"united states\"~4", "class": "high_sloppy_phrase", "tags": ["luceneutil:HighSloppyPhrase"], "luceneutil": {"source_line": 5653, "source_query": "\"united states\"~4", "metadata": "freq=884811|1196944|1034872"}}
+{"query": "\"external links\"~4", "class": "high_sloppy_phrase", "tags": ["luceneutil:HighSloppyPhrase"], "luceneutil": {"source_line": 5697, "source_query": "\"external links\"~4", "metadata": "freq=594861|635450|703350"}}
+{"query": "\"such as\"~4", "class": "high_sloppy_phrase", "tags": ["luceneutil:HighSloppyPhrase"], "luceneutil": {"source_line": 5713, "source_query": "\"such as\"~4", "metadata": "freq=547930|787877|3925535"}}
+{"query": "\"he was\"~4", "class": "high_sloppy_phrase", "tags": ["luceneutil:HighSloppyPhrase"], "luceneutil": {"source_line": 5721, "source_query": "\"he was\"~4", "metadata": "freq=527325|1659434|3763623"}}
+{"query": "\"new york\"~4", "class": "med_sloppy_phrase", "tags": ["luceneutil:MedSloppyPhrase"], "luceneutil": {"source_line": 5729, "source_query": "\"new york\"~4", "metadata": "freq=485732|1657293|521383"}}
+{"query": "\"list of\"~4", "class": "med_sloppy_phrase", "tags": ["luceneutil:MedSloppyPhrase"], "luceneutil": {"source_line": 5737, "source_query": "\"list of\"~4", "metadata": "freq=448150|585922|8184358"}}
+{"query": "\"references reflist\"~4", "class": "med_sloppy_phrase", "tags": ["luceneutil:MedSloppyPhrase"], "luceneutil": {"source_line": 5741, "source_query": "\"references reflist\"~4", "metadata": "freq=445401|760306|561253"}}
+{"query": "\"during the\"~4", "class": "med_sloppy_phrase", "tags": ["luceneutil:MedSloppyPhrase"], "luceneutil": {"source_line": 5745, "source_query": "\"during the\"~4", "metadata": "freq=445163|798114|8217362"}}
+{"query": "\"see also\"~4", "class": "med_sloppy_phrase", "tags": ["luceneutil:MedSloppyPhrase"], "luceneutil": {"source_line": 5773, "source_query": "\"see also\"~4", "metadata": "freq=389447|1044180|1959419"}}
+{"query": "\"the same\"~4", "class": "med_sloppy_phrase", "tags": ["luceneutil:MedSloppyPhrase"], "luceneutil": {"source_line": 5777, "source_query": "\"the same\"~4", "metadata": "freq=376257|8217362|420741"}}
+{"query": "\"has been\"~4", "class": "med_sloppy_phrase", "tags": ["luceneutil:MedSloppyPhrase"], "luceneutil": {"source_line": 5781, "source_query": "\"has been\"~4", "metadata": "freq=371036|1502961|1041183"}}
+{"query": "\"cite news\"~4", "class": "med_sloppy_phrase", "tags": ["luceneutil:MedSloppyPhrase"], "luceneutil": {"source_line": 5785, "source_query": "\"cite news\"~4", "metadata": "freq=365322|1741194|756063"}}
+{"query": "\"as well\"~4", "class": "med_sloppy_phrase", "tags": ["luceneutil:MedSloppyPhrase"], "luceneutil": {"source_line": 5789, "source_query": "\"as well\"~4", "metadata": "freq=358094|3925535|580011"}}
+{"query": "\"links http\"~4", "class": "med_sloppy_phrase", "tags": ["luceneutil:MedSloppyPhrase"], "luceneutil": {"source_line": 5797, "source_query": "\"links http\"~4", "metadata": "freq=341770|703350|3493581"}}
+{"query": "\"is an\"~4", "class": "med_sloppy_phrase", "tags": ["luceneutil:MedSloppyPhrase"], "luceneutil": {"source_line": 5805, "source_query": "\"is an\"~4", "metadata": "freq=332214|4074455|2628056"}}
+{"query": "\"can be\"~4", "class": "med_sloppy_phrase", "tags": ["luceneutil:MedSloppyPhrase"], "luceneutil": {"source_line": 5809, "source_query": "\"can be\"~4", "metadata": "freq=325314|765163|2051702"}}
+{"query": "\"known as\"~4", "class": "med_sloppy_phrase", "tags": ["luceneutil:MedSloppyPhrase"], "luceneutil": {"source_line": 5813, "source_query": "\"known as\"~4", "metadata": "freq=320185|607158|3925535"}}
+{"query": "\"cite book\"~4", "class": "med_sloppy_phrase", "tags": ["luceneutil:MedSloppyPhrase"], "luceneutil": {"source_line": 5821, "source_query": "\"cite book\"~4", "metadata": "freq=311804|1741194|617297"}}
+{"query": "\"have been\"~4", "class": "med_sloppy_phrase", "tags": ["luceneutil:MedSloppyPhrase"], "luceneutil": {"source_line": 5825, "source_query": "\"have been\"~4", "metadata": "freq=311264|1297121|1041183"}}
+{"query": "\"place of\"~4", "class": "med_sloppy_phrase", "tags": ["luceneutil:MedSloppyPhrase"], "luceneutil": {"source_line": 5845, "source_query": "\"place of\"~4", "metadata": "freq=291445|654158|8184358"}}
+{"query": "\"number of\"~4", "class": "med_sloppy_phrase", "tags": ["luceneutil:MedSloppyPhrase"], "luceneutil": {"source_line": 5857, "source_query": "\"number of\"~4", "metadata": "freq=288354|473154|8184358"}}
+{"query": "\"well as\"~4", "class": "med_sloppy_phrase", "tags": ["luceneutil:MedSloppyPhrase"], "luceneutil": {"source_line": 5861, "source_query": "\"well as\"~4", "metadata": "freq=285688|580011|3925535"}}
+{"query": "\"the most\"~4", "class": "med_sloppy_phrase", "tags": ["luceneutil:MedSloppyPhrase"], "luceneutil": {"source_line": 5865, "source_query": "\"the most\"~4", "metadata": "freq=283753|8217362|819634"}}
+{"query": "\"under the\"~4", "class": "med_sloppy_phrase", "tags": ["luceneutil:MedSloppyPhrase"], "luceneutil": {"source_line": 5869, "source_query": "\"under the\"~4", "metadata": "freq=281480|623872|8217362"}}
+{"query": "\"due to\"~4", "class": "med_sloppy_phrase", "tags": ["luceneutil:MedSloppyPhrase"], "luceneutil": {"source_line": 5885, "source_query": "\"due to\"~4", "metadata": "freq=269964|290531|6155577"}}
+{"query": "\"of death\"~4", "class": "med_sloppy_phrase", "tags": ["luceneutil:MedSloppyPhrase"], "luceneutil": {"source_line": 5889, "source_query": "\"of death\"~4", "metadata": "freq=268153|8184358|568895"}}
+{"query": "\"this is\"~4", "class": "med_sloppy_phrase", "tags": ["luceneutil:MedSloppyPhrase"], "luceneutil": {"source_line": 5893, "source_query": "\"this is\"~4", "metadata": "freq=267242|2224932|4074455"}}
+{"query": "\"of birth\"~4", "class": "med_sloppy_phrase", "tags": ["luceneutil:MedSloppyPhrase"], "luceneutil": {"source_line": 5901, "source_query": "\"of birth\"~4", "metadata": "freq=262503|8184358|425138"}}
+{"query": "\"should be\"~4", "class": "med_sloppy_phrase", "tags": ["luceneutil:MedSloppyPhrase"], "luceneutil": {"source_line": 5905, "source_query": "\"should be\"~4", "metadata": "freq=259231|401379|2051702"}}
+{"query": "\"according to\"~4", "class": "med_sloppy_phrase", "tags": ["luceneutil:MedSloppyPhrase"], "luceneutil": {"source_line": 5913, "source_query": "\"according to\"~4", "metadata": "freq=254888|256949|6155577"}}
+{"query": "\"alternative names\"~4", "class": "med_sloppy_phrase", "tags": ["luceneutil:MedSloppyPhrase"], "luceneutil": {"source_line": 5925, "source_query": "\"alternative names\"~4", "metadata": "freq=244990|322536|404796"}}
+{"query": "\"to become\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7729, "source_query": "\"to become\"~4", "metadata": "freq=74220|6155577|219753"}}
+{"query": "\"class boilerplate\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7733, "source_query": "\"class boilerplate\"~4", "metadata": "freq=74140|556838|74717"}}
+{"query": "\"solid aaaaaa\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7741, "source_query": "\"solid aaaaaa\"~4", "metadata": "freq=73827|142192|75598"}}
+{"query": "\"date july\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7745, "source_query": "\"date july\"~4", "metadata": "freq=73825|2020626|529655"}}
+{"query": "\"would have\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7749, "source_query": "\"would have\"~4", "metadata": "freq=73783|690480|1297121"}}
+{"query": "\"births category:living\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7757, "source_query": "\"births category:living\"~4", "metadata": "freq=73679|237033|127286"}}
+{"query": "\"the story\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7761, "source_query": "\"the story\"~4", "metadata": "freq=73657|8217362|292404"}}
+{"query": "\"the number\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7765, "source_query": "\"the number\"~4", "metadata": "freq=73429|8217362|473154"}}
+{"query": "\"http news.bbc.co.uk\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7769, "source_query": "\"http news.bbc.co.uk\"~4", "metadata": "freq=73293|3493581|73575"}}
+{"query": "\"an attempt\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7777, "source_query": "\"an attempt\"~4", "metadata": "freq=73219|2628056|131175"}}
+{"query": "\"much of\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7785, "source_query": "\"much of\"~4", "metadata": "freq=72993|317670|8184358"}}
+{"query": "\"the three\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7789, "source_query": "\"the three\"~4", "metadata": "freq=72989|8217362|598349"}}
+{"query": "\"0 10px\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7793, "source_query": "\"0 10px\"~4", "metadata": "freq=72989|754451|79262"}}
+{"query": "\"parts of\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7797, "source_query": "\"parts of\"~4", "metadata": "freq=72953|123891|8184358"}}
+{"query": "\"10px 0\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7801, "source_query": "\"10px 0\"~4", "metadata": "freq=72851|79262|754451"}}
+{"query": "\"10px border\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7805, "source_query": "\"10px border\"~4", "metadata": "freq=72803|79262|238540"}}
+{"query": "\"up the\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7809, "source_query": "\"up the\"~4", "metadata": "freq=72725|818546|8217362"}}
+{"query": "\"that of\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7813, "source_query": "\"that of\"~4", "metadata": "freq=72544|2931020|8184358"}}
+{"query": "\"released in\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7817, "source_query": "\"released in\"~4", "metadata": "freq=72539|322473|7320987"}}
+{"query": "\"date may\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7829, "source_query": "\"date may\"~4", "metadata": "freq=72085|2020626|1071932"}}
+{"query": "\"associated with\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7833, "source_query": "\"associated with\"~4", "metadata": "freq=72059|121019|3709421"}}
+{"query": "\"web last\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7837, "source_query": "\"web last\"~4", "metadata": "freq=72011|1118334|958437"}}
+{"query": "\"addition to\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7845, "source_query": "\"addition to\"~4", "metadata": "freq=71808|148149|6155577"}}
+{"query": "\"utc the\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7853, "source_query": "\"utc the\"~4", "metadata": "freq=71535|450225|8217362"}}
+{"query": "\"20th century\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7857, "source_query": "\"20th century\"~4", "metadata": "freq=71480|91135|385541"}}
+{"query": "\"and also\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7861, "source_query": "\"and also\"~4", "metadata": "freq=71453|7318061|1959419"}}
+{"query": "\"with no\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7865, "source_query": "\"with no\"~4", "metadata": "freq=71435|3709421|1045000"}}
+{"query": "\"dates date\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7873, "source_query": "\"dates date\"~4", "metadata": "freq=71247|121107|2020626"}}
+{"query": "\"the way\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7877, "source_query": "\"the way\"~4", "metadata": "freq=71189|8217362|318344"}}
+{"query": "\"19th century\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7881, "source_query": "\"19th century\"~4", "metadata": "freq=70979|93290|385541"}}
+{"query": "\"deletion of\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7889, "source_query": "\"deletion of\"~4", "metadata": "freq=70866|166633|8184358"}}
+{"query": "\"time of\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7901, "source_query": "\"time of\"~4", "metadata": "freq=70321|1032071|8184358"}}
+{"query": "\"used by\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7905, "source_query": "\"used by\"~4", "metadata": "freq=70175|708455|3826691"}}
+{"query": "\"and later\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7909, "source_query": "\"and later\"~4", "metadata": "freq=70103|7318061|604921"}}
+{"query": "\"debate was\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7913, "source_query": "\"debate was\"~4", "metadata": "freq=70055|177827|3763623"}}
+{"query": "\"proposed deletion\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7917, "source_query": "\"proposed deletion\"~4", "metadata": "freq=69985|150502|166633"}}
+{"query": "\"the western\"~4", "class": "low_sloppy_phrase", "tags": ["luceneutil:LowSloppyPhrase"], "luceneutil": {"source_line": 7925, "source_query": "\"the western\"~4", "metadata": "freq=69871|8217362|232781"}}
+{"query": "mos*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1085, "source_query": "mos*"}}
+{"query": "wor*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1086, "source_query": "wor*"}}
+{"query": "200*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1087, "source_query": "200*"}}
+{"query": "dur*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1088, "source_query": "dur*"}}
+{"query": "peo*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1089, "source_query": "peo*"}}
+{"query": "yea*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1090, "source_query": "yea*"}}
+{"query": "suc*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1091, "source_query": "suc*"}}
+{"query": "ove*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1092, "source_query": "ove*"}}
+{"query": "can*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1093, "source_query": "can*"}}
+{"query": "ref*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1094, "source_query": "ref*"}}
+{"query": "cit*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1095, "source_query": "cit*"}}
+{"query": "ame*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1096, "source_query": "ame*"}}
+{"query": "new*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1097, "source_query": "new*"}}
+{"query": "his*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1098, "source_query": "his*"}}
+{"query": "mad*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1099, "source_query": "mad*"}}
+{"query": "out*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1100, "source_query": "out*"}}
+{"query": "use*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1101, "source_query": "use*"}}
+{"query": "lin*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1102, "source_query": "lin*"}}
+{"query": "sta*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1103, "source_query": "sta*"}}
+{"query": "man*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1104, "source_query": "man*"}}
+{"query": "wou*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1105, "source_query": "wou*"}}
+{"query": "pag*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1106, "source_query": "pag*"}}
+{"query": "nat*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1107, "source_query": "nat*"}}
+{"query": "tha*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1108, "source_query": "tha*"}}
+{"query": "thu*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1109, "source_query": "thu*"}}
+{"query": "pla*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1110, "source_query": "pla*"}}
+{"query": "uni*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1111, "source_query": "uni*"}}
+{"query": "ext*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1112, "source_query": "ext*"}}
+{"query": "bet*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1113, "source_query": "bet*"}}
+{"query": "whe*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1114, "source_query": "whe*"}}
+{"query": "rig*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1115, "source_query": "rig*"}}
+{"query": "und*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1116, "source_query": "und*"}}
+{"query": "the*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1117, "source_query": "the*"}}
+{"query": "mar*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1118, "source_query": "mar*"}}
+{"query": "boo*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1119, "source_query": "boo*"}}
+{"query": "art*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1120, "source_query": "art*"}}
+{"query": "kno*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1121, "source_query": "kno*"}}
+{"query": "sty*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1122, "source_query": "sty*"}}
+{"query": "lat*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1123, "source_query": "lat*"}}
+{"query": "thr*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1124, "source_query": "thr*"}}
+{"query": "cat*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1125, "source_query": "cat*"}}
+{"query": "joh*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1126, "source_query": "joh*"}}
+{"query": "par*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1127, "source_query": "par*"}}
+{"query": "lef*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1128, "source_query": "lef*"}}
+{"query": "dec*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1129, "source_query": "dec*"}}
+{"query": "apr*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1130, "source_query": "apr*"}}
+{"query": "lis*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1131, "source_query": "lis*"}}
+{"query": "sma*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1132, "source_query": "sma*"}}
+{"query": "jan*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1133, "source_query": "jan*"}}
+{"query": "bef*", "class": "prefix3", "tags": ["luceneutil:Prefix3"], "luceneutil": {"source_line": 1134, "source_query": "bef*"}}
+{"query": "th*e", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5084, "source_query": "th*e"}}
+{"query": "an*d", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5085, "source_query": "an*d"}}
+{"query": "fo*r", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5086, "source_query": "fo*r"}}
+{"query": "re*f", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5087, "source_query": "re*f"}}
+{"query": "wa*s", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5088, "source_query": "wa*s"}}
+{"query": "wi*h", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5089, "source_query": "wi*h"}}
+{"query": "ht*p", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5090, "source_query": "ht*p"}}
+{"query": "fr*m", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5091, "source_query": "fr*m"}}
+{"query": "th*t", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5092, "source_query": "th*t"}}
+{"query": "na*e", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5093, "source_query": "na*e"}}
+{"query": "th*s", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5095, "source_query": "th*s"}}
+{"query": "da*e", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5096, "source_query": "da*e"}}
+{"query": "wh*h", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5097, "source_query": "wh*h"}}
+{"query": "al*o", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5098, "source_query": "al*o"}}
+{"query": "fi*t", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5099, "source_query": "fi*t"}}
+{"query": "ar*e", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5100, "source_query": "ar*e"}}
+{"query": "hi*s", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5101, "source_query": "hi*s"}}
+{"query": "ci*e", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5102, "source_query": "ci*e"}}
+{"query": "no*t", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5103, "source_query": "no*t"}}
+{"query": "ne*w", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5104, "source_query": "ne*w"}}
+{"query": "on*e", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5105, "source_query": "on*e"}}
+{"query": "we*e", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5106, "source_query": "we*e"}}
+{"query": "ur*l", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5107, "source_query": "ur*l"}}
+{"query": "ha*s", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5108, "source_query": "ha*s"}}
+{"query": "bu*t", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5109, "source_query": "bu*t"}}
+{"query": "ha*e", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5110, "source_query": "ha*e"}}
+{"query": "pu*r", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5111, "source_query": "pu*r"}}
+{"query": "ot*r", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5112, "source_query": "ot*r"}}
+{"query": "af*r", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5113, "source_query": "af*r"}}
+{"query": "ha*d", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5114, "source_query": "ha*d"}}
+{"query": "ye*r", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5115, "source_query": "ye*r"}}
+{"query": "ac*e", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5116, "source_query": "ac*e"}}
+{"query": "al*l", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5117, "source_query": "al*l"}}
+{"query": "un*d", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5118, "source_query": "un*d"}}
+{"query": "wh*o", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5119, "source_query": "wh*o"}}
+{"query": "it*s", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5120, "source_query": "it*s"}}
+{"query": "th*r", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5121, "source_query": "th*r"}}
+{"query": "we*b", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5122, "source_query": "we*b"}}
+{"query": "tw*o", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5123, "source_query": "tw*o"}}
+{"query": "ma*y", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5124, "source_query": "ma*y"}}
+{"query": "se*e", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5125, "source_query": "se*e"}}
+{"query": "be*n", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5126, "source_query": "be*n"}}
+{"query": "st*s", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5127, "source_query": "st*s"}}
+{"query": "wh*n", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5128, "source_query": "wh*n"}}
+{"query": "th*y", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5129, "source_query": "th*y"}}
+{"query": "mo*e", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5130, "source_query": "mo*e"}}
+{"query": "la*t", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5131, "source_query": "la*t"}}
+{"query": "20*0", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5132, "source_query": "20*0"}}
+{"query": "20*6", "class": "wildcard", "tags": ["luceneutil:Wildcard"], "luceneutil": {"source_line": 5133, "source_query": "20*6"}}
+{"query": "h*band", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 585, "source_query": "husband", "metadata": "freq=82137"}}
+{"query": "a*nder", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 587, "source_query": "alexander", "metadata": "freq=82087"}}
+{"query": "e*tive", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 588, "source_query": "executive", "metadata": "freq=82058"}}
+{"query": "n*arly", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 590, "source_query": "nearly", "metadata": "freq=81998"}}
+{"query": "c*mics", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 591, "source_query": "comics", "metadata": "freq=81961"}}
+{"query": "m*sion", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 593, "source_query": "mission", "metadata": "freq=81858"}}
+{"query": "j*tice", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 594, "source_query": "justice", "metadata": "freq=81845"}}
+{"query": "i*ally", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 596, "source_query": "initially", "metadata": "freq=81755"}}
+{"query": "p*ture", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 603, "source_query": "picture", "metadata": "freq=81045"}}
+{"query": "c*ment", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 604, "source_query": "comment", "metadata": "freq=80932"}}
+{"query": "s*ring", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 605, "source_query": "spring", "metadata": "freq=80886"}}
+{"query": "a*ties", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 608, "source_query": "activities", "metadata": "freq=80726"}}
+{"query": "s*face", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 609, "source_query": "surface", "metadata": "freq=80702"}}
+{"query": "a*rded", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 611, "source_query": "awarded", "metadata": "freq=80591"}}
+{"query": "m*utes", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 614, "source_query": "minutes", "metadata": "freq=80502"}}
+{"query": "f*iend", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 615, "source_query": "friend", "metadata": "freq=80456"}}
+{"query": "a*mbly", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 618, "source_query": "assembly", "metadata": "freq=80224"}}
+{"query": "c*date", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 620, "source_query": "candidate", "metadata": "freq=80091"}}
+{"query": "g*lden", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 621, "source_query": "golden", "metadata": "freq=80071"}}
+{"query": "v*oria", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 623, "source_query": "victoria", "metadata": "freq=79813"}}
+{"query": "p*ssor", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 625, "source_query": "professor", "metadata": "freq=79746"}}
+{"query": "r*ally", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 626, "source_query": "really", "metadata": "freq=79667"}}
+{"query": "b*eved", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 630, "source_query": "believed", "metadata": "freq=79407"}}
+{"query": "f*rced", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 632, "source_query": "forced", "metadata": "freq=79373"}}
+{"query": "r*ican", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 636, "source_query": "republican", "metadata": "freq=78876"}}
+{"query": "v*tory", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 640, "source_query": "victory", "metadata": "freq=78516"}}
+{"query": "m*ster", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 643, "source_query": "master", "metadata": "freq=78427"}}
+{"query": "r*rove", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 644, "source_query": "refimprove", "metadata": "freq=78366"}}
+{"query": "m*sing", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 645, "source_query": "missing", "metadata": "freq=78330"}}
+{"query": "u*nown", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 647, "source_query": "unknown", "metadata": "freq=78308"}}
+{"query": "c*imed", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 649, "source_query": "claimed", "metadata": "freq=78264"}}
+{"query": "e*cept", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 650, "source_query": "except", "metadata": "freq=78173"}}
+{"query": "q*tion", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 651, "source_query": "question", "metadata": "freq=78108"}}
+{"query": "d*ctly", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 654, "source_query": "directly", "metadata": "freq=78006"}}
+{"query": "s*ster", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 655, "source_query": "sister", "metadata": "freq=77981"}}
+{"query": "c*tion", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 656, "source_query": "competition", "metadata": "freq=77905"}}
+{"query": "p*ical", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 657, "source_query": "physical", "metadata": "freq=77901"}}
+{"query": "c*lina", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 658, "source_query": "carolina", "metadata": "freq=77886"}}
+{"query": "s*read", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 659, "source_query": "spread", "metadata": "freq=77850"}}
+{"query": "q*lity", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 662, "source_query": "quality", "metadata": "freq=77737"}}
+{"query": "s*phen", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 663, "source_query": "stephen", "metadata": "freq=77705"}}
+{"query": "c*idge", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 664, "source_query": "cambridge", "metadata": "freq=77677"}}
+{"query": "e*ence", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 666, "source_query": "experience", "metadata": "freq=77676"}}
+{"query": "a*ress", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 669, "source_query": "actress", "metadata": "freq=77602"}}
+{"query": "h*olds", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 670, "source_query": "households", "metadata": "freq=77599"}}
+{"query": "a*ysis", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 673, "source_query": "analysis", "metadata": "freq=77489"}}
+{"query": "b*ming", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 675, "source_query": "becoming", "metadata": "freq=77466"}}
+{"query": "g*itar", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 676, "source_query": "guitar", "metadata": "freq=77409"}}
+{"query": "f*nder", "class": "wildcard_scan", "tags": ["searchbench:wildcard_scan"], "luceneutil": {"source_line": 677, "source_query": "founder", "metadata": "freq=77175"}}
+{"query": "*sband", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 585, "source_query": "husband", "metadata": "freq=82137"}}
+{"query": "*ander", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 587, "source_query": "alexander", "metadata": "freq=82087"}}
+{"query": "*utive", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 588, "source_query": "executive", "metadata": "freq=82058"}}
+{"query": "*early", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 590, "source_query": "nearly", "metadata": "freq=81998"}}
+{"query": "*omics", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 591, "source_query": "comics", "metadata": "freq=81961"}}
+{"query": "*ssion", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 593, "source_query": "mission", "metadata": "freq=81858"}}
+{"query": "*stice", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 594, "source_query": "justice", "metadata": "freq=81845"}}
+{"query": "*ially", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 596, "source_query": "initially", "metadata": "freq=81755"}}
+{"query": "*cture", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 603, "source_query": "picture", "metadata": "freq=81045"}}
+{"query": "*mment", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 604, "source_query": "comment", "metadata": "freq=80932"}}
+{"query": "*pring", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 605, "source_query": "spring", "metadata": "freq=80886"}}
+{"query": "*rface", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 609, "source_query": "surface", "metadata": "freq=80702"}}
+{"query": "*arded", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 611, "source_query": "awarded", "metadata": "freq=80591"}}
+{"query": "*nutes", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 614, "source_query": "minutes", "metadata": "freq=80502"}}
+{"query": "*riend", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 615, "source_query": "friend", "metadata": "freq=80456"}}
+{"query": "*embly", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 618, "source_query": "assembly", "metadata": "freq=80224"}}
+{"query": "*idate", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 620, "source_query": "candidate", "metadata": "freq=80091"}}
+{"query": "*olden", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 621, "source_query": "golden", "metadata": "freq=80071"}}
+{"query": "*toria", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 623, "source_query": "victoria", "metadata": "freq=79813"}}
+{"query": "*essor", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 625, "source_query": "professor", "metadata": "freq=79746"}}
+{"query": "*eally", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 626, "source_query": "really", "metadata": "freq=79667"}}
+{"query": "*ieved", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 630, "source_query": "believed", "metadata": "freq=79407"}}
+{"query": "*orced", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 632, "source_query": "forced", "metadata": "freq=79373"}}
+{"query": "*lican", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 636, "source_query": "republican", "metadata": "freq=78876"}}
+{"query": "*ctory", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 640, "source_query": "victory", "metadata": "freq=78516"}}
+{"query": "*aster", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 643, "source_query": "master", "metadata": "freq=78427"}}
+{"query": "*prove", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 644, "source_query": "refimprove", "metadata": "freq=78366"}}
+{"query": "*ssing", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 645, "source_query": "missing", "metadata": "freq=78330"}}
+{"query": "*known", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 647, "source_query": "unknown", "metadata": "freq=78308"}}
+{"query": "*aimed", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 649, "source_query": "claimed", "metadata": "freq=78264"}}
+{"query": "*xcept", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 650, "source_query": "except", "metadata": "freq=78173"}}
+{"query": "*stion", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 651, "source_query": "question", "metadata": "freq=78108"}}
+{"query": "*ectly", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 654, "source_query": "directly", "metadata": "freq=78006"}}
+{"query": "*ition", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 656, "source_query": "competition", "metadata": "freq=77905"}}
+{"query": "*sical", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 657, "source_query": "physical", "metadata": "freq=77901"}}
+{"query": "*olina", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 658, "source_query": "carolina", "metadata": "freq=77886"}}
+{"query": "*pread", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 659, "source_query": "spread", "metadata": "freq=77850"}}
+{"query": "*ality", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 662, "source_query": "quality", "metadata": "freq=77737"}}
+{"query": "*ephen", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 663, "source_query": "stephen", "metadata": "freq=77705"}}
+{"query": "*ridge", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 664, "source_query": "cambridge", "metadata": "freq=77677"}}
+{"query": "*ience", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 666, "source_query": "experience", "metadata": "freq=77676"}}
+{"query": "*tress", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 669, "source_query": "actress", "metadata": "freq=77602"}}
+{"query": "*holds", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 670, "source_query": "households", "metadata": "freq=77599"}}
+{"query": "*lysis", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 673, "source_query": "analysis", "metadata": "freq=77489"}}
+{"query": "*oming", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 675, "source_query": "becoming", "metadata": "freq=77466"}}
+{"query": "*uitar", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 676, "source_query": "guitar", "metadata": "freq=77409"}}
+{"query": "*under", "class": "wildcard_lead", "tags": ["searchbench:wildcard_lead"], "luceneutil": {"source_line": 677, "source_query": "founder", "metadata": "freq=77175"}}
+{"query": "[0-9]{4}", "class": "regex", "tags": ["searchbench:regex"], "searchbench": {"intent": "ten sibling digit subtrees, exact depth; year-heavy result"}}
+{"query": "(19|20)[0-9]{2}", "class": "regex", "tags": ["searchbench:regex"], "searchbench": {"intent": "the [0-9]{4} result mass through two narrow prefixes"}}
+{"query": "[0-9]{4}s", "class": "regex", "tags": ["searchbench:regex"], "searchbench": {"intent": "digit subtrees with a literal tail position"}}
+{"query": "[0-9]{7}", "class": "regex", "tags": ["searchbench:regex"], "searchbench": {"intent": "deep exact-depth digit constraint, sparse result"}}
+{"query": "[0-9]{1,3}", "class": "regex", "tags": ["searchbench:regex"], "searchbench": {"intent": "bounded repetition, union of three exact depths"}}
+{"query": "(www|http|https)", "class": "regex", "tags": ["searchbench:regex"], "searchbench": {"intent": "tiny alternation, term-lookup floor for the machinery"}}
+{"query": "(mon|tues|wednes|thurs|fri|satur|sun)day", "class": "regex", "tags": ["searchbench:regex"], "searchbench": {"intent": "seven-way anchored alternation, exact terms"}}
+{"query": "colou?r", "class": "regex", "tags": ["searchbench:regex"], "searchbench": {"intent": "single optional position, two-term lookup"}}
+{"query": "(re|un)[a-z]*ing", "class": "regex", "tags": ["searchbench:regex"], "searchbench": {"intent": "two shallow subtrees scanned under a suffix accept"}}
+{"query": "[jkqxz][a-z]*ess", "class": "regex", "tags": ["searchbench:regex"], "searchbench": {"intent": "five rare single-letter subtrees, selective suffix"}}
+{"query": "[a-f0-9]{8,}", "class": "regex", "tags": ["searchbench:regex"], "searchbench": {"intent": "long bounded hex class; markup and identifier terms"}}
+{"query": ".*(tion|sion)", "class": "regex", "tags": ["searchbench:regex"], "searchbench": {"intent": "full scan under an alternation accept"}}
+{"query": ".*0th", "class": "regex", "tags": ["searchbench:regex"], "searchbench": {"intent": "full scan, sparse survivors; scan cost with no postings work"}}
