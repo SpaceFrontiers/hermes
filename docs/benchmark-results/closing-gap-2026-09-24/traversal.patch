@@ -1,0 +1,1205 @@
+--- a/hermes-core/src/query/prefix.rs
++++ b/hermes-core/src/query/prefix.rs
+@@ -1,13 +1,15 @@
+ //! Prefix query — matches all documents containing any term that starts with a
+-//! given prefix. Materializes the union of matching posting lists into a sorted
+-//! doc ID set bounded by the segment's document count. Score is always 1.0
++//! given prefix. Ranked callers merge posting cursors lazily; complete/mapped
++//! callers materialize bounded document sets. Score is always 1.0
+ //! (filter-style, like `RangeQuery`).
+ 
+ use crate::dsl::Field;
+ use crate::segment::SegmentReader;
+ 
+-use super::term_union::{TermUnionScorer, materialize_union, reject_chunked};
+-use super::traits::{CountFuture, EmptyScorer, Query, Scorer, ScorerFuture};
++#[cfg(test)]
++use super::term_union::materialize_union;
++use super::term_union::{TermUnionScorer, reject_chunked};
++use super::traits::{CountFuture, Query, Scorer, ScorerFuture};
+ 
+ /// Prefix query — matches documents containing any term starting with `prefix`.
+ #[derive(Debug, Clone)]
+@@ -46,20 +48,18 @@
+ }
+ 
+ impl Query for PrefixQuery {
+-    fn scorer<'a>(&self, reader: &'a SegmentReader, _limit: usize) -> ScorerFuture<'a> {
++    fn scorer<'a>(&self, reader: &'a SegmentReader, limit: usize) -> ScorerFuture<'a> {
+         let field = self.field;
+         let prefix = self.prefix.clone();
+         Box::pin(async move {
+             reject_chunked(reader, field, "PrefixQuery")?;
+             let postings = reader.get_prefix_postings(field, &prefix).await?;
+-            if postings.is_empty() {
+-                return Ok(Box::new(EmptyScorer) as Box<dyn Scorer>);
+-            }
+-            let docs = materialize_union(&postings, reader.num_docs(), reader.chunk_map(field));
+-            if docs.is_empty() {
+-                return Ok(Box::new(EmptyScorer) as Box<dyn Scorer>);
+-            }
+-            Ok(Box::new(TermUnionScorer::new(docs)) as Box<dyn Scorer>)
++            Ok(Box::new(TermUnionScorer::from_postings(
++                postings,
++                reader.num_docs(),
++                reader.chunk_map(field),
++                limit,
++            )) as Box<dyn Scorer>)
+         })
+     }
+ 
+@@ -67,18 +67,16 @@
+     fn scorer_sync<'a>(
+         &self,
+         reader: &'a SegmentReader,
+-        _limit: usize,
++        limit: usize,
+     ) -> crate::Result<Box<dyn Scorer + 'a>> {
+         reject_chunked(reader, self.field, "PrefixQuery")?;
+         let postings = reader.get_prefix_postings_sync(self.field, &self.prefix)?;
+-        if postings.is_empty() {
+-            return Ok(Box::new(EmptyScorer) as Box<dyn Scorer>);
+-        }
+-        let docs = materialize_union(&postings, reader.num_docs(), reader.chunk_map(self.field));
+-        if docs.is_empty() {
+-            return Ok(Box::new(EmptyScorer) as Box<dyn Scorer>);
+-        }
+-        Ok(Box::new(TermUnionScorer::new(docs)) as Box<dyn Scorer>)
++        Ok(Box::new(TermUnionScorer::from_postings(
++            postings,
++            reader.num_docs(),
++            reader.chunk_map(self.field),
++            limit,
++        )))
+     }
+ 
+     fn count_estimate<'a>(&self, reader: &'a SegmentReader) -> CountFuture<'a> {
+--- a/hermes-core/src/query/scoring.rs
++++ b/hermes-core/src/query/scoring.rs
+@@ -2419,7 +2419,7 @@
+             self.execute_conjunction()
+         } else if self.required_mask != 0 {
+             self.execute_text_windows::<true>()
+-        } else if self.single_text_with_ratio_bounds() {
++        } else if self.single_text_with_block_bounds() {
+             self.execute_single_text()
+         } else if self.all_text() {
+             self.execute_windowed()
+@@ -2472,15 +2472,9 @@
+         bms_execute_loop!(self, ensure_block_loaded_sync, advance_sync, seek_sync,)
+     }
+ 
+-    /// Route a lone text cursor to [`Self::execute_single_text`] only when
+-    /// its list stores ratio bounds. That path decides per block and group
+-    /// from skip metadata alone and needs the tight ratio bounds to skip
+-    /// anything; without them its bounds admit nearly every block, and the
+-    /// measured cost of the windowed path at n = 1 (one sorted run per
+-    /// block, no reduction) is no higher, so plain lists stay on the general
+-    /// path.
+-    fn single_text_with_ratio_bounds(&self) -> bool {
+-        matches!(self.cursors.as_slice(), [TermCursor { variant: CursorVariant::Text { list, .. }, .. }] if list.has_ratio_bounds())
++    /// A lone bounded text cursor needs no window partition or reduction.
++    fn single_text_with_block_bounds(&self) -> bool {
++        matches!(self.cursors.as_slice(), [cursor] if cursor.supports_text_block_pruning())
+     }
+ 
+     /// A single text cursor needs no dense ID-window scratch or score reduction.
+--- a/hermes-core/src/query/scoring/tests.rs
++++ b/hermes-core/src/query/scoring/tests.rs
+@@ -2684,7 +2684,7 @@
+         |factor| MaxScoreExecutor::text(lists.clone(), avg, 50, Some(&lengths), params, factor);
+ 
+     let mut exact = make(1.0);
+-    assert!(exact.single_text_with_ratio_bounds());
++    assert!(exact.single_text_with_block_bounds());
+     let exact_hits = exact.execute_single_text().unwrap();
+     assert_eq!(
+         exact_hits
+--- a/hermes-core/src/query/term_pattern.rs
++++ b/hermes-core/src/query/term_pattern.rs
+@@ -1,5 +1,5 @@
+ //! Shared bounded dictionary matching for whole-term pattern filters.
+-use super::term_union::{TermUnionScorer, materialize_union, reject_chunked};
++use super::term_union::{TermUnionScorer, reject_chunked};
+ use super::traits::{CountFuture, Query, Scorer, ScorerFuture};
+ use crate::dsl::Field;
+ use crate::segment::SegmentReader;
+@@ -97,7 +97,7 @@
+ }
+ 
+ impl Query for TermPatternQuery {
+-    fn scorer<'a>(&self, reader: &'a SegmentReader, _limit: usize) -> ScorerFuture<'a> {
++    fn scorer<'a>(&self, reader: &'a SegmentReader, limit: usize) -> ScorerFuture<'a> {
+         let field = self.field;
+         let pattern = self.pattern.clone();
+         let label = self.label;
+@@ -108,11 +108,12 @@
+                     pattern.matches(term)
+                 })
+                 .await?;
+-            Ok(Box::new(TermUnionScorer::new(materialize_union(
+-                &postings,
++            Ok(Box::new(TermUnionScorer::from_postings(
++                postings,
+                 reader.num_docs(),
+                 reader.chunk_map(field),
+-            ))) as Box<dyn Scorer>)
++                limit,
++            )) as Box<dyn Scorer>)
+         })
+     }
+ 
+@@ -120,7 +121,7 @@
+     fn scorer_sync<'a>(
+         &self,
+         reader: &'a SegmentReader,
+-        _limit: usize,
++        limit: usize,
+     ) -> Result<Box<dyn Scorer + 'a>> {
+         Self::validate_field(reader, self.field, self.label)?;
+         let postings = reader.get_matching_postings_sync(
+@@ -130,11 +131,12 @@
+             MAX_SCANNED_TERMS,
+             |term| self.pattern.matches(term),
+         )?;
+-        Ok(Box::new(TermUnionScorer::new(materialize_union(
+-            &postings,
++        Ok(Box::new(TermUnionScorer::from_postings(
++            postings,
+             reader.num_docs(),
+             reader.chunk_map(self.field),
+-        ))))
++            limit,
++        )))
+     }
+ 
+     fn count_estimate<'a>(&self, reader: &'a SegmentReader) -> CountFuture<'a> {
+--- a/hermes-core/src/query/term_union.rs
++++ b/hermes-core/src/query/term_union.rs
+@@ -6,44 +6,144 @@
+ use crate::{DocId, Score};
+ use std::sync::Arc;
+ 
+-// ── TermUnionScorer ────────────────────────────────────────────────────────
+-
+-/// Scorer backed by a pre-materialized sorted doc ID set.
++/// Complete constant-score membership, with lazy postings for ranked callers.
+ pub(super) struct TermUnionScorer {
+-    inner: SortedVecDocSet,
++    inner: UnionDocs,
++    terminated: bool,
++}
++
++enum UnionDocs {
++    Materialized(SortedVecDocSet),
++    Streaming(PostingUnion),
++}
++
++struct PostingUnion {
++    lists: Vec<crate::structures::BlockPostingIterator<'static>>,
++    heads: std::collections::BinaryHeap<std::cmp::Reverse<(DocId, usize)>>,
++    upper_count: u32,
++}
++
++impl PostingUnion {
++    fn new(postings: Vec<BlockPostingList>, num_docs: u32) -> Self {
++        let upper_count = postings
++            .iter()
++            .fold(0u32, |n, list| n.saturating_add(list.doc_count()))
++            .min(num_docs);
++        let mut lists = Vec::with_capacity(postings.len());
++        let mut heads = Vec::with_capacity(postings.len());
++        for posting in postings {
++            let iterator = posting.into_iterator();
++            let index = lists.len();
++            if iterator.doc() != TERMINATED {
++                heads.push(std::cmp::Reverse((iterator.doc(), index)));
++            }
++            lists.push(iterator);
++        }
++        Self {
++            lists,
++            heads: heads.into(),
++            upper_count,
++        }
++    }
++
++    fn doc(&self) -> DocId {
++        self.heads.peek().map_or(TERMINATED, |head| head.0.0)
++    }
++
++    fn seek(&mut self, target: DocId) -> DocId {
++        while let Some(mut head) = self.heads.peek_mut() {
++            let std::cmp::Reverse((doc, index)) = *head;
++            if doc >= target {
++                break;
++            }
++            let next = self.lists[index].seek(target);
++            if next == TERMINATED {
++                std::collections::binary_heap::PeekMut::pop(head);
++            } else {
++                *head = std::cmp::Reverse((next, index));
++            }
++        }
++        self.doc()
++    }
+ }
+ 
+ impl TermUnionScorer {
+     pub(super) fn new(docs: Vec<u32>) -> Self {
+         Self {
+-            inner: SortedVecDocSet::new(Arc::new(docs)),
++            inner: UnionDocs::Materialized(SortedVecDocSet::new(Arc::new(docs))),
++            terminated: false,
++        }
++    }
++
++    pub(super) fn from_postings(
++        postings: Vec<BlockPostingList>,
++        num_docs: u32,
++        map: Option<&crate::segment::chunk_map::ChunkMap>,
++        limit: usize,
++    ) -> Self {
++        if map.is_none() && limit > 0 && limit < num_docs as usize {
++            Self {
++                inner: UnionDocs::Streaming(PostingUnion::new(postings, num_docs)),
++                terminated: false,
++            }
++        } else {
++            Self::new(materialize_union(&postings, num_docs, map))
+         }
+     }
+ }
+ 
+ impl DocSet for TermUnionScorer {
+-    #[inline]
+     fn doc(&self) -> DocId {
+-        self.inner.doc()
+-    }
+-
+-    #[inline]
++        if self.terminated {
++            return TERMINATED;
++        }
++        match &self.inner {
++            UnionDocs::Materialized(inner) => inner.doc(),
++            UnionDocs::Streaming(inner) => inner.doc(),
++        }
++    }
++
+     fn advance(&mut self) -> DocId {
+-        self.inner.advance()
++        self.seek(self.doc().saturating_add(1))
+     }
+ 
+     fn seek(&mut self, target: DocId) -> DocId {
+-        self.inner.seek(target)
++        if self.terminated {
++            return TERMINATED;
++        }
++        match &mut self.inner {
++            UnionDocs::Materialized(inner) => inner.seek(target),
++            UnionDocs::Streaming(inner) => inner.seek(target),
++        }
+     }
+ 
+     fn size_hint(&self) -> u32 {
+-        self.inner.size_hint()
++        match &self.inner {
++            UnionDocs::Materialized(inner) => inner.size_hint(),
++            UnionDocs::Streaming(inner) => inner.upper_count,
++        }
+     }
+ }
+ 
+ impl Scorer for TermUnionScorer {
+     fn score(&self) -> Score {
+         1.0
++    }
++    fn supports_candidate_score_bounds(&self) -> bool {
++        true
++    }
++    fn candidate_score_upper_bound(&self) -> Score {
++        1.0
++    }
++    fn advance_competitive_candidate(&mut self, minimum: Score, allow_equal: bool) -> DocId {
++        // The ranked collector certifies that all later stable-ID ties lose.
++        // Complete and nested callers use ordinary advance/seek instead.
++        if minimum > 1.0 || (!allow_equal && minimum == 1.0) {
++            self.terminated = true;
++            TERMINATED
++        } else {
++            self.advance()
++        }
+     }
+ }
+ 
+@@ -124,3 +224,41 @@
+     }
+     Ok(())
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn lazy_union_keeps_complete_deduplicated_membership_across_seeks_and_block_edges() {
++        let postings: Vec<_> = [2, 3, 7]
++            .into_iter()
++            .map(|stride| {
++                let mut list = crate::structures::PostingList::new();
++                for doc in (0..2049).step_by(stride) {
++                    list.push(doc, 1);
++                }
++                BlockPostingList::from_posting_list(&list).unwrap()
++            })
++            .collect();
++        let expected = materialize_union(&postings, 2049, None);
++        let mut scorer = TermUnionScorer::from_postings(postings.clone(), 2049, None, 10);
++        let mut actual = Vec::new();
++        while scorer.doc() != TERMINATED {
++            actual.push(scorer.doc());
++            scorer.advance();
++        }
++        assert_eq!(actual, expected);
++        let mut scorer = TermUnionScorer::from_postings(postings, 2049, None, 10);
++        for target in [0, 1, 128, 511, 1200, 2001, 2048, 2050] {
++            assert_eq!(
++                scorer.seek(target),
++                expected
++                    .iter()
++                    .copied()
++                    .find(|&doc| doc >= target)
++                    .unwrap_or(TERMINATED)
++            );
++        }
++    }
++}
+--- a/hermes-core/src/structures/postings/posting.rs
++++ b/hermes-core/src/structures/postings/posting.rs
+@@ -11,9 +11,11 @@
+ //! The codec is stored per block in the header, so a single list (for example
+ //! the output of a merge) may mix codecs.
+ 
++mod groups;
+ mod impacts;
+ mod reader;
+ mod validation;
++use groups::GroupWords;
+ use impacts::{ImpactBuilder, ImpactTable};
+ 
+ pub(crate) use reader::PostingListReader;
+@@ -802,11 +804,11 @@
+     /// Number of blocks (= number of L0 entries).
+     l0_count: usize,
+     /// Level-1 skip `last_doc` values — one per `L1_INTERVAL` blocks.
+-    /// Stored as `Vec<u32>` for direct SIMD-accelerated `find_first_ge_u32`.
+-    l1_docs: Vec<u32>,
++    /// Borrowed little-endian words; opening does not copy the group directory.
++    l1_docs: GroupWords,
+     /// Packed `(max_tf, min_len)` per L1 group (superblock bounds); empty
+     /// for legacy lists.
+-    l1_bounds: Vec<u32>,
++    l1_bounds: GroupWords,
+     /// Optional L0 then L1 length/TF ratio minima, borrowed from index bytes.
+     ratios: Option<OwnedBytes>,
+     /// Validated borrowed offsets and compact integer envelope records.
+@@ -1065,8 +1067,8 @@
+             stream: OwnedBytes::new(stream),
+             l0_bytes: OwnedBytes::new(l0_buf),
+             l0_count,
+-            l1_docs,
+-            l1_bounds,
++            l1_docs: l1_docs.into(),
++            l1_bounds: l1_bounds.into(),
+             ratios: ratios.map(OwnedBytes::new),
+             impacts: if let Some(mut impacts) = impacts {
+                 impacts.append_groups_with(l0_count, |_| Ok(None))?;
+@@ -1150,12 +1152,8 @@
+                 writer.write_all(&header[6..])?;
+             }
+         }
+-        for &doc in &self.l1_docs {
+-            writer.write_u32::<LittleEndian>(doc)?;
+-        }
+-        for &bounds in &self.l1_bounds {
+-            writer.write_u32::<LittleEndian>(bounds)?;
+-        }
++        writer.write_all(self.l1_docs.bytes())?;
++        writer.write_all(self.l1_bounds.bytes())?;
+         let short_cursors =
+             compact && self.pos_cursors.is_some() && self.total_positions <= u32::MAX as u64;
+         if self.pos_cursors.is_some() {
+@@ -1247,8 +1245,7 @@
+     }
+ 
+     /// Zero-copy deserialization from OwnedBytes.
+-    /// Stream, L0 and cursors are sliced from the source without copying.
+-    /// L1 is extracted into a `Vec<u32>` for SIMD-friendly access (tiny: ≤ N/8 entries).
++    /// Stream, L0, L1 and cursors are sliced from the source without copying.
+     pub fn deserialize_zero_copy(raw: OwnedBytes) -> io::Result<Self> {
+         let footer = Self::validate_bytes(&raw)?;
+         Ok(Self::from_layout(raw, footer))
+@@ -1275,12 +1272,8 @@
+         let ratios = footer
+             .ratio_bounds
+             .then(|| raw.slice(footer.cursors_end()..footer.ratios_end()));
+-        let l1_docs = Self::extract_l1_docs(&raw[footer.l1_start()..], footer.l1_count);
+-        let l1_bounds = if footer.l1_bounds {
+-            Self::extract_l1_docs(&raw[footer.l1_end()..], footer.l1_count)
+-        } else {
+-            Vec::new()
+-        };
++        let l1_docs = GroupWords::borrowed(raw.slice(footer.l1_start()..footer.l1_end()));
++        let l1_bounds = GroupWords::borrowed(raw.slice(footer.l1_end()..footer.l1_bounds_end()));
+         let pos_cursors = footer
+             .has_cursors
+             .then(|| raw.slice(footer.l1_bounds_end()..footer.cursors_end()));
+@@ -1422,7 +1415,7 @@
+         if block_idx >= self.l0_count {
+             return None;
+         }
+-        let word = *self.l1_bounds.get(block_idx / L1_INTERVAL)?;
++        let word = self.l1_bounds.get(block_idx / L1_INTERVAL)?;
+         let (max_tf, min_len) = unpack_bounds(word, true);
+         let max_tf = if max_tf == u16::MAX as u32 {
+             max_tf.max(self.max_tf)
+@@ -1435,7 +1428,7 @@
+     /// Last doc of the L1 group containing `block_idx`.
+     #[inline]
+     pub fn group_last_doc(&self, block_idx: usize) -> Option<DocId> {
+-        self.l1_docs.get(block_idx / L1_INTERVAL).copied()
++        self.l1_docs.get(block_idx / L1_INTERVAL)
+     }
+ 
+     /// Whether `block_idx` opens an L1 group.
+@@ -1503,16 +1496,6 @@
+                 u64::from_le_bytes(b.try_into().unwrap())
+             }
+         })
+-    }
+-
+-    /// Extract L1 last_doc values from raw LE bytes into a Vec<u32>.
+-    fn extract_l1_docs(bytes: &[u8], count: usize) -> Vec<u32> {
+-        let mut docs = Vec::with_capacity(count);
+-        for i in 0..count {
+-            let p = i * L1_SIZE;
+-            docs.push(u32::from_le_bytes(bytes[p..p + 4].try_into().unwrap()));
+-        }
+-        docs
+     }
+ 
+     pub fn doc_count(&self) -> u32 {
+@@ -1666,8 +1649,8 @@
+             stream: OwnedBytes::new(stream),
+             l0_bytes: OwnedBytes::new(l0_buf),
+             l0_count,
+-            l1_docs,
+-            l1_bounds,
++            l1_docs: l1_docs.into(),
++            l1_bounds: l1_bounds.into(),
+             ratios: ratios.map(OwnedBytes::new),
+             impacts: if let Some(mut impacts) = impacts {
+                 let mut source = 0;
+@@ -2293,18 +2276,18 @@
+             return Some(from_block);
+         }
+         let from_l1 = from_block / L1_INTERVAL;
+-        let groups = self.l1_docs.get(from_l1..)?;
+-        let first = *groups.first()?;
++        let groups = self.l1_docs.words().get(from_l1..)?;
++        let first = u32::from_le_bytes(*groups.first()?);
+         let offset = if first >= target {
+             0
+         } else {
+             let mut bound = 1usize;
+-            while bound < groups.len() && groups[bound] < target {
++            while bound < groups.len() && u32::from_le_bytes(groups[bound]) < target {
+                 bound = bound.saturating_mul(2);
+             }
+             let lo = bound / 2;
+             let hi = bound.saturating_add(1).min(groups.len());
+-            lo + groups[lo..hi].partition_point(|&last| last < target)
++            lo + groups[lo..hi].partition_point(|&last| u32::from_le_bytes(last) < target)
+         };
+         let l1_idx = from_l1 + offset;
+         if l1_idx >= self.l1_docs.len() {
+@@ -4122,15 +4105,15 @@
+ 
+         // L1[0] = last_doc of block 7 (end of first group)
+         let expected_l1_0 = bpl.block_last_doc(7).unwrap();
+-        assert_eq!(bpl.l1_docs[0], expected_l1_0);
++        assert_eq!(bpl.l1_docs.get(0).unwrap(), expected_l1_0);
+ 
+         // L1[1] = last_doc of block 15 (end of second group)
+         let expected_l1_1 = bpl.block_last_doc(15).unwrap();
+-        assert_eq!(bpl.l1_docs[1], expected_l1_1);
++        assert_eq!(bpl.l1_docs.get(1).unwrap(), expected_l1_1);
+ 
+         // L1[2] = last_doc of block 19 (end of partial group)
+         let expected_l1_2 = bpl.block_last_doc(19).unwrap();
+-        assert_eq!(bpl.l1_docs[2], expected_l1_2);
++        assert_eq!(bpl.l1_docs.get(2).unwrap(), expected_l1_2);
+     }
+ 
+     #[test]
+@@ -4355,7 +4338,53 @@
+         }
+ 
+         // Verify L1 docs match
+-        assert_eq!(bpl.l1_docs, bpl2.l1_docs);
++        assert_eq!(bpl.l1_docs.bytes(), bpl2.l1_docs.bytes());
++    }
++
++    #[test]
++    fn posting_open_borrows_unaligned_group_directories_and_preserves_bytes_and_seeks() {
++        for codec in [
++            PostingCodec::Rounded,
++            PostingCodec::Packed,
++            PostingCodec::Pfor,
++            PostingCodec::Simd4x,
++        ] {
++            let mut postings = PostingList::new();
++            for i in 0..3457u32 {
++                postings.push(i * 7 + 3, i % 13 + 1);
++            }
++            let built = BlockPostingList::from_posting_list_with_codec(&postings, codec).unwrap();
++            let encoded = serialize_bpl(&built);
++            for prefix in [1, 3, 7] {
++                let mut padded = vec![0; prefix];
++                padded.extend_from_slice(&encoded);
++                let owner = OwnedBytes::new(padded);
++                let raw = owner.slice(prefix..owner.len());
++                let footer = Footer::parse(&raw).unwrap();
++                let docs_start = raw[footer.l1_start()..].as_ptr();
++                let bounds_start = raw[footer.l1_end()..].as_ptr();
++                let opened = BlockPostingList::deserialize_zero_copy(raw).unwrap();
++                assert_eq!(
++                    opened.l1_docs.bytes().as_ptr(),
++                    docs_start,
++                    "opening must borrow group document metadata"
++                );
++                assert_eq!(
++                    opened.l1_bounds.bytes().as_ptr(),
++                    bounds_start,
++                    "opening must borrow group bound metadata"
++                );
++                assert_eq!(serialize_bpl(&opened), encoded);
++                for from in 0..=built.num_blocks() {
++                    for target in (0..=3457 * 7 + 4).step_by(37) {
++                        let expected = (from..built.num_blocks())
++                            .find(|&block| built.block_last_doc(block).unwrap() >= target);
++                        assert_eq!(opened.seek_block(target, from), expected);
++                    }
++                }
++                assert_eq!(collect_postings(&opened), collect_postings(&built));
++            }
++        }
+     }
+ 
+     #[test]
+@@ -4370,7 +4399,7 @@
+ 
+         // Same structure
+         assert_eq!(copied.l0_count, zero_copy.l0_count);
+-        assert_eq!(copied.l1_docs, zero_copy.l1_docs);
++        assert_eq!(copied.l1_docs.bytes(), zero_copy.l1_docs.bytes());
+         assert_eq!(copied.doc_count, zero_copy.doc_count);
+         assert_eq!(copied.max_tf, zero_copy.max_tf);
+ 
+@@ -4400,7 +4429,8 @@
+         assert_eq!(merged.l1_docs.len(), expected_l1_count);
+ 
+         // Verify L1 values are correct
+-        for (i, &l1_doc) in merged.l1_docs.iter().enumerate() {
++        for (i, word) in merged.l1_docs.words().iter().enumerate() {
++            let l1_doc = u32::from_le_bytes(*word);
+             let last_block_in_group = ((i + 1) * L1_INTERVAL - 1).min(merged.num_blocks() - 1);
+             let expected = merged.block_last_doc(last_block_in_group).unwrap();
+             assert_eq!(l1_doc, expected, "L1[{}] mismatch", i);
+--- a/hermes-core/src/structures/postings/posting/compact.rs
++++ b/hermes-core/src/structures/postings/posting/compact.rs
+@@ -222,8 +222,8 @@
+             stream,
+             l0_bytes: OwnedBytes::new(l0),
+             l0_count: 1,
+-            l1_docs: vec![last],
+-            l1_bounds: Vec::new(),
++            l1_docs: vec![last].into(),
++            l1_bounds: Vec::new().into(),
+             ratios: self.footer.ratio_bounds.then(|| {
+                 let ratio = read_ratio(
+                     &self.index[self.footer.cursors_end() - self.footer.stream_len..],
+--- a/hermes-core/src/tokenizer/mod.rs
++++ b/hermes-core/src/tokenizer/mod.rs
+@@ -113,6 +113,29 @@
+ impl Tokenizer for SimpleTokenizer {
+     fn tokenize(&self, text: &str) -> Vec<Token> {
+         tokenize_and_clean(text, std::convert::identity)
++    }
++}
++
++/// Unicode word boundaries followed by lowercase, without lexical rewriting.
++/// Internal punctuation follows UAX #29. Overlong words retain a position gap.
++#[derive(Debug, Clone, Default)]
++pub struct UnicodeWordTokenizer;
++
++impl Tokenizer for UnicodeWordTokenizer {
++    fn tokenize(&self, text: &str) -> Vec<Token> {
++        use unicode_segmentation::UnicodeSegmentation;
++        text.unicode_word_indices()
++            .enumerate()
++            .filter(|(_, (_, word))| word.chars().count() <= 255)
++            .map(|(position, (offset, word))| {
++                Token::new(
++                    word.to_lowercase(),
++                    position as u32,
++                    offset,
++                    offset + word.len(),
++                )
++            })
++            .collect()
+     }
+ }
+ 
+@@ -725,6 +748,7 @@
+         // Basic tokenizers ("default" is the documented alias of "simple")
+         self.register("simple", SimpleTokenizer);
+         self.register("default", SimpleTokenizer);
++        self.register("unicode_word", UnicodeWordTokenizer);
+         self.register("raw", RawTokenizer);
+         self.register("raw_ci", RawCiTokenizer);
+ 
+@@ -931,6 +955,40 @@
+     }
+ 
+     #[test]
++    fn unicode_words_preserve_internal_punctuation_and_original_offsets() {
++        let tokenizer = TokenizerRegistry::new().get("unicode_word").unwrap();
++        let input = "TERM_start5 User:Robert books.google.com John's CAFÉ e\u{301}";
++        let tokens = tokenizer.tokenize(input);
++        let expected = [
++            "term_start5",
++            "user:robert",
++            "books.google.com",
++            "john's",
++            "café",
++            "e\u{301}",
++        ];
++        assert_eq!(tokens.len(), expected.len());
++        for (i, (token, expected)) in tokens.iter().zip(expected).enumerate() {
++            assert_eq!(token.text, expected);
++            assert_eq!(token.position, i as u32);
++            assert_eq!(
++                input[token.offset_from..token.offset_to].to_lowercase(),
++                expected
++            );
++            assert!(!token.variant);
++        }
++        let input = format!("left {} right", "x".repeat(256));
++        let tokens = tokenizer.tokenize(&input);
++        assert_eq!(
++            tokens
++                .iter()
++                .map(|t| (t.text.as_str(), t.position))
++                .collect::<Vec<_>>(),
++            vec![("left", 0), ("right", 2)]
++        );
++    }
++
++    #[test]
+     fn test_empty_text() {
+         let tokenizer = SimpleTokenizer;
+         let tokens = Tokenizer::tokenize(&tokenizer, "");
+--- a/hermes-core/tests/query_work_diagnostics.rs
++++ b/hermes-core/tests/query_work_diagnostics.rs
+@@ -146,3 +146,90 @@
+         }
+     }
+ }
++
++#[tokio::test(flavor = "current_thread")]
++async fn plain_ranked_terms_and_conjunctions_skip_proven_losing_blocks() {
++    let dir = RamDirectory::new();
++    let mut schema = SchemaBuilder::default();
++    let text = schema.add_text_field_with_tokenizer("text", true, false, "simple");
++    let config = IndexConfig {
++        posting_ratio_bounds: false,
++        posting_impact_bounds: false,
++        num_threads: 1,
++        num_indexing_threads: 1,
++        ..Default::default()
++    };
++    let mut writer = IndexWriter::create(dir.clone(), schema.build(), config.clone())
++        .await
++        .unwrap();
++    for row in 0..8192 {
++        let mut doc = Document::new();
++        doc.add_text(
++            text,
++            if row < 128 {
++                "alpha beta ".repeat(16)
++            } else {
++                "alpha beta padding ".to_owned() + &"padding ".repeat(30)
++            },
++        );
++        writer.add_document(doc).unwrap();
++    }
++    writer.commit().await.unwrap();
++    writer.shutdown().await.unwrap();
++    let index = Index::open(dir, config).await.unwrap();
++    let reader = index.reader().await.unwrap();
++    let searcher = reader.searcher().await.unwrap();
++    let segment = &searcher.segment_readers()[0];
++    assert!(segment.chunk_map(text).is_none());
++    assert!(
++        !segment
++            .get_postings(text, b"alpha")
++            .await
++            .unwrap()
++            .unwrap()
++            .has_ratio_bounds()
++    );
++    let queries: Vec<Box<dyn hermes_core::query::Query>> = vec![
++        Box::new(TermQuery::text(text, "alpha")),
++        Box::new(hermes_core::query::PrefixQuery::text(text, "alp")),
++        Box::new(hermes_core::query::WildcardQuery::text(text, "al*a").unwrap()),
++        Box::new(hermes_core::query::RegexQuery::new(text, "al.*a").unwrap()),
++        Box::new(
++            BooleanQuery::new()
++                .must(TermQuery::text(text, "alpha"))
++                .must(TermQuery::text(text, "beta")),
++        ),
++    ];
++    for query in queries {
++        let mut exhaustive = TopKCollector::new(8192);
++        let mut count = CountCollector::new();
++        collect_segment(segment, query.as_ref(), &mut (&mut exhaustive, &mut count))
++            .await
++            .unwrap();
++        assert_eq!(count.count(), 8192);
++        let expected = exhaustive.into_sorted_results();
++        for k in [1, 10, 100] {
++            let (actual, work) =
++                capture_sync(|| searcher.search_with_offset_and_count_sync(query.as_ref(), k, 0));
++            let (actual, _) = actual.unwrap();
++            assert_eq!(
++                actual
++                    .iter()
++                    .map(|h| (h.doc_id, h.score.to_bits()))
++                    .collect::<Vec<_>>(),
++                expected[..k]
++                    .iter()
++                    .map(|h| (h.doc_id, h.score.to_bits()))
++                    .collect::<Vec<_>>()
++            );
++            assert!(
++                work.exact_score_units + work.lookup_score_units < 8192 / 2,
++                "plain ranked queries must skip proven losers: {work:?}"
++            );
++            assert!(
++                work.doc_blocks < 32,
++                "ranked term filters must not decode every block: {work:?}"
++            );
++        }
++    }
++}
+--- a/hermes-core/tests/ranked_term_collection.rs
++++ b/hermes-core/tests/ranked_term_collection.rs
+@@ -6,12 +6,13 @@
+ 
+ #[tokio::test(flavor = "current_thread")]
+ async fn ranked_terms_match_exhaustive_global_scores_ties_and_offsets() {
+-    for impacts in [false, true] {
+-        ranked_terms_match_exhaustive_global_scores_ties_and_offsets_with(impacts).await;
++    for (ratio, impacts) in [(false, false), (true, false), (true, true)] {
++        ranked_terms_match_exhaustive_global_scores_ties_and_offsets_with(ratio, impacts).await;
+     }
+ }
+ 
+ async fn ranked_terms_match_exhaustive_global_scores_ties_and_offsets_with(
++    posting_ratio_bounds: bool,
+     posting_impact_bounds: bool,
+ ) {
+     let dir = RamDirectory::new();
+@@ -21,7 +22,7 @@
+     let field = schema.add_text_field("text", true, false);
+     schema.set_bm25_params(field, Some(0.9), Some(0.6));
+     let config = IndexConfig {
+-        posting_ratio_bounds: true,
++        posting_ratio_bounds,
+         posting_impact_bounds,
+         num_threads: 1,
+         num_indexing_threads: 1,
+--- a/hermes-server/examples/searchbench_http/audit.rs
++++ b/hermes-server/examples/searchbench_http/audit.rs
+@@ -18,7 +18,13 @@
+         .context("missing body")?;
+     let id = searcher.schema().get_field("id").context("missing id")?;
+     let tokenizer = TokenizerRegistry::new()
+-        .get(super::corpus::BODY_TOKENIZER)
++        .get(
++            searcher
++                .schema()
++                .get_field_entry(field)
++                .and_then(|entry| entry.tokenizer.as_deref())
++                .unwrap_or("default"),
++        )
+         .context("invalid tokenizer")?;
+     let parser = searcher.query_parser();
+     let source = std::io::BufReader::new(std::fs::File::open(input)?);
+@@ -51,21 +57,38 @@
+             collect_segment(segment, request.query.as_ref(), &mut collector).await?;
+             optimized += collector.count();
+             let column = segment.fast_field(id.0).context("missing id column")?;
+-            let mut scorer = request.query.scorer_sync(segment, 0)?;
+-            while scorer.doc() != hermes_core::structures::TERMINATED {
+-                if sample.len() < 10 {
+-                    sample.push(
+-                        column
+-                            .get_text(scorer.doc())
+-                            .context("missing external id")?
+-                            .to_owned(),
++            let mut audit = ExhaustiveAudit {
++                top: &mut oracle,
++                ranked: check_ranked,
++                count: 0,
++                sample: Vec::new(),
++            };
++            if request.query.should_children().is_some() {
++                // A zero limit does not make a union scorer exhaustive. The
++                // public complete collector path supplies that contract.
++                collect_segment(segment, request.query.as_ref(), &mut audit).await?;
++            } else {
++                let mut scorer = request.query.scorer_sync(segment, 0)?;
++                while scorer.doc() != hermes_core::structures::TERMINATED {
++                    audit.collect(
++                        scorer.doc(),
++                        if check_ranked { scorer.score() } else { 0.0 },
++                        &[],
+                     );
++                    scorer.advance();
+                 }
+-                if check_ranked {
+-                    oracle.collect(scorer.doc(), scorer.score(), &[]);
++            }
++            exhaustive += audit.count;
++            for doc in audit.sample {
++                if sample.len() == 10 {
++                    break;
+                 }
+-                exhaustive += 1;
+-                scorer.advance();
++                sample.push(
++                    column
++                        .get_text(doc)
++                        .context("missing external id")?
++                        .to_owned(),
++                );
+             }
+         }
+         let ranked = if check_ranked {
+@@ -97,3 +120,75 @@
+     }
+     Ok(())
+ }
++
++/// Keep callbacks exhaustive: do not advertise a ranked count limit or accept
++/// metadata-only counts. Retained scratch is the top-100 heap plus ten IDs.
++struct ExhaustiveAudit<'a> {
++    top: &'a mut TopKCollector,
++    ranked: bool,
++    count: u64,
++    sample: Vec<u32>,
++}
++
++impl Collector for ExhaustiveAudit<'_> {
++    fn collect(
++        &mut self,
++        doc: u32,
++        score: f32,
++        _: &[(u32, Vec<hermes_core::query::ScoredPosition>)],
++    ) {
++        self.count += 1;
++        if self.sample.len() < 10 {
++            self.sample.push(doc);
++        }
++        if self.ranked {
++            self.top.collect(doc, score, &[]);
++        }
++    }
++    fn needs_scores(&self) -> bool {
++        self.ranked
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use hermes_core::query::{BooleanQuery, TermQuery};
++    use hermes_core::segment::{SegmentBuilder, SegmentBuilderConfig, SegmentId, SegmentReader};
++    use hermes_core::{Document, RamDirectory, SchemaBuilder};
++    use std::sync::Arc;
++
++    #[tokio::test]
++    async fn union_audit_counts_every_match_even_with_a_small_top_k_heap() {
++        let mut schema = SchemaBuilder::default();
++        let body = schema.add_text_field("body", true, false);
++        let schema = Arc::new(schema.build());
++        let directory = RamDirectory::new();
++        let mut builder =
++            SegmentBuilder::new(schema.clone(), SegmentBuilderConfig::default()).unwrap();
++        for text in ["alpha", "beta", "alpha beta"] {
++            let mut doc = Document::new();
++            doc.add_text(body, text);
++            builder.add_document(doc).unwrap();
++        }
++        let id = SegmentId::new();
++        builder.build(&directory, id, None).await.unwrap();
++        let reader = SegmentReader::open(&directory, id, schema, 16)
++            .await
++            .unwrap();
++        let query = BooleanQuery::new()
++            .should(TermQuery::text(body, "alpha"))
++            .should(TermQuery::text(body, "beta"));
++        let mut top = TopKCollector::new(1);
++        let mut audit = ExhaustiveAudit {
++            top: &mut top,
++            ranked: true,
++            count: 0,
++            sample: Vec::new(),
++        };
++        collect_segment(&reader, &query, &mut audit).await.unwrap();
++        assert_eq!(audit.count, 3);
++        assert_eq!(audit.sample, [0, 1, 2]);
++        assert_eq!(top.into_sorted_results()[0].doc_id, 2);
++    }
++}
+--- a/hermes-server/examples/searchbench_http/corpus.rs
++++ b/hermes-server/examples/searchbench_http/corpus.rs
+@@ -10,9 +10,9 @@
+ 
+ pub const BODY_TOKENIZER: &str = "lex(segmenter: unicode, stem: none, stop_words: false, variants: false, fold: false, max_token_length: 255)";
+ 
+-pub fn schema(reorder: bool) -> Schema {
++pub fn schema(reorder: bool, tokenizer: &str) -> Schema {
+     let mut schema = SchemaBuilder::default();
+-    let body = schema.add_text_field_with_tokenizer("body", true, true, BODY_TOKENIZER);
++    let body = schema.add_text_field_with_tokenizer("body", true, true, tokenizer);
+     schema.set_positions(body, PositionMode::TokenPosition);
+     schema.set_reorder(body, reorder);
+     schema.set_default_fields(vec!["body".into()]);
+@@ -48,12 +48,18 @@
+     schema.build()
+ }
+ 
+-pub async fn build(path: &Path, input: &Path, config: IndexConfig, reorder: bool) -> Result<()> {
++pub async fn build(
++    path: &Path,
++    input: &Path,
++    config: IndexConfig,
++    reorder: bool,
++    tokenizer: &str,
++) -> Result<()> {
+     if path.exists() {
+         bail!("output index already exists: {}", path.display());
+     }
+     std::fs::create_dir_all(path)?;
+-    let schema = schema(reorder);
++    let schema = schema(reorder, tokenizer);
+     let mut writer = IndexWriter::create(MmapDirectory::new(path), schema.clone(), config).await?;
+     let source = std::io::BufReader::new(std::fs::File::open(input)?);
+     let mut count = 0u64;
+--- a/hermes-server/examples/searchbench_http/main.rs
++++ b/hermes-server/examples/searchbench_http/main.rs
+@@ -29,6 +29,7 @@
+     searcher: Arc<Searcher<MmapDirectory>>,
+     parser: hermes_core::dsl::QueryLanguageParser,
+     tokenizer: hermes_core::tokenizer::BoxedTokenizer,
++    tokenizer_name: String,
+     body: hermes_core::Field,
+     id: hermes_core::Field,
+     admission: Arc<tokio::sync::Semaphore>,
+@@ -167,7 +168,7 @@
+ 
+ async fn stats(State(app): State<Arc<App>>) -> Json<Value> {
+     Json(json!({
+-        "engine": "hermes-benchmark-http", "body_tokenizer": corpus::BODY_TOKENIZER,
++        "engine": "hermes-benchmark-http", "body_tokenizer": app.tokenizer_name,
+         "documents": app.searcher.num_docs(),
+         "segments": app.searcher.segment_readers().iter().map(|reader| json!({
+             "id": reader.meta().id.to_string(), "documents": reader.num_docs(),
+@@ -189,13 +190,20 @@
+         .get_field("body")
+         .context("missing body")?;
+     let id = searcher.schema().get_field("id").context("missing id")?;
++    let tokenizer_name = searcher
++        .schema()
++        .get_field_entry(body)
++        .and_then(|entry| entry.tokenizer.as_deref())
++        .unwrap_or("default")
++        .to_owned();
+     let tokenizer = TokenizerRegistry::new()
+-        .get(corpus::BODY_TOKENIZER)
++        .get(&tokenizer_name)
+         .context("invalid body tokenizer")?;
+     Ok(App {
+         parser: searcher.query_parser(),
+         searcher,
+         tokenizer,
++        tokenizer_name,
+         body,
+         id,
+         admission: Arc::new(tokio::sync::Semaphore::new(64)),
+@@ -247,7 +255,7 @@
+     let args: Vec<_> = std::env::args().collect();
+     if args.len() < 4 {
+         bail!(
+-            "usage: searchbench_http index|index-rgb|index-impacts INDEX CORPUS.jsonl [WORKERS] | serve INDEX PORT [WORKERS] [HTTP_WORKERS] [DISPATCH] | audit|diagnose INDEX QUERIES.jsonl [WORKERS]"
++            "usage: searchbench_http index|index-rgb|index-impacts|index-unicode|index-unicode-rgb|index-unicode-impacts INDEX CORPUS.jsonl [WORKERS] | serve INDEX PORT [WORKERS] [HTTP_WORKERS] [DISPATCH] | audit|diagnose INDEX QUERIES.jsonl [WORKERS]"
+         );
+     }
+     let workers: usize = args.get(4).map(|s| s.parse()).transpose()?.unwrap_or(6);
+@@ -286,7 +294,10 @@
+         "available CPUs: {available_cpus}; search workers: {workers}; HTTP/runtime workers: {http_workers}; dispatch: {dispatch:?}"
+     );
+     let config = IndexConfig {
+-        posting_impact_bounds: args[1] == "index-impacts",
++        posting_impact_bounds: matches!(
++            args[1].as_str(),
++            "index-impacts" | "index-unicode-impacts"
++        ),
+         num_threads: workers,
+         num_indexing_threads: workers,
+         max_indexing_memory_bytes: 2_000_000_000,
+@@ -304,11 +315,21 @@
+             config,
+         )),
+         "audit" => runtime.block_on(audit::run(Path::new(&args[2]), Path::new(&args[3]), config)),
+-        "index" | "index-rgb" | "index-impacts" => runtime.block_on(corpus::build(
++        "index"
++        | "index-rgb"
++        | "index-impacts"
++        | "index-unicode"
++        | "index-unicode-rgb"
++        | "index-unicode-impacts" => runtime.block_on(corpus::build(
+             Path::new(&args[2]),
+             Path::new(&args[3]),
+             config,
+-            args[1] == "index-rgb",
++            matches!(args[1].as_str(), "index-rgb" | "index-unicode-rgb"),
++            if args[1].starts_with("index-unicode") {
++                "unicode_word"
++            } else {
++                corpus::BODY_TOKENIZER
++            },
+         )),
+         "serve" => runtime.block_on(serve(
+             Path::new(&args[2]),
+--- a/hermes-core/src/structures/postings/posting/groups.rs
++++ b/hermes-core/src/structures/postings/posting/groups.rs
+@@ -0,0 +1,48 @@
++//! Immutable little-endian L1 metadata, including unaligned mmap views.
++
++use crate::directories::OwnedBytes;
++
++#[derive(Debug, Clone)]
++pub(super) struct GroupWords(OwnedBytes);
++
++impl GroupWords {
++    pub(super) fn borrowed(bytes: OwnedBytes) -> Self {
++        // Footer parsing proves the extent; no scan or realignment is needed.
++        debug_assert!(bytes.len().is_multiple_of(4));
++        Self(bytes)
++    }
++
++    #[inline]
++    pub(super) fn words(&self) -> &[[u8; 4]] {
++        self.0.as_slice().as_chunks::<4>().0
++    }
++
++    #[inline]
++    pub(super) fn get(&self, index: usize) -> Option<u32> {
++        self.words()
++            .get(index)
++            .map(|word| u32::from_le_bytes(*word))
++    }
++
++    pub(super) fn bytes(&self) -> &[u8] {
++        self.0.as_slice()
++    }
++
++    pub(super) fn len(&self) -> usize {
++        self.0.len() / 4
++    }
++
++    pub(super) fn is_empty(&self) -> bool {
++        self.0.is_empty()
++    }
++}
++
++impl From<Vec<u32>> for GroupWords {
++    fn from(words: Vec<u32>) -> Self {
++        let mut bytes = Vec::with_capacity(words.len() * 4);
++        for word in words {
++            bytes.extend_from_slice(&word.to_le_bytes());
++        }
++        Self(OwnedBytes::new(bytes))
++    }
++}
+--- a/hermes-core/tests/unicode_word_queries.rs
++++ b/hermes-core/tests/unicode_word_queries.rs
+@@ -0,0 +1,52 @@
++#![cfg(feature = "native")]
++
++use hermes_core::dsl::{PositionMode, parse_single_index};
++use hermes_core::index::{Index, IndexConfig, IndexWriter};
++use hermes_core::query::{CountCollector, collect_segment};
++use hermes_core::{Document, RamDirectory, SchemaBuilder};
++
++#[tokio::test(flavor = "current_thread")]
++async fn unicode_word_queries_keep_punctuated_terms_distinct_after_reopen() {
++    parse_single_index("index sample { field body: text<unicode_word> [indexed] }").unwrap();
++    let dir = RamDirectory::new();
++    let mut schema = SchemaBuilder::default();
++    let body = schema.add_text_field_with_tokenizer("body", true, false, "unicode_word");
++    schema.set_positions(body, PositionMode::TokenPosition);
++    schema.set_default_fields(vec!["body".into()]);
++    let config = IndexConfig {
++        num_threads: 1,
++        num_indexing_threads: 1,
++        ..Default::default()
++    };
++    let mut writer = IndexWriter::create(dir.clone(), schema.build(), config.clone())
++        .await
++        .unwrap();
++    for text in [
++        "new term_start5",
++        "new term start5",
++        "new unrelated",
++        "user:robert",
++        "user robert",
++    ] {
++        let mut doc = Document::new();
++        doc.add_text(body, text);
++        writer.add_document(doc).unwrap();
++    }
++    writer.commit().await.unwrap();
++    writer.shutdown().await.unwrap();
++    let index = Index::open(dir, config).await.unwrap();
++    let searcher = index.reader().await.unwrap().searcher().await.unwrap();
++    for source in [
++        "+new +term_start5",
++        "user\\:robert",
++        "\"term start5\"",
++        "\"user robert\"",
++    ] {
++        let query = searcher.query_parser().parse_strict(source).unwrap();
++        let mut count = CountCollector::new();
++        collect_segment(&searcher.segment_readers()[0], query.as_ref(), &mut count)
++            .await
++            .unwrap();
++        assert_eq!(count.count(), 1, "{source}");
++    }
++}

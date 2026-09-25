@@ -1,0 +1,268 @@
+tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+   Compiling hermes-core v1.9.1 ($SOURCE/hermes-core)
+   Compiling hermes-server v1.9.1 ($SOURCE/hermes-server)
+    Finished `release` profile [optimized] target(s) in 1m 40s
+48f3248a3c01372c608bf88b137da1b61040be0e7f63aecebf443f43a8acbc80  ../investigation/expanded-no-pilot
+   Compiling hyper-rustls v0.27.10
+   Compiling tracing-appender v0.2.5
+   Compiling ahash v0.8.12
+   Compiling tokio-retry v0.3.2
+   Compiling ciborium-ll v0.2.2
+   Compiling stop-words v0.10.1
+   Compiling hf-hub v0.4.3
+   Compiling metrics-util v0.20.4
+   Compiling ciborium v0.2.2
+   Compiling reqwest v0.13.5
+   Compiling hashbrown v0.14.5
+   Compiling criterion v0.8.2
+   Compiling dashmap v6.2.1
+   Compiling tokenizers v0.23.2
+   Compiling lasso v0.7.3
+   Compiling xet-runtime v1.6.0
+   Compiling reqwest-middleware v0.5.2
+   Compiling xet-core-structures v1.6.0
+   Compiling xet-client v1.6.0
+   Compiling xet-data v1.6.0
+   Compiling hf-xet v1.6.0
+   Compiling hf-hub v1.0.0
+   Compiling hermes-core v1.9.1 ($SOURCE/hermes-core)
+    Finished `release` profile [optimized] target(s) in 5m 07s
+     Running unittests src/lib.rs ($TARGET/release/deps/hermes_core-e264778534730c8e)
+
+running 28 tests
+test query::phrase::seed::tests::phrase_score_pilot_requires_distinct_matches_and_observes_cancellation ... ok
+test query::phrase::tests::competitive_length_cutoffs_preserve_scalar_bound_decisions_at_boundaries ... ok
+test query::phrase::competitive::tests::inverse_seeded_cutoffs_match_binary_search_at_score_rounding_boundaries ... ok
+test query::phrase::tests::competitive_scans_preserve_scalar_admission_at_tails_and_after_reverse_probes ... ok
+test query::phrase::seed::tests::phrase_score_pilot_proves_a_floor_and_restores_position_cursors ... ok
+test query::phrase::tests::exact_phrase_rejects_empty_prefix_before_reading_later_position_payloads ... ok
+test query::phrase::tests::competitive_phrase_traversal_preserves_bounds_ties_and_position_cursors ... ok
+test query::phrase::tests::lazy_phrase_fold_discards_current_result_at_budget_boundary ... ok
+test query::phrase::tests::lazy_phrase_fold_matches_stable_eager_oracle_including_reordered_ordinals ... ok
+test query::phrase::tests::lazy_phrase_fold_only_consumes_one_document_and_can_skip_to_late_matches ... ok
+test query::phrase::tests::monotone_phrase_frequency_matches_naive_offsets_slop_and_repeated_terms ... ok
+test query::phrase::tests::phrase_alignment_preserves_offsets_counts_and_seeks_with_each_term_rarest ... ok
+test query::phrase::tests::phrase_bounds_preserve_duplicate_start_multiplicity_without_reading_positions ... ok
+test query::phrase::tests::phrase_candidates_require_confirmation_and_exact_seek_stays_terminal ... ok
+test query::phrase::tests::phrase_frequency_resumes_after_first_match_without_recounting_prefixes ... ok
+test query::phrase::tests::phrase_stops_when_budget_expires_after_first_match ... ok
+test query::phrase::tests::point_phrase_backfill_invalidates_frequency_when_position_buffers_change ... ok
+test query::phrase::tests::rare_term_score_bounds_require_unique_first_positions_and_zero_slop ... ok
+test query::phrase::tests::reordered_document_lengths_enable_bounds_without_enabling_chunk_folding ... ok
+test query::phrase::tests::selective_phrase_anchors_preserve_original_multiplicity_and_extreme_offsets ... ok
+test query::phrase::tests::selective_phrase_checks_an_intermediate_first_term_before_frequent_payloads ... ok
+test query::phrase::tests::selective_phrase_filters_avoid_reading_frequent_first_term_positions ... ok
+test query::phrase::tests::singleton_bound_lookup_preserves_scalar_bits_and_long_length_fallback ... ok
+test query::phrase::tests::singleton_score_ties_are_skipped_only_when_stable_id_order_allows_it ... ok
+test query::phrase::tests::two_term_exact_phrases_preserve_duplicate_starts_with_either_term_rarest ... ok
+test query::phrase::competitive::tests::vector_tf_admission_matches_scalar_for_every_lane_and_tail ... ok
+test query::phrase::tests::exact_phrase_intersections_preserve_first_start_multiplicity_offsets_and_resume ... ok
+test query::phrase::tests::incremental_exact_phrase_scoring_matches_occurrences_across_codecs_and_false_candidates ... ok
+
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 1796 filtered out; finished in 0.09s
+
+    Finished `release` profile [optimized] target(s) in 0.50s
+     Running unittests src/lib.rs ($TARGET/release/deps/hermes_core-e264778534730c8e)
+
+running 1 test
+test query::scoring::tests::skewed_conjunction_preserves_frequency_rows_across_seeks_and_partial_batches ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1823 filtered out; finished in 0.01s
+
+   Compiling hermes-core v1.9.1 ($SOURCE/hermes-core)
+   Compiling hermes-server v1.9.1 ($SOURCE/hermes-server)
+    Finished `release` profile [optimized] target(s) in 1m 40s
+4b615e7eaab726ef500f7c4d2acc95e66045f9cba733c33a17ab071990d60a29  ../investigation/expanded-short-pilot
+   Compiling hermes-core v1.9.1 ($SOURCE/hermes-core)
+    Finished `release` profile [optimized] target(s) in 3m 58s
+     Running unittests src/lib.rs ($TARGET/release/deps/hermes_core-e264778534730c8e)
+
+running 28 tests
+test query::phrase::seed::tests::phrase_score_pilot_requires_distinct_matches_and_observes_cancellation ... ok
+test query::phrase::tests::competitive_length_cutoffs_preserve_scalar_bound_decisions_at_boundaries ... ok
+test query::phrase::competitive::tests::inverse_seeded_cutoffs_match_binary_search_at_score_rounding_boundaries ... ok
+test query::phrase::tests::competitive_scans_preserve_scalar_admission_at_tails_and_after_reverse_probes ... ok
+test query::phrase::seed::tests::phrase_score_pilot_proves_a_floor_and_restores_position_cursors ... ok
+test query::phrase::tests::exact_phrase_rejects_empty_prefix_before_reading_later_position_payloads ... ok
+test query::phrase::tests::competitive_phrase_traversal_preserves_bounds_ties_and_position_cursors ... ok
+test query::phrase::tests::lazy_phrase_fold_discards_current_result_at_budget_boundary ... ok
+test query::phrase::tests::lazy_phrase_fold_matches_stable_eager_oracle_including_reordered_ordinals ... ok
+test query::phrase::tests::lazy_phrase_fold_only_consumes_one_document_and_can_skip_to_late_matches ... ok
+test query::phrase::tests::monotone_phrase_frequency_matches_naive_offsets_slop_and_repeated_terms ... ok
+test query::phrase::competitive::tests::vector_tf_admission_matches_scalar_for_every_lane_and_tail ... ok
+test query::phrase::tests::phrase_alignment_preserves_offsets_counts_and_seeks_with_each_term_rarest ... ok
+test query::phrase::tests::phrase_bounds_preserve_duplicate_start_multiplicity_without_reading_positions ... ok
+test query::phrase::tests::phrase_candidates_require_confirmation_and_exact_seek_stays_terminal ... ok
+test query::phrase::tests::phrase_stops_when_budget_expires_after_first_match ... ok
+test query::phrase::tests::point_phrase_backfill_invalidates_frequency_when_position_buffers_change ... ok
+test query::phrase::tests::rare_term_score_bounds_require_unique_first_positions_and_zero_slop ... ok
+test query::phrase::tests::reordered_document_lengths_enable_bounds_without_enabling_chunk_folding ... ok
+test query::phrase::tests::selective_phrase_anchors_preserve_original_multiplicity_and_extreme_offsets ... ok
+test query::phrase::tests::selective_phrase_checks_an_intermediate_first_term_before_frequent_payloads ... ok
+test query::phrase::tests::selective_phrase_filters_avoid_reading_frequent_first_term_positions ... ok
+test query::phrase::tests::singleton_bound_lookup_preserves_scalar_bits_and_long_length_fallback ... ok
+test query::phrase::tests::singleton_score_ties_are_skipped_only_when_stable_id_order_allows_it ... ok
+test query::phrase::tests::two_term_exact_phrases_preserve_duplicate_starts_with_either_term_rarest ... ok
+test query::phrase::tests::phrase_frequency_resumes_after_first_match_without_recounting_prefixes ... ok
+test query::phrase::tests::exact_phrase_intersections_preserve_first_start_multiplicity_offsets_and_resume ... ok
+test query::phrase::tests::incremental_exact_phrase_scoring_matches_occurrences_across_codecs_and_false_candidates ... ok
+
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 1796 filtered out; finished in 0.08s
+
+    Finished `release` profile [optimized] target(s) in 0.50s
+
+running 1 test
+test query::scoring::tests::skewed_conjunction_preserves_frequency_rows_across_seeks_and_partial_batches ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1823 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs ($TARGET/release/deps/hermes_core-e264778534730c8e)
+   Compiling hermes-core v1.9.1 ($SOURCE/hermes-core)
+   Compiling hermes-server v1.9.1 ($SOURCE/hermes-server)
+    Finished `release` profile [optimized] target(s) in 1m 42s
+0ce66c670d566ca8401c2006b5ccfb0fc9fb58110a79c88b67c199fb3ac4aa03  ../investigation/expanded-bound-priority
+   Compiling hermes-core v1.9.1 ($SOURCE/hermes-core)
+    Finished `release` profile [optimized] target(s) in 4m 04s
+     Running unittests src/lib.rs ($TARGET/release/deps/hermes_core-e264778534730c8e)
+
+running 28 tests
+test query::phrase::seed::tests::phrase_score_pilot_requires_distinct_matches_and_observes_cancellation ... ok
+test query::phrase::tests::competitive_length_cutoffs_preserve_scalar_bound_decisions_at_boundaries ... ok
+test query::phrase::competitive::tests::inverse_seeded_cutoffs_match_binary_search_at_score_rounding_boundaries ... ok
+test query::phrase::tests::competitive_scans_preserve_scalar_admission_at_tails_and_after_reverse_probes ... ok
+test query::phrase::seed::tests::phrase_score_pilot_proves_a_floor_and_restores_position_cursors ... ok
+test query::phrase::tests::exact_phrase_rejects_empty_prefix_before_reading_later_position_payloads ... ok
+test query::phrase::tests::competitive_phrase_traversal_preserves_bounds_ties_and_position_cursors ... ok
+test query::phrase::tests::lazy_phrase_fold_discards_current_result_at_budget_boundary ... ok
+test query::phrase::tests::lazy_phrase_fold_matches_stable_eager_oracle_including_reordered_ordinals ... ok
+test query::phrase::tests::lazy_phrase_fold_only_consumes_one_document_and_can_skip_to_late_matches ... ok
+test query::phrase::tests::exact_phrase_intersections_preserve_first_start_multiplicity_offsets_and_resume ... ok
+test query::phrase::tests::monotone_phrase_frequency_matches_naive_offsets_slop_and_repeated_terms ... ok
+test query::phrase::tests::phrase_bounds_preserve_duplicate_start_multiplicity_without_reading_positions ... ok
+test query::phrase::tests::phrase_candidates_require_confirmation_and_exact_seek_stays_terminal ... ok
+test query::phrase::tests::phrase_alignment_preserves_offsets_counts_and_seeks_with_each_term_rarest ... ok
+test query::phrase::tests::phrase_stops_when_budget_expires_after_first_match ... ok
+test query::phrase::tests::point_phrase_backfill_invalidates_frequency_when_position_buffers_change ... ok
+test query::phrase::tests::rare_term_score_bounds_require_unique_first_positions_and_zero_slop ... ok
+test query::phrase::tests::reordered_document_lengths_enable_bounds_without_enabling_chunk_folding ... ok
+test query::phrase::tests::selective_phrase_anchors_preserve_original_multiplicity_and_extreme_offsets ... ok
+test query::phrase::tests::selective_phrase_checks_an_intermediate_first_term_before_frequent_payloads ... ok
+test query::phrase::tests::selective_phrase_filters_avoid_reading_frequent_first_term_positions ... ok
+test query::phrase::tests::singleton_bound_lookup_preserves_scalar_bits_and_long_length_fallback ... ok
+test query::phrase::tests::singleton_score_ties_are_skipped_only_when_stable_id_order_allows_it ... ok
+test query::phrase::tests::two_term_exact_phrases_preserve_duplicate_starts_with_either_term_rarest ... ok
+test query::phrase::tests::phrase_frequency_resumes_after_first_match_without_recounting_prefixes ... ok
+test query::phrase::competitive::tests::vector_tf_admission_matches_scalar_for_every_lane_and_tail ... ok
+test query::phrase::tests::incremental_exact_phrase_scoring_matches_occurrences_across_codecs_and_false_candidates ... ok
+
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 1796 filtered out; finished in 0.08s
+
+    Finished `release` profile [optimized] target(s) in 0.50s
+     Running unittests src/lib.rs ($TARGET/release/deps/hermes_core-e264778534730c8e)
+
+running 1 test
+test query::scoring::tests::skewed_conjunction_preserves_frequency_rows_across_seeks_and_partial_batches ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1823 filtered out; finished in 0.01s
+
+   Compiling hermes-core v1.9.1 ($SOURCE/hermes-core)
+   Compiling hermes-server v1.9.1 ($SOURCE/hermes-server)
+    Finished `release` profile [optimized] target(s) in 1m 41s
+6f9085e8fc910128a6a83a2ac741f902778b4a49c4a90b137ee76973b0d5ac90  ../investigation/expanded-single-block
+   Compiling hermes-core v1.9.1 ($SOURCE/hermes-core)
+    Finished `release` profile [optimized] target(s) in 3m 57s
+
+running 28 tests
+test query::phrase::seed::tests::phrase_score_pilot_requires_distinct_matches_and_observes_cancellation ... ok
+test query::phrase::tests::competitive_length_cutoffs_preserve_scalar_bound_decisions_at_boundaries ... ok
+test query::phrase::competitive::tests::inverse_seeded_cutoffs_match_binary_search_at_score_rounding_boundaries ... ok
+test query::phrase::tests::competitive_scans_preserve_scalar_admission_at_tails_and_after_reverse_probes ... ok
+test query::phrase::tests::competitive_phrase_traversal_preserves_bounds_ties_and_position_cursors ... ok
+     Running unittests src/lib.rs ($TARGET/release/deps/hermes_core-e264778534730c8e)
+test query::phrase::seed::tests::phrase_score_pilot_proves_a_floor_and_restores_position_cursors ... ok
+test query::phrase::tests::exact_phrase_rejects_empty_prefix_before_reading_later_position_payloads ... ok
+test query::phrase::tests::lazy_phrase_fold_discards_current_result_at_budget_boundary ... ok
+test query::phrase::tests::lazy_phrase_fold_matches_stable_eager_oracle_including_reordered_ordinals ... ok
+test query::phrase::tests::lazy_phrase_fold_only_consumes_one_document_and_can_skip_to_late_matches ... ok
+test query::phrase::tests::monotone_phrase_frequency_matches_naive_offsets_slop_and_repeated_terms ... ok
+test query::phrase::tests::phrase_alignment_preserves_offsets_counts_and_seeks_with_each_term_rarest ... ok
+test query::phrase::tests::phrase_bounds_preserve_duplicate_start_multiplicity_without_reading_positions ... ok
+test query::phrase::tests::phrase_candidates_require_confirmation_and_exact_seek_stays_terminal ... ok
+test query::phrase::tests::phrase_frequency_resumes_after_first_match_without_recounting_prefixes ... ok
+test query::phrase::tests::phrase_stops_when_budget_expires_after_first_match ... ok
+test query::phrase::tests::point_phrase_backfill_invalidates_frequency_when_position_buffers_change ... ok
+test query::phrase::tests::rare_term_score_bounds_require_unique_first_positions_and_zero_slop ... ok
+test query::phrase::competitive::tests::vector_tf_admission_matches_scalar_for_every_lane_and_tail ... ok
+test query::phrase::tests::reordered_document_lengths_enable_bounds_without_enabling_chunk_folding ... ok
+test query::phrase::tests::selective_phrase_checks_an_intermediate_first_term_before_frequent_payloads ... ok
+test query::phrase::tests::selective_phrase_anchors_preserve_original_multiplicity_and_extreme_offsets ... ok
+test query::phrase::tests::selective_phrase_filters_avoid_reading_frequent_first_term_positions ... ok
+test query::phrase::tests::singleton_score_ties_are_skipped_only_when_stable_id_order_allows_it ... ok
+test query::phrase::tests::singleton_bound_lookup_preserves_scalar_bits_and_long_length_fallback ... ok
+test query::phrase::tests::two_term_exact_phrases_preserve_duplicate_starts_with_either_term_rarest ... ok
+test query::phrase::tests::exact_phrase_intersections_preserve_first_start_multiplicity_offsets_and_resume ... ok
+test query::phrase::tests::incremental_exact_phrase_scoring_matches_occurrences_across_codecs_and_false_candidates ... ok
+
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 1796 filtered out; finished in 0.09s
+
+    Finished `release` profile [optimized] target(s) in 0.50s
+     Running unittests src/lib.rs ($TARGET/release/deps/hermes_core-e264778534730c8e)
+
+running 1 test
+test query::scoring::tests::skewed_conjunction_preserves_frequency_rows_across_seeks_and_partial_batches ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1823 filtered out; finished in 0.01s
+
+   Compiling hermes-core v1.9.1 ($SOURCE/hermes-core)
+   Compiling hermes-server v1.9.1 ($SOURCE/hermes-server)
+    Finished `release` profile [optimized] target(s) in 1m 40s
+da232a5a50cb484693b49dfa707045c38a9e812d47607d4cf45b6dc565d1b517  ../investigation/expanded-no-rare-seek
+   Compiling hermes-core v1.9.1 ($SOURCE/hermes-core)
+    Finished `release` profile [optimized] target(s) in 4m 07s
+
+running 28 tests
+     Running unittests src/lib.rs ($TARGET/release/deps/hermes_core-e264778534730c8e)
+test query::phrase::seed::tests::phrase_score_pilot_requires_distinct_matches_and_observes_cancellation ... ok
+test query::phrase::tests::competitive_length_cutoffs_preserve_scalar_bound_decisions_at_boundaries ... ok
+test query::phrase::competitive::tests::inverse_seeded_cutoffs_match_binary_search_at_score_rounding_boundaries ... ok
+test query::phrase::tests::competitive_scans_preserve_scalar_admission_at_tails_and_after_reverse_probes ... ok
+test query::phrase::seed::tests::phrase_score_pilot_proves_a_floor_and_restores_position_cursors ... ok
+test query::phrase::tests::exact_phrase_rejects_empty_prefix_before_reading_later_position_payloads ... ok
+test query::phrase::tests::competitive_phrase_traversal_preserves_bounds_ties_and_position_cursors ... ok
+test query::phrase::tests::lazy_phrase_fold_discards_current_result_at_budget_boundary ... ok
+test query::phrase::tests::lazy_phrase_fold_matches_stable_eager_oracle_including_reordered_ordinals ... ok
+test query::phrase::tests::lazy_phrase_fold_only_consumes_one_document_and_can_skip_to_late_matches ... ok
+test query::phrase::tests::monotone_phrase_frequency_matches_naive_offsets_slop_and_repeated_terms ... ok
+test query::phrase::tests::phrase_alignment_preserves_offsets_counts_and_seeks_with_each_term_rarest ... ok
+test query::phrase::competitive::tests::vector_tf_admission_matches_scalar_for_every_lane_and_tail ... ok
+test query::phrase::tests::phrase_candidates_require_confirmation_and_exact_seek_stays_terminal ... ok
+test query::phrase::tests::phrase_bounds_preserve_duplicate_start_multiplicity_without_reading_positions ... ok
+test query::phrase::tests::phrase_stops_when_budget_expires_after_first_match ... ok
+test query::phrase::tests::point_phrase_backfill_invalidates_frequency_when_position_buffers_change ... ok
+test query::phrase::tests::rare_term_score_bounds_require_unique_first_positions_and_zero_slop ... ok
+test query::phrase::tests::reordered_document_lengths_enable_bounds_without_enabling_chunk_folding ... ok
+test query::phrase::tests::selective_phrase_anchors_preserve_original_multiplicity_and_extreme_offsets ... ok
+test query::phrase::tests::selective_phrase_checks_an_intermediate_first_term_before_frequent_payloads ... ok
+test query::phrase::tests::selective_phrase_filters_avoid_reading_frequent_first_term_positions ... ok
+test query::phrase::tests::singleton_bound_lookup_preserves_scalar_bits_and_long_length_fallback ... ok
+test query::phrase::tests::singleton_score_ties_are_skipped_only_when_stable_id_order_allows_it ... ok
+test query::phrase::tests::two_term_exact_phrases_preserve_duplicate_starts_with_either_term_rarest ... ok
+test query::phrase::tests::phrase_frequency_resumes_after_first_match_without_recounting_prefixes ... ok
+test query::phrase::tests::exact_phrase_intersections_preserve_first_start_multiplicity_offsets_and_resume ... ok
+test query::phrase::tests::incremental_exact_phrase_scoring_matches_occurrences_across_codecs_and_false_candidates ... ok
+
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 1796 filtered out; finished in 0.08s
+
+    Finished `release` profile [optimized] target(s) in 0.50s
+     Running unittests src/lib.rs ($TARGET/release/deps/hermes_core-e264778534730c8e)
+
+running 1 test
+test query::scoring::tests::skewed_conjunction_preserves_frequency_rows_across_seeks_and_partial_batches ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1823 filtered out; finished in 0.01s

@@ -29,6 +29,7 @@ struct App {
     searcher: Arc<Searcher<MmapDirectory>>,
     parser: hermes_core::dsl::QueryLanguageParser,
     tokenizer: hermes_core::tokenizer::BoxedTokenizer,
+    tokenizer_name: String,
     body: hermes_core::Field,
     id: hermes_core::Field,
     admission: Arc<tokio::sync::Semaphore>,
@@ -167,7 +168,7 @@ async fn search(State(app): State<Arc<App>>, Json(value): Json<Value>) -> Respon
 
 async fn stats(State(app): State<Arc<App>>) -> Json<Value> {
     Json(json!({
-        "engine": "hermes-benchmark-http", "body_tokenizer": corpus::BODY_TOKENIZER,
+        "engine": "hermes-benchmark-http", "body_tokenizer": app.tokenizer_name,
         "documents": app.searcher.num_docs(),
         "segments": app.searcher.segment_readers().iter().map(|reader| json!({
             "id": reader.meta().id.to_string(), "documents": reader.num_docs(),
@@ -189,13 +190,20 @@ async fn open_app(path: &Path, config: IndexConfig) -> Result<App> {
         .get_field("body")
         .context("missing body")?;
     let id = searcher.schema().get_field("id").context("missing id")?;
+    let tokenizer_name = searcher
+        .schema()
+        .get_field_entry(body)
+        .and_then(|entry| entry.tokenizer.as_deref())
+        .unwrap_or("default")
+        .to_owned();
     let tokenizer = TokenizerRegistry::new()
-        .get(corpus::BODY_TOKENIZER)
+        .get(&tokenizer_name)
         .context("invalid body tokenizer")?;
     Ok(App {
         parser: searcher.query_parser(),
         searcher,
         tokenizer,
+        tokenizer_name,
         body,
         id,
         admission: Arc::new(tokio::sync::Semaphore::new(64)),
@@ -247,7 +255,7 @@ fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().collect();
     if args.len() < 4 {
         bail!(
-            "usage: searchbench_http index|index-rgb|index-impacts INDEX CORPUS.jsonl [WORKERS] | serve INDEX PORT [WORKERS] [HTTP_WORKERS] [DISPATCH] | audit|diagnose INDEX QUERIES.jsonl [WORKERS]"
+            "usage: searchbench_http index|index-rgb|index-impacts|index-unicode|index-unicode-rgb|index-unicode-impacts INDEX CORPUS.jsonl [WORKERS] | serve INDEX PORT [WORKERS] [HTTP_WORKERS] [DISPATCH] | audit|diagnose INDEX QUERIES.jsonl [WORKERS]"
         );
     }
     let workers: usize = args.get(4).map(|s| s.parse()).transpose()?.unwrap_or(6);
@@ -286,7 +294,10 @@ fn main() -> Result<()> {
         "available CPUs: {available_cpus}; search workers: {workers}; HTTP/runtime workers: {http_workers}; dispatch: {dispatch:?}"
     );
     let config = IndexConfig {
-        posting_impact_bounds: args[1] == "index-impacts",
+        posting_impact_bounds: matches!(
+            args[1].as_str(),
+            "index-impacts" | "index-unicode-impacts"
+        ),
         num_threads: workers,
         num_indexing_threads: workers,
         max_indexing_memory_bytes: 2_000_000_000,
@@ -304,11 +315,21 @@ fn main() -> Result<()> {
             config,
         )),
         "audit" => runtime.block_on(audit::run(Path::new(&args[2]), Path::new(&args[3]), config)),
-        "index" | "index-rgb" | "index-impacts" => runtime.block_on(corpus::build(
+        "index"
+        | "index-rgb"
+        | "index-impacts"
+        | "index-unicode"
+        | "index-unicode-rgb"
+        | "index-unicode-impacts" => runtime.block_on(corpus::build(
             Path::new(&args[2]),
             Path::new(&args[3]),
             config,
-            args[1] == "index-rgb",
+            matches!(args[1].as_str(), "index-rgb" | "index-unicode-rgb"),
+            if args[1].starts_with("index-unicode") {
+                "unicode_word"
+            } else {
+                corpus::BODY_TOKENIZER
+            },
         )),
         "serve" => runtime.block_on(serve(
             Path::new(&args[2]),

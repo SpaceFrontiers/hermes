@@ -1,0 +1,13 @@
+--- a/hermes-core/src/query/phrase/seed.rs
++++ b/hermes-core/src/query/phrase/seed.rs
+@@ -31,7 +31,9 @@
+             }
+             // Short-document bounds only nominate blocks. They do not prove
+             // a score floor: only the real matches in `heap` below can do that.
+-            let score = -(list.block_bounds(block)?.1.unwrap_or(1) as Score);
++            let score = super::phrase_block_bound(
++                self.prepared_bounds.as_ref()?, list, block, self.singleton_bounds.as_deref(),
++            );
+             let at = blocks.partition_point(|&(bound, _, _)| bound >= score);
+             if at < block_limit {
+                 if blocks.len() == block_limit {

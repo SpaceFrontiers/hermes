@@ -1,0 +1,18 @@
+{
+  "before1": {
+    "maximum resident set size": 118538240,
+    "peak memory footprint": 35586768
+  },
+  "before2": {
+    "maximum resident set size": 121552896,
+    "peak memory footprint": 34538192
+  },
+  "after1": {
+    "maximum resident set size": 128319488,
+    "peak memory footprint": 33964656
+  },
+  "after2": {
+    "maximum resident set size": 125009920,
+    "peak memory footprint": 35504800
+  }
+}

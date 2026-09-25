@@ -10,9 +10,9 @@ use hermes_core::{IndexConfig, IndexWriter};
 
 pub const BODY_TOKENIZER: &str = "lex(segmenter: unicode, stem: none, stop_words: false, variants: false, fold: false, max_token_length: 255)";
 
-pub fn schema(reorder: bool) -> Schema {
+pub fn schema(reorder: bool, tokenizer: &str) -> Schema {
     let mut schema = SchemaBuilder::default();
-    let body = schema.add_text_field_with_tokenizer("body", true, true, BODY_TOKENIZER);
+    let body = schema.add_text_field_with_tokenizer("body", true, true, tokenizer);
     schema.set_positions(body, PositionMode::TokenPosition);
     schema.set_reorder(body, reorder);
     schema.set_default_fields(vec!["body".into()]);
@@ -48,12 +48,18 @@ pub fn schema(reorder: bool) -> Schema {
     schema.build()
 }
 
-pub async fn build(path: &Path, input: &Path, config: IndexConfig, reorder: bool) -> Result<()> {
+pub async fn build(
+    path: &Path,
+    input: &Path,
+    config: IndexConfig,
+    reorder: bool,
+    tokenizer: &str,
+) -> Result<()> {
     if path.exists() {
         bail!("output index already exists: {}", path.display());
     }
     std::fs::create_dir_all(path)?;
-    let schema = schema(reorder);
+    let schema = schema(reorder, tokenizer);
     let mut writer = IndexWriter::create(MmapDirectory::new(path), schema.clone(), config).await?;
     let source = std::io::BufReader::new(std::fs::File::open(input)?);
     let mut count = 0u64;

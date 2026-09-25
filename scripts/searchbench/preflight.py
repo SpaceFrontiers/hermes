@@ -2,8 +2,9 @@
 """Audit a pinned Searchbench query file against Hermes's native parser.
 
 This is capability discovery, not a performance benchmark or count-agreement
-check. Known regex gaps are reported even when the grammar accepts the
-input as a different expression. The existing benchmark binary owns parsing.
+check. Bare regex patterns need HTTP adapter translation into RegexQuery,
+even when the native grammar accepts them as a different expression. The
+existing benchmark binary owns native parsing.
 """
 
 import argparse
@@ -14,7 +15,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-UNSUPPORTED_CLASSES = frozenset({"regex"})
+ADAPTER_TRANSLATED_CLASSES = frozenset({"regex"})
 
 
 def probe(binary, row):
@@ -29,8 +30,8 @@ def probe(binary, row):
         )
     parsed = result.returncode == 0
     query_class = row["class"]
-    if query_class in UNSUPPORTED_CLASSES:
-        status = "unsupported_query_operator"
+    if query_class in ADAPTER_TRANSLATED_CLASSES:
+        status = "requires_adapter_translation"
     elif not parsed:
         status = "native_syntax_rejected"
     else:
@@ -65,7 +66,7 @@ def main():
         counts[result["status"]] += 1
         counts["total"] += 1
     report = {
-        "scope": "Native syntax and known operator gaps only; no count or ranking equivalence established",
+        "scope": "Native syntax and adapter translation requirements only; no count or ranking equivalence established",
         "queries": str(args.queries),
         "classes": classes,
         "results": results,

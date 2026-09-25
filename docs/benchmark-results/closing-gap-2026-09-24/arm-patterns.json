@@ -1,0 +1,102 @@
+{
+  "machine": "Apple M4",
+  "compiler": "rustc 1.98.1",
+  "flags": "-C target-cpu=native",
+  "fixture_docs": 50000,
+  "comparison": "Equivalent regex versus specialized wildcard on the same index, both inside the final executable. Query construction is outside timing.",
+  "cases": [
+    {
+      "k": 10,
+      "samples": {
+        "regex": {
+          "one": {
+            "confidence_interval": {
+              "confidence_level": 0.95,
+              "lower_bound": 2030988.946969697,
+              "upper_bound": 2043275.5011494253
+            },
+            "point_estimate": 2035904.4642857143,
+            "standard_error": 3146.57119922218
+          },
+          "two": {
+            "confidence_interval": {
+              "confidence_level": 0.95,
+              "lower_bound": 2047344.0495169084,
+              "upper_bound": 2062148.3333333335
+            },
+            "point_estimate": 2052408.9087301588,
+            "standard_error": 4345.985445191515
+          }
+        },
+        "single_star": {
+          "one": {
+            "confidence_interval": {
+              "confidence_level": 0.95,
+              "lower_bound": 1501682.25,
+              "upper_bound": 1509804.7954545454
+            },
+            "point_estimate": 1505101.0925925926,
+            "standard_error": 2264.9442259112698
+          },
+          "two": {
+            "confidence_interval": {
+              "confidence_level": 0.95,
+              "lower_bound": 1505857.6166666667,
+              "upper_bound": 1519232.8825757576
+            },
+            "point_estimate": 1511522.513888889,
+            "standard_error": 2905.5255882265005
+          }
+        }
+      },
+      "speedup": 1.3552613472333015
+    },
+    {
+      "k": 100,
+      "samples": {
+        "regex": {
+          "one": {
+            "confidence_interval": {
+              "confidence_level": 0.95,
+              "lower_bound": 2033081.3511904762,
+              "upper_bound": 2044431.7999194846
+            },
+            "point_estimate": 2041025.1851851852,
+            "standard_error": 3331.467339347466
+          },
+          "two": {
+            "confidence_interval": {
+              "confidence_level": 0.95,
+              "lower_bound": 2039625.4775757575,
+              "upper_bound": 2059944.3897058824
+            },
+            "point_estimate": 2043971.5192307692,
+            "standard_error": 4751.423105112183
+          }
+        },
+        "single_star": {
+          "one": {
+            "confidence_interval": {
+              "confidence_level": 0.95,
+              "lower_bound": 1517168.8988095238,
+              "upper_bound": 1532204.416239316
+            },
+            "point_estimate": 1520629.7172413794,
+            "standard_error": 4428.5388164290625
+          },
+          "two": {
+            "confidence_interval": {
+              "confidence_level": 0.95,
+              "lower_bound": 1503349.6771708685,
+              "upper_bound": 1506380.695402299
+            },
+            "point_estimate": 1505471.1268939395,
+            "standard_error": 974.342717657226
+          }
+        }
+      },
+      "speedup": 1.349920876672967
+    }
+  ],
+  "sha256": "8fe1d12bdae5396c9195a821d80e972a66e97e971bddd9de9fee276710660663"
+}

@@ -1,0 +1,39 @@
+   Compiling hermes-core v1.9.1 ($SOURCE/hermes-core)
+warning: linker stderr: ld: __eh_frame section too large (max 16MB) to encode dwarf unwind offsets in compact unwind table, performance of exception handling might be affected
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `hermes-core` (lib test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.34s
+     Running unittests src/lib.rs (/Users/pasha/conductor/workspaces/hermes/moroni/target/debug/deps/hermes_core-f33894cde6671c76)
+
+running 27 tests
+test query::phrase::tests::competitive_length_cutoffs_preserve_scalar_bound_decisions_at_boundaries ... ok
+test query::phrase::seed::tests::phrase_score_pilot_requires_distinct_matches_and_observes_cancellation ... ok
+test query::phrase::competitive::tests::inverse_seeded_cutoffs_match_binary_search_at_score_rounding_boundaries ... ok
+test query::phrase::tests::competitive_scans_preserve_scalar_admission_at_tails_and_after_reverse_probes ... ok
+test query::phrase::tests::exact_phrase_rejects_empty_prefix_before_reading_later_position_payloads ... ok
+test query::phrase::seed::tests::phrase_score_pilot_proves_a_floor_and_restores_position_cursors ... ok
+test query::phrase::tests::competitive_phrase_traversal_preserves_bounds_ties_and_position_cursors ... ok
+test query::phrase::tests::lazy_phrase_fold_discards_current_result_at_budget_boundary ... ok
+test query::phrase::tests::lazy_phrase_fold_only_consumes_one_document_and_can_skip_to_late_matches ... ok
+test query::phrase::tests::lazy_phrase_fold_matches_stable_eager_oracle_including_reordered_ordinals ... ok
+test query::phrase::tests::phrase_alignment_preserves_offsets_counts_and_seeks_with_each_term_rarest ... ok
+test query::phrase::tests::phrase_bounds_preserve_duplicate_start_multiplicity_without_reading_positions ... ok
+test query::phrase::tests::phrase_candidates_require_confirmation_and_exact_seek_stays_terminal ... ok
+test query::phrase::tests::exact_phrase_intersections_preserve_first_start_multiplicity_offsets_and_resume ... ok
+test query::phrase::tests::phrase_stops_when_budget_expires_after_first_match ... ok
+test query::phrase::tests::point_phrase_backfill_invalidates_frequency_when_position_buffers_change ... ok
+test query::phrase::tests::rare_term_score_bounds_require_unique_first_positions_and_zero_slop ... ok
+test query::phrase::tests::reordered_document_lengths_enable_bounds_without_enabling_chunk_folding ... ok
+test query::phrase::tests::monotone_phrase_frequency_matches_naive_offsets_slop_and_repeated_terms ... ok
+test query::phrase::tests::selective_phrase_checks_an_intermediate_first_term_before_frequent_payloads ... ok
+test query::phrase::tests::selective_phrase_anchors_preserve_original_multiplicity_and_extreme_offsets ... ok
+test query::phrase::tests::selective_phrase_filters_avoid_reading_frequent_first_term_positions ... ok
+test query::phrase::tests::singleton_score_ties_are_skipped_only_when_stable_id_order_allows_it ... ok
+test query::phrase::tests::singleton_bound_lookup_preserves_scalar_bits_and_long_length_fallback ... ok
+test query::phrase::tests::two_term_exact_phrases_preserve_duplicate_starts_with_either_term_rarest ... ok
+test query::phrase::tests::phrase_frequency_resumes_after_first_match_without_recounting_prefixes ... ok
+test query::phrase::tests::incremental_exact_phrase_scoring_matches_occurrences_across_codecs_and_false_candidates ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 1795 filtered out; finished in 0.74s

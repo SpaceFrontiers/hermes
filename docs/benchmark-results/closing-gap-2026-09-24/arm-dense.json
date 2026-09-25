@@ -1,0 +1,136 @@
+{
+  "architecture": "Apple M4 ARM64",
+  "compiler": "Rust 1.98.1",
+  "flags": "release; -C target-cpu=native",
+  "order": ["before1", "after1", "after2", "before2"],
+  "before_sha256": "b50b6bbb1c60d454b793686c81aa6fa8811d50a03a0c1aca0fb28fd29e7c5a32",
+  "after_sha256": "fb76a79013d0d9e5b0b2e404d178791b0d4bb1019ed097d6fd4d9e238fe91924",
+  "cells": [
+    {
+      "case": "union_membership/dense",
+      "median_ns": {
+        "before1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 143372.86386328726,
+            "upper_bound": 147985.8465370019
+          },
+          "point_estimate": 144783.4494623656,
+          "standard_error": 1195.2325072863277
+        },
+        "after1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 103328.96651987353,
+            "upper_bound": 104312.38214056482
+          },
+          "point_estimate": 103749.19174160574,
+          "standard_error": 331.0603006958209
+        },
+        "after2": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 102537.76533189033,
+            "upper_bound": 103451.93107357886
+          },
+          "point_estimate": 102908.71875,
+          "standard_error": 223.56832174854944
+        },
+        "before2": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 133352.6511314655,
+            "upper_bound": 134621.1217447917
+          },
+          "point_estimate": 134131.78125,
+          "standard_error": 338.19016403647544
+        }
+      },
+      "speedup": 1.3496470086669867
+    },
+    {
+      "case": "union_membership/overlap",
+      "median_ns": {
+        "before1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 81710.09283424908,
+            "upper_bound": 82039.72774725273
+          },
+          "point_estimate": 81857.5905849359,
+          "standard_error": 95.07338716598383
+        },
+        "after1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 54770.18243793244,
+            "upper_bound": 54914.59668803419
+          },
+          "point_estimate": 54848.98261490831,
+          "standard_error": 40.58521039326095
+        },
+        "after2": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 54648.719615650974,
+            "upper_bound": 54798.65549001815
+          },
+          "point_estimate": 54707.61607142857,
+          "standard_error": 39.018032057495574
+        },
+        "before2": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 82030.94497863248,
+            "upper_bound": 82191.26648351649
+          },
+          "point_estimate": 82078.66884793447,
+          "standard_error": 56.42201809254209
+        }
+      },
+      "speedup": 1.4963613456294287
+    },
+    {
+      "case": "union_membership/sparse",
+      "median_ns": {
+        "before1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 1096.592632313192,
+            "upper_bound": 1100.8545154329063
+          },
+          "point_estimate": 1099.4200090097945,
+          "standard_error": 0.9412601120987926
+        },
+        "after1": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 1086.6044816481058,
+            "upper_bound": 1090.1735071416279
+          },
+          "point_estimate": 1088.1702001195554,
+          "standard_error": 0.9196660751352188
+        },
+        "after2": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 1095.3159774197352,
+            "upper_bound": 1105.6967339421958
+          },
+          "point_estimate": 1098.4525453827941,
+          "standard_error": 5.499812845461165
+        },
+        "before2": {
+          "confidence_interval": {
+            "confidence_level": 0.95,
+            "lower_bound": 1105.8905216574844,
+            "upper_bound": 1117.1754486164825
+          },
+          "point_estimate": 1109.670778200887,
+          "standard_error": 4.169563265909157
+        }
+      },
+      "speedup": 1.0102752254610663
+    }
+  ]
+}

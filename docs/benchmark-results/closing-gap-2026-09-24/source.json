@@ -1,0 +1,6 @@
+{
+  "base_commit": "46f4e294b5c6a840fdae64f469c8d82ae9cb7d8f",
+  "patch": "current-source.patch",
+  "patch_sha256": "8e92eb01ea4c951973ad9da4ce836ea9723339dbc7dcc5d38769258c306a3393",
+  "status": "Working-tree code and tests; complete final-source corpus retiming pending. Earlier checkpoint hashes are retained in the corresponding matrices."
+}

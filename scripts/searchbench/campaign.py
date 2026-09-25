@@ -2,8 +2,9 @@
 """Hermes comparison orchestration using the pinned Searchbench native replay.
 
 No timing loop or REST request translation is reimplemented here. Count probes
-retain all exclusions; measurements use the same count-agreeing subset for every
-engine. Raw wire blobs, upstream replay output and memory samples are retained.
+retain all exclusions. Exact-count comparisons require equal counts; explicitly
+labelled shared-input comparisons retain count differences and validate each
+engine against its own probe. Raw wire blobs and replay/memory data are retained.
 """
 
 import argparse
@@ -19,7 +20,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 ENGINES = ("hermes", "elasticsearch", "opensearch", "luxir")
-UNSUPPORTED = {"regex"}
 
 
 def write(path, value):
@@ -101,6 +101,7 @@ async def probe(args, adapter, items):
 
 
 def gate(args, items):
+    comparison = getattr(args, "comparison", "exact-count")
     counts = {
         engine: {
             row["key"]: row
@@ -112,18 +113,19 @@ def gate(args, items):
     for item in items:
         observed = {engine: counts[engine][key(item)] for engine in ENGINES}
         values = [row.get("count") for row in observed.values()]
-        supported = item.query_class not in UNSUPPORTED
-        same = all(type(value) is int for value in values) and len(set(values)) == 1
-        reason = (
-            "unsupported operator"
-            if not supported
-            else ("count disagreement/error" if not same else None)
-        )
+        successful = all(type(value) is int for value in values)
+        same = successful and len(set(values)) == 1
+        # Actual errors and counts own eligibility; a static operator blacklist
+        # would keep newly supported query types out of the comparison forever.
+        include = successful if comparison == "shared-input" else same
+        reason = "count disagreement/error" if not include else None
         rows.append(
             {
                 "key": key(item),
                 "query": asdict(item),
                 "include": reason is None,
+                "comparison": comparison,
+                "counts_agree": same,
                 "reason": reason,
                 "observed": observed,
             }
@@ -133,7 +135,9 @@ def gate(args, items):
         json.dumps(
             {
                 "total": len(rows),
+                "comparison": comparison,
                 "included": sum(row["include"] for row in rows),
+                "counts_agree": sum(row["counts_agree"] for row in rows),
                 "included_by_class": dict(
                     Counter(
                         row["query"]["query_class"] for row in rows if row["include"]
@@ -214,6 +218,13 @@ class PairedAdapter:
         return found
 
 
+def eligible_counts(rows, engine):
+    """Validate a timed engine against its own successful untimed observations."""
+    return {
+        row["key"]: row["observed"][engine]["count"] for row in rows if row["include"]
+    }
+
+
 def measure(args, adapter, items):
     from driver import (
         host_config,
@@ -226,20 +237,16 @@ def measure(args, adapter, items):
     )
     from sampler import ProcSampler
 
-    selected = {
-        row["key"]: row["observed"]["hermes"]["count"]
-        for row in json.loads((args.out / "agreement.json").read_text())
-        if row["include"]
-    }
+    agreement = json.loads((args.out / "agreement.json").read_text())
+    selected = eligible_counts(agreement, args.engine)
     adapter = PairedAdapter(adapter, selected)
+    shared_input = any(row.get("comparison") == "shared-input" for row in agreement)
     items = [item for item in items if key(item) in selected]
     if args.families:
         requested = set(args.families)
         missing = requested - {item.query_class for item in items}
         if missing:
-            raise RuntimeError(
-                f"no count-agreeing queries for families: {sorted(missing)}"
-            )
+            raise RuntimeError(f"no eligible queries for families: {sorted(missing)}")
         items = [item for item in items if item.query_class in requested]
     if not items:
         raise RuntimeError("no comparable queries")
@@ -259,6 +266,9 @@ def measure(args, adapter, items):
             "agreement_sha256": hashlib.sha256(
                 (args.out / "agreement.json").read_bytes()
             ).hexdigest(),
+            "comparison_modes": sorted(
+                {row.get("comparison", "unspecified") for row in agreement}
+            ),
             "queries": [asdict(item) for item in items],
         },
     )
@@ -308,7 +318,14 @@ def measure(args, adapter, items):
             for operation in ("TOP_10", "TOP_100", "COUNT"):
                 name = f"{family}-{operation}-c{clients}"
                 params = dict(parameters(family_items[0], operation), name=name)
-                workload = [(params, item) for item in family_items]
+                # Preserve a bucket per query in the broader comparison: count
+                # outliers must remain visible rather than disappearing into a
+                # family aggregate. The request bodies and replay order stay
+                # under the same upstream adapter/driver.
+                workload = [
+                    (dict(params, name=key(item)) if shared_input else params, item)
+                    for item in family_items
+                ]
                 _, errors, _, _, responses = asyncio.run(
                     run_fixed(
                         args.host, args.port, args.timeout, 8, adapter, workload, True
@@ -386,6 +403,12 @@ def main():
     parser.add_argument("--searchbench", required=True, type=Path)
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--engine", choices=ENGINES, default="hermes")
+    parser.add_argument(
+        "--comparison",
+        choices=("exact-count", "shared-input"),
+        default="exact-count",
+        help="gate by equal counts, or by successful execution of identical inputs",
+    )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=9401)
     parser.add_argument("--server-pid", type=int, default=0)
@@ -395,7 +418,7 @@ def main():
     parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument("--session-warmup", type=float, default=30)
     parser.add_argument(
-        "--families", nargs="+", help="measure only these count-agreeing families"
+        "--families", nargs="+", help="measure only these eligible families"
     )
     parser.add_argument("--clients", nargs="+", type=int, default=[1, 8, 32])
     parser.add_argument("--client-cores", default="3,7")

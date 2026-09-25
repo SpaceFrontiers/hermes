@@ -1,0 +1,513 @@
+{
+  "architecture": "Intel Xeon 2.80 GHz",
+  "compiler": "Rust 1.98.1",
+  "flags": "release; -C target-cpu=native",
+  "order": ["before1", "after1", "after2", "before2"],
+  "audit_sha256": "5a21ca6e8832178edff68354bae92bfc4c634e929941b9b9fd0a266f8ee46b2a",
+  "cells": [
+    {
+      "query": "g*itar",
+      "family": "wildcard_scan",
+      "limit": 10,
+      "median_us": {
+        "before1": {
+          "parse": 8.939,
+          "project": 5.1825,
+          "response_drop": 0.061,
+          "search": 31672.227,
+          "serialize": 2.118
+        },
+        "after1": {
+          "parse": 8.0885,
+          "project": 5.203,
+          "response_drop": 0.0495,
+          "search": 31781.2185,
+          "serialize": 1.917
+        },
+        "after2": {
+          "parse": 8.6445,
+          "project": 5.3295,
+          "response_drop": 0.0655,
+          "search": 31846.971,
+          "serialize": 1.9255
+        },
+        "before2": {
+          "parse": 9.0225,
+          "project": 5.1315,
+          "response_drop": 0.0605,
+          "search": 31605.9975,
+          "serialize": 2.177
+        }
+      },
+      "speedup": 0.994499843500969
+    },
+    {
+      "query": "g*itar",
+      "family": "wildcard_scan",
+      "limit": 100,
+      "median_us": {
+        "before1": {
+          "parse": 9.017,
+          "project": 27.3665,
+          "response_drop": 0.0855,
+          "search": 31615.974,
+          "serialize": 4.7685
+        },
+        "after1": {
+          "parse": 8.1385,
+          "project": 27.2665,
+          "response_drop": 0.148,
+          "search": 31761.695,
+          "serialize": 4.82
+        },
+        "after2": {
+          "parse": 8.858,
+          "project": 28.2225,
+          "response_drop": 0.0775,
+          "search": 31742.625,
+          "serialize": 4.891
+        },
+        "before2": {
+          "parse": 8.6465,
+          "project": 28.1265,
+          "response_drop": 0.1255,
+          "search": 31650.131,
+          "serialize": 5.1565
+        }
+      },
+      "speedup": 0.9962488378743367
+    },
+    {
+      "query": "h*band",
+      "family": "wildcard_scan",
+      "limit": 10,
+      "median_us": {
+        "before1": {
+          "parse": 9.3215,
+          "project": 5.6275,
+          "response_drop": 0.0605,
+          "search": 41401.68,
+          "serialize": 2.1925
+        },
+        "after1": {
+          "parse": 8.73,
+          "project": 5.457,
+          "response_drop": 0.11,
+          "search": 41443.791,
+          "serialize": 1.9175
+        },
+        "after2": {
+          "parse": 9.209,
+          "project": 5.7645,
+          "response_drop": 0.1125,
+          "search": 41448.1645,
+          "serialize": 2.2
+        },
+        "before2": {
+          "parse": 9.4515,
+          "project": 5.716,
+          "response_drop": 0.114,
+          "search": 41310.444,
+          "serialize": 2.104
+        }
+      },
+      "speedup": 0.9978305313354565
+    },
+    {
+      "query": "h*band",
+      "family": "wildcard_scan",
+      "limit": 100,
+      "median_us": {
+        "before1": {
+          "parse": 9.313,
+          "project": 30.5355,
+          "response_drop": 0.085,
+          "search": 41344.672,
+          "serialize": 5.017
+        },
+        "after1": {
+          "parse": 8.8385,
+          "project": 30.3755,
+          "response_drop": 0.162,
+          "search": 41468.206,
+          "serialize": 5.1695
+        },
+        "after2": {
+          "parse": 9.6435,
+          "project": 30.0605,
+          "response_drop": 0.08,
+          "search": 41433.627,
+          "serialize": 4.999
+        },
+        "before2": {
+          "parse": 9.008,
+          "project": 30.7805,
+          "response_drop": 0.095,
+          "search": 41376.9,
+          "serialize": 5.5625
+        }
+      },
+      "speedup": 0.9978256089946769
+    },
+    {
+      "query": "q*lity",
+      "family": "wildcard_scan",
+      "limit": 10,
+      "median_us": {
+        "before1": {
+          "parse": 2.265,
+          "project": 1.466,
+          "response_drop": 0.037,
+          "search": 2247.3455,
+          "serialize": 0.7795
+        },
+        "after1": {
+          "parse": 1.8535,
+          "project": 1.427,
+          "response_drop": 0.048,
+          "search": 2251.353,
+          "serialize": 0.56
+        },
+        "after2": {
+          "parse": 2.2765,
+          "project": 1.6555,
+          "response_drop": 0.046,
+          "search": 2261.887,
+          "serialize": 0.6235
+        },
+        "before2": {
+          "parse": 2.3215,
+          "project": 1.592,
+          "response_drop": 0.046,
+          "search": 2251.5015,
+          "serialize": 0.6885
+        }
+      },
+      "speedup": 0.9968109384832182
+    },
+    {
+      "query": "q*lity",
+      "family": "wildcard_scan",
+      "limit": 100,
+      "median_us": {
+        "before1": {
+          "parse": 2.1825,
+          "project": 14.06,
+          "response_drop": 0.062,
+          "search": 2255.9985,
+          "serialize": 2.798
+        },
+        "after1": {
+          "parse": 2.4225,
+          "project": 14.451,
+          "response_drop": 0.082,
+          "search": 2273.378,
+          "serialize": 2.6565
+        },
+        "after2": {
+          "parse": 2.346,
+          "project": 14.2415,
+          "response_drop": 0.0505,
+          "search": 2255.9075,
+          "serialize": 2.683
+        },
+        "before2": {
+          "parse": 2.2275,
+          "project": 14.1465,
+          "response_drop": 0.061,
+          "search": 2254.691,
+          "serialize": 2.5285
+        }
+      },
+      "speedup": 0.9958942751566445
+    },
+    {
+      "query": "ht*p",
+      "family": "wildcard",
+      "limit": 10,
+      "median_us": {
+        "before1": {
+          "parse": 1.302,
+          "project": 1.066,
+          "response_drop": 0.035,
+          "search": 693.0835,
+          "serialize": 0.378
+        },
+        "after1": {
+          "parse": 1.2035,
+          "project": 1.0275,
+          "response_drop": 0.046,
+          "search": 684.207,
+          "serialize": 0.4195
+        },
+        "after2": {
+          "parse": 1.2305,
+          "project": 1.039,
+          "response_drop": 0.029,
+          "search": 683.427,
+          "serialize": 0.4045
+        },
+        "before2": {
+          "parse": 1.376,
+          "project": 1.081,
+          "response_drop": 0.035,
+          "search": 694.4455,
+          "serialize": 0.387
+        }
+      },
+      "speedup": 1.014547020621014
+    },
+    {
+      "query": "ht*p",
+      "family": "wildcard",
+      "limit": 100,
+      "median_us": {
+        "before1": {
+          "parse": 1.2735,
+          "project": 9.9455,
+          "response_drop": 0.054,
+          "search": 697.405,
+          "serialize": 2.0495
+        },
+        "after1": {
+          "parse": 1.167,
+          "project": 9.876,
+          "response_drop": 0.054,
+          "search": 689.0665,
+          "serialize": 2.1075
+        },
+        "after2": {
+          "parse": 1.2165,
+          "project": 9.8825,
+          "response_drop": 0.042,
+          "search": 688.381,
+          "serialize": 2.1325
+        },
+        "before2": {
+          "parse": 1.3095,
+          "project": 9.9795,
+          "response_drop": 0.0555,
+          "search": 698.857,
+          "serialize": 2.1
+        }
+      },
+      "speedup": 1.0136589597788663
+    },
+    {
+      "query": "wh*h",
+      "family": "wildcard",
+      "limit": 10,
+      "median_us": {
+        "before1": {
+          "parse": 1.4325,
+          "project": 1.1545,
+          "response_drop": 0.035,
+          "search": 897.2425,
+          "serialize": 0.409
+        },
+        "after1": {
+          "parse": 1.2715,
+          "project": 1.093,
+          "response_drop": 0.055,
+          "search": 885.927,
+          "serialize": 0.4625
+        },
+        "after2": {
+          "parse": 1.4355,
+          "project": 1.2,
+          "response_drop": 0.029,
+          "search": 884.3115,
+          "serialize": 0.4365
+        },
+        "before2": {
+          "parse": 1.5995,
+          "project": 1.169,
+          "response_drop": 0.038,
+          "search": 899.7455,
+          "serialize": 0.512
+        }
+      },
+      "speedup": 1.0151106757648758
+    },
+    {
+      "query": "wh*h",
+      "family": "wildcard",
+      "limit": 100,
+      "median_us": {
+        "before1": {
+          "parse": 1.3815,
+          "project": 10.6295,
+          "response_drop": 0.048,
+          "search": 906.631,
+          "serialize": 2.116
+        },
+        "after1": {
+          "parse": 1.2705,
+          "project": 10.3905,
+          "response_drop": 0.064,
+          "search": 890.441,
+          "serialize": 2.183
+        },
+        "after2": {
+          "parse": 1.436,
+          "project": 10.43,
+          "response_drop": 0.044,
+          "search": 888.4365,
+          "serialize": 2.21
+        },
+        "before2": {
+          "parse": 1.6465,
+          "project": 10.6625,
+          "response_drop": 0.0585,
+          "search": 910.9965,
+          "serialize": 2.369
+        }
+      },
+      "speedup": 1.0217833999249526
+    },
+    {
+      "query": "ne*w",
+      "family": "wildcard",
+      "limit": 10,
+      "median_us": {
+        "before1": {
+          "parse": 3.0365,
+          "project": 1.8025,
+          "response_drop": 0.0415,
+          "search": 3183.411,
+          "serialize": 0.988
+        },
+        "after1": {
+          "parse": 2.31,
+          "project": 1.729,
+          "response_drop": 0.054,
+          "search": 3142.0425,
+          "serialize": 0.678
+        },
+        "after2": {
+          "parse": 2.401,
+          "project": 1.797,
+          "response_drop": 0.052,
+          "search": 3133.744,
+          "serialize": 0.784
+        },
+        "before2": {
+          "parse": 2.8,
+          "project": 1.815,
+          "response_drop": 0.049,
+          "search": 3158.489,
+          "serialize": 0.8275
+        }
+      },
+      "speedup": 1.010534695531787
+    },
+    {
+      "query": "ne*w",
+      "family": "wildcard",
+      "limit": 100,
+      "median_us": {
+        "before1": {
+          "parse": 2.9395,
+          "project": 11.433,
+          "response_drop": 0.054,
+          "search": 3164.5105,
+          "serialize": 2.9935
+        },
+        "after1": {
+          "parse": 2.973,
+          "project": 11.558,
+          "response_drop": 0.056,
+          "search": 3156.5595,
+          "serialize": 2.8665
+        },
+        "after2": {
+          "parse": 2.5245,
+          "project": 11.428,
+          "response_drop": 0.054,
+          "search": 3149.4535,
+          "serialize": 2.9355
+        },
+        "before2": {
+          "parse": 2.4985,
+          "project": 11.5625,
+          "response_drop": 0.062,
+          "search": 3158.8205,
+          "serialize": 2.6965
+        }
+      },
+      "speedup": 1.002746267728912
+    },
+    {
+      "query": "wou*",
+      "family": "prefix3",
+      "limit": 10,
+      "median_us": {
+        "before1": {
+          "parse": 4.349,
+          "project": 1.004,
+          "response_drop": 0.033,
+          "search": 120.841,
+          "serialize": 0.352
+        },
+        "after1": {
+          "parse": 4.4355,
+          "project": 0.9815,
+          "response_drop": 0.033,
+          "search": 107.7555,
+          "serialize": 0.4025
+        },
+        "after2": {
+          "parse": 4.4455,
+          "project": 0.986,
+          "response_drop": 0.031,
+          "search": 108.441,
+          "serialize": 0.4195
+        },
+        "before2": {
+          "parse": 4.3075,
+          "project": 1.0075,
+          "response_drop": 0.0335,
+          "search": 115.174,
+          "serialize": 0.341
+        }
+      },
+      "speedup": 1.0916689215597846
+    },
+    {
+      "query": "wou*",
+      "family": "prefix3",
+      "limit": 100,
+      "median_us": {
+        "before1": {
+          "parse": 4.3915,
+          "project": 9.2025,
+          "response_drop": 0.047,
+          "search": 125.1895,
+          "serialize": 2.075
+        },
+        "after1": {
+          "parse": 4.4195,
+          "project": 9.1925,
+          "response_drop": 0.047,
+          "search": 112.8375,
+          "serialize": 2.1055
+        },
+        "after2": {
+          "parse": 4.3905,
+          "project": 9.143,
+          "response_drop": 0.042,
+          "search": 112.8355,
+          "serialize": 2.1115
+        },
+        "before2": {
+          "parse": 4.43,
+          "project": 9.235,
+          "response_drop": 0.048,
+          "search": 120.3715,
+          "serialize": 2.05
+        }
+      },
+      "speedup": 1.0881275119309797
+    }
+  ]
+}
