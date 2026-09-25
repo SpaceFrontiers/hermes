@@ -1,0 +1,114 @@
+{
+  "native_harness": {
+    "success": true,
+    "id": "20260924T195139.413963Z-check",
+    "passed": 2054,
+    "ignored": 25,
+    "failed": 0,
+    "steps": [
+      {
+        "command": ["cargo", "fmt", "--all", "--", "--check"],
+        "returncode": 0,
+        "seconds": 2.0941689582541585
+      },
+      {
+        "command": [
+          "cargo",
+          "clippy",
+          "--locked",
+          "-p",
+          "hermes-core",
+          "-p",
+          "hermes-server",
+          "-p",
+          "hermes-broker",
+          "-p",
+          "hermes-tool",
+          "--all-targets",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "returncode": 0,
+        "seconds": 10.215826583094895
+      },
+      {
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "hermes-core",
+          "-p",
+          "hermes-server",
+          "-p",
+          "hermes-broker",
+          "-p",
+          "hermes-tool",
+          "--features",
+          "hermes-core/metrics"
+        ],
+        "returncode": 0,
+        "seconds": 195.3922425415367
+      },
+      {
+        "command": [
+          "cargo",
+          "check",
+          "--locked",
+          "-p",
+          "hermes-core",
+          "--no-default-features",
+          "--features",
+          "native",
+          "--all-targets"
+        ],
+        "returncode": 0,
+        "seconds": 8.228087791241705
+      },
+      {
+        "command": [
+          "cargo",
+          "check",
+          "--locked",
+          "-p",
+          "hermes-broker",
+          "--all-targets"
+        ],
+        "returncode": 0,
+        "seconds": 3.2147305831313133
+      }
+    ],
+    "working_diff_sha256": "bdcace14a90259cd1bc6a24c0052b9728973b68227dc965af821284f8abfec7b"
+  },
+  "focused_native_tests": 6,
+  "linux_release_tests": 52,
+  "wasm": {
+    "release_build": true,
+    "npm_ci": true,
+    "javascript_tests": 41,
+    "final_helper_cleanup_validated": true,
+    "log": ".context/luxir-gap-20260924/wasm-resumed.log"
+  },
+  "earlier_failures": [
+    "A broker index-discovery timeout passed both the focused retry and final full check.",
+    "The new benchmark initially lacked its native-only feature gate; final async-only check passes.",
+    "The ARM fixture initially overfilled the ingest queue; bounded setup retries precede all retained timings."
+  ],
+  "full_lifecycle_rpc_check": "Not rerun: query admission and benchmark fixture changed; no lifecycle or RPC protocol changed.",
+  "benchmark_script_tests": 4,
+  "documentation_check": {
+    "markdown_files": 157,
+    "local_links": 818,
+    "benchmark_targets": 21
+  },
+  "paired_corpus": {
+    "timing_cells": 168,
+    "repetitions": 504,
+    "query_audits": 1336,
+    "http_checks": 8016,
+    "request_errors": 0,
+    "sampling_errors": 0,
+    "raw_archive_sha256": "fc680f2958ea198f670eb4e820a5940169607e2ae5831418d263a0f8d96838fc"
+  }
+}

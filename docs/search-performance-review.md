@@ -1,5 +1,20 @@
 # Core/server review — 2026-09-05
 
+September 24 expanded-query follow-up: [the completed 826-query coverage and skipping campaign](benchmark-results/skipping-2026-09-24/README.md)
+times 684 successful shared inputs across five deployments, plus 432 skipping
+cells over two reversed-order rounds. All 2,558 exhaustive audits and 15,348
+HTTP checks pass; all 702 timing cells have zero request errors. A bounded
+score-priority pilot improves RGB high-frequency phrase top-10 by 15.4% with
+13.7% less CPU/request, but leaves the overall phrase average nearly unchanged.
+Disabling longer skips regresses high-frequency sloppy-phrase top-10 by 12.3%
+plain / 21.3% RGB. Other aggregate gains are small relative to control drift;
+no production default changes. Remaining priorities are single-term/Boolean
+profiling, bounded pattern execution for 142 explicit budget failures, and
+analysis compatibility: some conjunctions perform radically different work.
+Four harness regressions, the full published-lock search check, Linux candidate
+regressions and all six WASM builds/41 JavaScript tests pass. Artifacts were
+checksum-verified and both machines independently confirmed stopped.
+
 September 24 query compatibility: [whole-term regex queries and escaped literals](regex-query.md)
 add the 13 missing benchmark regex expressions and 12 punctuation/escape cases.
 Regex and wildcard share bounded dictionary matching and the existing union
@@ -43,8 +58,8 @@ Clippy, native-without-sync, focused async regressions, diagnostic-feature check
 and the WASM build plus 40 JavaScript tests. Remaining work includes all-query,
 cold, multi-segment and further ARM measurements. Evidence was verified and both
 cloud machines were confirmed stopped. The separate [score-guided traversal research](score-guided-traversal.md)
-proposes longer skips and query-dependent region ordering; no new persisted
-hierarchy is claimed as implemented.
+describes existing bounded longer skips and proposes query-dependent region
+ordering; no new persisted hierarchy is claimed as implemented.
 
 September 23: issue #185 reproduced at the index boundary: with `en_stem` before
 `lex(segmenter: unicode)`, `棕毛狐狸` returned no hits although the qualified
@@ -11126,3 +11141,150 @@ machine and boot disk. Cold/concurrent full-query, RPC and GPU checks were not r
 Remaining experiments: accept fully covered block spans without decoding, and
 batch multi-value offsets/first values in their owning reader. Neither follows
 from this result without separate measurements and semantic regressions.
+
+## Plain-index ranked bound admission (September 24)
+
+The expanded workload exposed unnecessary admission restrictions: ordinary
+ranked terms required optional ratio bounds to enter MaxScore, and typed
+ranked conjunction pruning required both a document map and ratio bounds.
+Existing maximum-TF/minimum-length metadata is also conservative. Core now
+admits it through the existing windowed term executor and typed conjunction
+executor. The change preserves strict bound comparisons, supported finite
+scoring parameters, exact COUNT traversal, positions, deletions, stable-ID ties,
+and global statistics. No encoded bytes, schema or indexing defaults change.
+The [paired report](benchmark-results/plain-bounds-2026-09-24/README.md) records
+334-query ordinary/RGB comparisons, ARM controls, CPU, RSS and exact audits.
+
+All 168 timing cells / 504 repetitions complete without errors, with 1,336
+exhaustive query audits and 8,016 HTTP checks. Plain term top-k throughput rises
+2.70–8.24× and CPU/request falls 64.3–89.1%; RGB high/high conjunction throughput
+rises 31.8–94.3%. Plain high/low conjunctions regress 2.1–3.4%, plain high/medium
+top-100 regresses 5.1%, and RGB high/low regresses 1.9–2.4%, consistently across
+both rounds. COUNT/phrase controls stay within 1.5%. Peak anonymous RSS changes
+123.6→124.8 MiB on plain and 130.5→130.7 MiB on RGB. Luxir was not rerun; the
+earlier comparison still indicates substantial term and rare-conjunction gaps.
+Final predicate helper extraction is correctness-tested but was not separately
+timed; the report preserves the exact measured source patch.
+
+The new work-counter regression fails on 1.9.1 because a plain ranked term
+scores all 8,192 fixture documents without consulting block bounds. It passes
+with the change; exhaustive IDs/score bits and counts agree. The existing
+multi-segment term oracle now also covers indexes without optional ratio
+metadata. Final native harness `20260924T195139.413963Z-check` passes 2,054 tests
+(25 ignored), strict Clippy, async-only native and standalone broker checks.
+Six focused diagnostic/ranking tests, 52 Linux release test executions, and
+the WASM release build plus all 41 JavaScript tests pass, including a rerun
+after the predicate helper cleanup. Four benchmark-script tests and the
+documentation/link checks pass. An initial broker
+discovery timeout passes its focused retry and the final full check. Full
+lifecycle/RPC validation was not rerun because those protocols did not change.
+
+Remaining findings: the benchmark audit's zero scorer limit does not establish
+exhaustive OR enumeration; fix that diagnostic admission before using it as an
+OR oracle. Also, `BlockPostingList::from_layout` still extracts two L1 arrays
+from immutable bytes for each posting open. That work scales with posting-list
+length even for a rare conjunction probe. A borrowed little-endian directory
+view is a candidate follow-up, requiring byte/seek equivalence and measurements;
+no additional cache or representation rewrite is introduced here.
+
+## September 25: expanded workload, borrowed metadata and bounded term unions
+
+The [closing-gap investigation](benchmark-results/closing-gap-2026-09-24/README.md)
+records complete retrieved same-index matrices, the opt-in Unicode-word analyzer
+comparison, concurrent expansion ownership, rejected kernels and ARM controls.
+This work closes both findings from the preceding review: the benchmark OR audit
+now explicitly collects exhaustive membership, and immutable L1 group directories
+are borrowed as validated little-endian views instead of copied per query.
+Encoded bytes, unaligned reads, seeks and scores remain covered by regressions.
+
+The opt-in analyzer produces 677 successful full-corpus queries, 640 exact
+reference counts, and all 677 within 5%; 149 requests retain explicit resource
+errors. It changes index semantics and is reported separately from execution.
+Compared with 684 successful queries previously, coverage drops by seven even
+though count agreement improves. Four regex expressions now fit unchanged
+budgets through finite literal-prefix ranges with aggregate accounting.
+
+On the same 55-query index, query-local posting byte ownership raises concurrent
+prefix top-k from about 5,800 to 16,000–18,000 QPS and reduces server CPU/request
+from 4.85 ms to 1.5–1.65 ms; peak anonymous RSS falls from 203 to 187–190 MiB.
+Subsequent query-local integrity ownership preserves the original first-error
+observer; its newer matrix remains pending collection. Lazy iterator opening,
+decoded-ID union accumulation and materialized membership batches retain exact
+counts, deletion filtering, mapped IDs and stable tie behavior. One-to-three-doc
+inline postings now stay in the canonical dictionary decoder's fixed storage
+instead of being re-encoded for expanded-term queries. The paired ARM prefix
+fixture improves 7.18–7.54× versus the preceding checkpoint, with regex/star
+controls improving 7–12%; corpus retiming is outstanding.
+
+The density-gated bitmap loop improves the common `+of +s` count probe about
+1.47× in latency and CPU and the dense ARM fixtures 2.12–2.40×. Sparse ARM
+controls remain within 1.1%. Unconditional grouping, alternative pair kernels,
+a peeled variable-integer reader and rare-side pre-scoring were rejected after
+corpus regressions. Fewer search workers help cheap queries but hurt conjunctions;
+no worker, cache, norm-precision, impact or reorder defaults change.
+
+The final inline implementation passes harness `20260924T223721.093990Z-check`:
+2,069 native tests (25 ignored), formatting, strict Clippy, native without sync,
+and standalone broker compilation. Two additional fixed-inline decoder tests
+pass afterward in the nine-test inline selection; the final WASM release build
+and all 41 JavaScript tests pass. Full lifecycle/RPC validation was not rerun
+because those implementations did not change. Documentation checks pass.
+
+Remaining work: several conjunction, broad-dictionary and cheap-term families
+still trail Luxir. Final-source corpus retiming, collection of integrity/cache
+and quantized-norm matrices, a blocked-intersection screen, and independent
+shutdown verification are incomplete because remote authentication expired.
+The immutable indexes and queued jobs remain available for continuation; neither
+completion nor shutdown is inferred from the preconfigured shutdown schedule.
+
+### September 25 follow-up: dense unions and dictionary setup
+
+Matched-value projection removes the discarded key allocation from bounded term
+expansion while sharing the existing SSTable parser, order, budgets and error
+paths. The corpus prefix screen improves about 9%; ARM prefix fixtures improve
+about 21–22%. Broad dictionary scans remain near parity.
+
+Retaining the already-materialized union bitmap through the existing DocSet
+window protocol avoids a bitmap-to-ID-vector conversion. The six-query ABBA
+corpus screen gives 1.62–1.83× lower latency for four dense prefix/wildcard counts,
+with corresponding CPU savings and exact counts. The broad scan and single-term
+controls remain near parity. ARM dense/overlapping fixtures improve 1.35–1.50×;
+the sparse control is within 1.1%. No resource limit or format changes.
+
+Deferring optional posting byte views until a lazy union opens that list reduces
+prefix search time by 1.70–1.76× in the seven-query corpus screen. All external
+footers are still validated at expansion, and the canonical constructor/decoder
+retain ownership of list interpretation. The count control is within 1.4%; ARM
+prefix fixtures improve 6–7%. These are individual-query/fixture measurements;
+the final concurrent matrix remains pending. Regression tests compare serialized
+bytes, decoded blocks, reader-drop lifetimes and shared corruption observation.
+
+Evidence: [projection](benchmark-results/closing-gap-2026-09-24/project-screen.json),
+[dense count](benchmark-results/closing-gap-2026-09-24/dense-count.json),
+[deferred views](benchmark-results/closing-gap-2026-09-24/deferred-view-screen.json),
+[count control](benchmark-results/closing-gap-2026-09-24/deferred-count.json), and
+[ARM dense unions](benchmark-results/closing-gap-2026-09-24/arm-dense.json).
+
+### Photon research and format feasibility
+
+[Photon](https://www.perplexity.ai/el/hub/blog/photon) describes density-adaptive
+postings, selective frequency/position access, batch-oriented caching with CLOCK
+eviction, and separate index construction. Its bounded candidate selection does
+not guarantee exact top-k. These are workload-specific design choices, not
+controlled comparisons with Hermes.
+
+For Hermes, the actionable hypotheses are direct membership access for dense
+postings and lower shared-cache contention. Existing exact score bounds,
+corruption checks and count semantics remain requirements. A separate docblob
+ranking representation or asynchronous disk reactor would need cold-I/O evidence;
+the current warm wildcard profile instead concentrates on dictionary decoding.
+
+The user explicitly authorized index-format experiments, including incompatible
+changes if needed. A private feasibility probe builds a per-term FST from the
+canonical dictionary iterator, evaluates single-star matching, and fetches only
+matching values through canonical point lookup. It compares complete values with
+the existing bounded scanner's matching kernel on the same corpus. This probe
+writes a separate experimental artifact, changes no live index, and does not
+establish a production format or new query-budget policy. Any retained format
+must account for metadata size/residency, bounded construction, native/async/WASM
+execution, corruption rejection, and compatible encoded merge behavior.

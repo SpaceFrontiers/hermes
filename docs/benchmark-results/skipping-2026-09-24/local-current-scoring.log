@@ -1,0 +1,12 @@
+warning: linker stderr: ld: __eh_frame section too large (max 16MB) to encode dwarf unwind offsets in compact unwind table, performance of exception handling might be affected
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `hermes-core` (lib test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.56s
+     Running unittests src/lib.rs (/Users/pasha/conductor/workspaces/hermes/moroni/target/debug/deps/hermes_core-f33894cde6671c76)
+
+running 1 test
+test query::scoring::tests::skewed_conjunction_preserves_frequency_rows_across_seeks_and_partial_batches ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1821 filtered out; finished in 0.10s

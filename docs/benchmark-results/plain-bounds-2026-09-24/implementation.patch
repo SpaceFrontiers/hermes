@@ -1,0 +1,51 @@
+diff --git a/hermes-core/src/query/scoring/conjunction.rs b/hermes-core/src/query/scoring/conjunction.rs
+index 619b57f7..5174d0f7 100644
+--- a/hermes-core/src/query/scoring/conjunction.rs
++++ b/hermes-core/src/query/scoring/conjunction.rs
+@@ -7,22 +7,26 @@ use super::{
+ use log::debug;
+ 
+ impl MaxScoreExecutor<'_> {
+-    /// Pruning is useful only where both lists carry selective block bounds.
++    /// Pruning requires conservative bounds from both text cursors.
+     /// Unsupported scorers and approximate heap factors retain exhaustive AND.
+     pub(super) fn can_prune_text_pair(&self) -> bool {
+-        self.document_map.is_some()
+-            && self.inv_heap_factor == 1.0
++        self.inv_heap_factor == 1.0
+             && self.cursors.len() == 2
+             && self.cursors.iter().all(|cursor| {
+                 cursor.max_score.is_finite()
+-                    && matches!(&cursor.variant,
+-                        CursorVariant::Text { list, length_bounds: true, prepared_bounds: Some(_), .. }
+-                        if list.has_ratio_bounds())
++                    && matches!(
++                        &cursor.variant,
++                        CursorVariant::Text {
++                            length_bounds: true,
++                            prepared_bounds: Some(_),
++                            ..
++                        }
++                    )
+             })
+     }
+ 
+     /// Semantic AND aligns typed cursors and batches only actual matches.
+-    /// Ranked mapped pairs can skip strictly losing blocks; counted traversal
++    /// Ranked pairs can skip strictly losing blocks; counted traversal
+     /// always uses the exhaustive instantiation below.
+     pub(super) fn execute_conjunction(&mut self) -> crate::Result<Vec<ScoredDoc>> {
+         with_window_scratch(|scratch| self.run_ranked_conjunction(scratch))
+diff --git a/hermes-core/src/query/term.rs b/hermes-core/src/query/term.rs
+index 960d193f..7a6a6db5 100644
+--- a/hermes-core/src/query/term.rs
++++ b/hermes-core/src/query/term.rs
+@@ -225,7 +225,7 @@ macro_rules! term_plan {
+ 
+                 // Ranked term requests can use the same block bounds as a text
+                 // union. Complete membership and positioned callers keep a cursor.
+-                if !$complete && !$load_positions && posting_list.has_ratio_bounds() && posting_list.num_blocks() > 1
++                if !$complete && !$load_positions && posting_list.min_len().is_some() && posting_list.num_blocks() > 1
+                     && limit < posting_list.doc_count() as usize
+                 {
+                     return super::planner::finish_text_maxscore(

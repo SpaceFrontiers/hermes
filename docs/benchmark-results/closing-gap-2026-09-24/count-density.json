@@ -1,0 +1,338 @@
+[
+  {
+    "label": "before1",
+    "binary_sha256": "8aa8533dab18d9eaa29962ed7a3d21d7943fd13b04e2e3170e2e81ae7d1e7e95",
+    "queries": [
+      {
+        "query": "+of +s",
+        "family": "and_high_high",
+        "count": 1447589,
+        "samples": 150,
+        "median_us": 21027.575,
+        "cpu_us_per_request": 20933.333333333336,
+        "memory_kib": {
+          "VmRSS": 1161964,
+          "RssAnon": 22404,
+          "RssFile": 1139560
+        }
+      },
+      {
+        "query": "+date +he",
+        "family": "and_high_high",
+        "count": 385978,
+        "samples": 150,
+        "median_us": 6959.09,
+        "cpu_us_per_request": 6866.666666666667,
+        "memory_kib": {
+          "VmRSS": 1171344,
+          "RssAnon": 22440,
+          "RssFile": 1148904
+        }
+      },
+      {
+        "query": "+cite +2005",
+        "family": "and_high_high",
+        "count": 178101,
+        "samples": 150,
+        "median_us": 4995.812,
+        "cpu_us_per_request": 4866.666666666667,
+        "memory_kib": {
+          "VmRSS": 1178416,
+          "RssAnon": 22472,
+          "RssFile": 1155944
+        }
+      },
+      {
+        "query": "+has +please",
+        "family": "and_high_med",
+        "count": 32520,
+        "samples": 150,
+        "median_us": 3825.9595,
+        "cpu_us_per_request": 3733.333333333334,
+        "memory_kib": {
+          "VmRSS": 1183504,
+          "RssAnon": 22504,
+          "RssFile": 1161000
+        }
+      },
+      {
+        "query": "+2010 +unreferenced",
+        "family": "and_high_med",
+        "count": 12468,
+        "samples": 150,
+        "median_us": 1930.09,
+        "cpu_us_per_request": 1866.666666666667,
+        "memory_kib": {
+          "VmRSS": 1187120,
+          "RssAnon": 22536,
+          "RssFile": 1164584
+        }
+      },
+      {
+        "query": "the",
+        "family": "high_term",
+        "count": 8217362,
+        "samples": 150,
+        "median_us": 117.81,
+        "cpu_us_per_request": 66.66666666666667,
+        "memory_kib": {
+          "VmRSS": 1187588,
+          "RssAnon": 22556,
+          "RssFile": 1165032
+        }
+      }
+    ]
+  },
+  {
+    "label": "after1",
+    "binary_sha256": "0c5bc017cbd80404a052e0184ff9b8180e0b7cbb80603ea9d63740970cd8d764",
+    "queries": [
+      {
+        "query": "+of +s",
+        "family": "and_high_high",
+        "count": 1447589,
+        "samples": 150,
+        "median_us": 14382.5735,
+        "cpu_us_per_request": 14199.999999999998,
+        "memory_kib": {
+          "VmRSS": 1163364,
+          "RssAnon": 22408,
+          "RssFile": 1140956
+        }
+      },
+      {
+        "query": "+date +he",
+        "family": "and_high_high",
+        "count": 385978,
+        "samples": 150,
+        "median_us": 6907.9465,
+        "cpu_us_per_request": 6733.333333333333,
+        "memory_kib": {
+          "VmRSS": 1172744,
+          "RssAnon": 22444,
+          "RssFile": 1150300
+        }
+      },
+      {
+        "query": "+cite +2005",
+        "family": "and_high_high",
+        "count": 178101,
+        "samples": 150,
+        "median_us": 4912.0855,
+        "cpu_us_per_request": 4800.0,
+        "memory_kib": {
+          "VmRSS": 1179816,
+          "RssAnon": 22476,
+          "RssFile": 1157340
+        }
+      },
+      {
+        "query": "+has +please",
+        "family": "and_high_med",
+        "count": 32520,
+        "samples": 150,
+        "median_us": 3769.5805,
+        "cpu_us_per_request": 3666.666666666667,
+        "memory_kib": {
+          "VmRSS": 1184904,
+          "RssAnon": 22508,
+          "RssFile": 1162396
+        }
+      },
+      {
+        "query": "+2010 +unreferenced",
+        "family": "and_high_med",
+        "count": 12468,
+        "samples": 150,
+        "median_us": 1951.422,
+        "cpu_us_per_request": 1866.666666666667,
+        "memory_kib": {
+          "VmRSS": 1188520,
+          "RssAnon": 22540,
+          "RssFile": 1165980
+        }
+      },
+      {
+        "query": "the",
+        "family": "high_term",
+        "count": 8217362,
+        "samples": 150,
+        "median_us": 116.309,
+        "cpu_us_per_request": 66.66666666666667,
+        "memory_kib": {
+          "VmRSS": 1188988,
+          "RssAnon": 22560,
+          "RssFile": 1166428
+        }
+      }
+    ]
+  },
+  {
+    "label": "after2",
+    "binary_sha256": "0c5bc017cbd80404a052e0184ff9b8180e0b7cbb80603ea9d63740970cd8d764",
+    "queries": [
+      {
+        "query": "+of +s",
+        "family": "and_high_high",
+        "count": 1447589,
+        "samples": 150,
+        "median_us": 14308.116,
+        "cpu_us_per_request": 14266.666666666668,
+        "memory_kib": {
+          "VmRSS": 1163264,
+          "RssAnon": 22408,
+          "RssFile": 1140856
+        }
+      },
+      {
+        "query": "+date +he",
+        "family": "and_high_high",
+        "count": 385978,
+        "samples": 150,
+        "median_us": 6828.173,
+        "cpu_us_per_request": 6733.333333333333,
+        "memory_kib": {
+          "VmRSS": 1172644,
+          "RssAnon": 22444,
+          "RssFile": 1150200
+        }
+      },
+      {
+        "query": "+cite +2005",
+        "family": "and_high_high",
+        "count": 178101,
+        "samples": 150,
+        "median_us": 4893.0325,
+        "cpu_us_per_request": 4800.0,
+        "memory_kib": {
+          "VmRSS": 1179716,
+          "RssAnon": 22476,
+          "RssFile": 1157240
+        }
+      },
+      {
+        "query": "+has +please",
+        "family": "and_high_med",
+        "count": 32520,
+        "samples": 150,
+        "median_us": 3724.151,
+        "cpu_us_per_request": 3666.666666666667,
+        "memory_kib": {
+          "VmRSS": 1184804,
+          "RssAnon": 22508,
+          "RssFile": 1162296
+        }
+      },
+      {
+        "query": "+2010 +unreferenced",
+        "family": "and_high_med",
+        "count": 12468,
+        "samples": 150,
+        "median_us": 1903.5205,
+        "cpu_us_per_request": 1800.0000000000002,
+        "memory_kib": {
+          "VmRSS": 1188420,
+          "RssAnon": 22540,
+          "RssFile": 1165880
+        }
+      },
+      {
+        "query": "the",
+        "family": "high_term",
+        "count": 8217362,
+        "samples": 150,
+        "median_us": 115.862,
+        "cpu_us_per_request": 133.33333333333334,
+        "memory_kib": {
+          "VmRSS": 1188888,
+          "RssAnon": 22560,
+          "RssFile": 1166328
+        }
+      }
+    ]
+  },
+  {
+    "label": "before2",
+    "binary_sha256": "8aa8533dab18d9eaa29962ed7a3d21d7943fd13b04e2e3170e2e81ae7d1e7e95",
+    "queries": [
+      {
+        "query": "+of +s",
+        "family": "and_high_high",
+        "count": 1447589,
+        "samples": 150,
+        "median_us": 21304.1355,
+        "cpu_us_per_request": 21066.666666666668,
+        "memory_kib": {
+          "VmRSS": 1162808,
+          "RssAnon": 22404,
+          "RssFile": 1140404
+        }
+      },
+      {
+        "query": "+date +he",
+        "family": "and_high_high",
+        "count": 385978,
+        "samples": 150,
+        "median_us": 7217.549,
+        "cpu_us_per_request": 7066.666666666667,
+        "memory_kib": {
+          "VmRSS": 1172188,
+          "RssAnon": 22440,
+          "RssFile": 1149748
+        }
+      },
+      {
+        "query": "+cite +2005",
+        "family": "and_high_high",
+        "count": 178101,
+        "samples": 150,
+        "median_us": 5081.7215,
+        "cpu_us_per_request": 4933.333333333333,
+        "memory_kib": {
+          "VmRSS": 1179260,
+          "RssAnon": 22472,
+          "RssFile": 1156788
+        }
+      },
+      {
+        "query": "+has +please",
+        "family": "and_high_med",
+        "count": 32520,
+        "samples": 150,
+        "median_us": 3838.5455,
+        "cpu_us_per_request": 3733.333333333334,
+        "memory_kib": {
+          "VmRSS": 1184348,
+          "RssAnon": 22504,
+          "RssFile": 1161844
+        }
+      },
+      {
+        "query": "+2010 +unreferenced",
+        "family": "and_high_med",
+        "count": 12468,
+        "samples": 150,
+        "median_us": 1978.823,
+        "cpu_us_per_request": 1800.0000000000002,
+        "memory_kib": {
+          "VmRSS": 1187964,
+          "RssAnon": 22536,
+          "RssFile": 1165428
+        }
+      },
+      {
+        "query": "the",
+        "family": "high_term",
+        "count": 8217362,
+        "samples": 150,
+        "median_us": 117.7055,
+        "cpu_us_per_request": 133.33333333333334,
+        "memory_kib": {
+          "VmRSS": 1188432,
+          "RssAnon": 22556,
+          "RssFile": 1165876
+        }
+      }
+    ]
+  }
+]

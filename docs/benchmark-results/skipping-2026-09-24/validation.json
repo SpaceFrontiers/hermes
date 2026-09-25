@@ -1,0 +1,314 @@
+{
+  "source_commit": "46f4e294b5c6a840fdae64f469c8d82ae9cb7d8f",
+  "production_core_changed": false,
+  "full_corpus_timing_completed": true,
+  "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+  "supplemental_test_dependency_note": "Offline supplemental tests use HEAD^ dependencies with only workspace package versions adjusted to 1.9.1. The published 1.9.1 lock requires uncached zerocopy 0.8.58. This lock is NOT used for Linux campaign timings.",
+  "supplemental_lock_sha256": "e0945dfa300e4d1ee880fb36f0e01d856c566e56b7578936e6babd05184a9953",
+  "tests": [
+    {
+      "variant": "current",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "hermes-core",
+        "--lib",
+        "query::phrase",
+        "--",
+        "--test-threads=4"
+      ],
+      "exit_code": 0,
+      "log": "local-current-phrase.log"
+    },
+    {
+      "variant": "current",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "hermes-core",
+        "--lib",
+        "query::scoring::tests::skewed_conjunction",
+        "--",
+        "--test-threads=4"
+      ],
+      "exit_code": 0,
+      "log": "local-current-scoring.log"
+    },
+    {
+      "variant": "no-pilot",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "hermes-core",
+        "--lib",
+        "query::phrase",
+        "--",
+        "--test-threads=4"
+      ],
+      "exit_code": 0,
+      "log": "local-no-pilot-phrase.log"
+    },
+    {
+      "variant": "no-pilot",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "hermes-core",
+        "--lib",
+        "query::scoring::tests::skewed_conjunction",
+        "--",
+        "--test-threads=4"
+      ],
+      "exit_code": 0,
+      "log": "local-no-pilot-scoring.log"
+    },
+    {
+      "variant": "short-pilot",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "hermes-core",
+        "--lib",
+        "query::phrase",
+        "--",
+        "--test-threads=4"
+      ],
+      "exit_code": 0,
+      "log": "local-short-pilot-phrase.log"
+    },
+    {
+      "variant": "short-pilot",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "hermes-core",
+        "--lib",
+        "query::scoring::tests::skewed_conjunction",
+        "--",
+        "--test-threads=4"
+      ],
+      "exit_code": 0,
+      "log": "local-short-pilot-scoring.log"
+    },
+    {
+      "variant": "bound-priority",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "hermes-core",
+        "--lib",
+        "query::phrase",
+        "--",
+        "--test-threads=4"
+      ],
+      "exit_code": 0,
+      "log": "local-bound-priority-phrase.log"
+    },
+    {
+      "variant": "bound-priority",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "hermes-core",
+        "--lib",
+        "query::scoring::tests::skewed_conjunction",
+        "--",
+        "--test-threads=4"
+      ],
+      "exit_code": 0,
+      "log": "local-bound-priority-scoring.log"
+    },
+    {
+      "variant": "single-block",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "hermes-core",
+        "--lib",
+        "query::phrase",
+        "--",
+        "--test-threads=4"
+      ],
+      "exit_code": 0,
+      "log": "local-single-block-phrase.log"
+    },
+    {
+      "variant": "single-block",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "hermes-core",
+        "--lib",
+        "query::scoring::tests::skewed_conjunction",
+        "--",
+        "--test-threads=4"
+      ],
+      "exit_code": 0,
+      "log": "local-single-block-scoring.log"
+    },
+    {
+      "variant": "no-rare-seek",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "hermes-core",
+        "--lib",
+        "query::phrase",
+        "--",
+        "--test-threads=4"
+      ],
+      "exit_code": 0,
+      "log": "local-no-rare-seek-phrase.log"
+    },
+    {
+      "variant": "no-rare-seek",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "hermes-core",
+        "--lib",
+        "query::scoring::tests::skewed_conjunction",
+        "--",
+        "--test-threads=4"
+      ],
+      "exit_code": 0,
+      "log": "local-no-rare-seek-scoring.log"
+    }
+  ],
+  "linux_control_binary_sha256": "1a259cd22c9243426c2c002019ef383832b04934b41f764da41b37d99875b55b",
+  "variant_source_hashes": {
+    "current": {
+      "hermes-core/src/query/collector.rs": "2ca0a9199a9fd044256257a483660c1749e8cf2929d1fcaeab1605623c60d39b",
+      "hermes-core/src/query/phrase/seed.rs": "5d2cf863e74adeaf81394f87d590174e69be8eefd8726c179e7abc2c5a56eabe",
+      "hermes-core/src/query/phrase.rs": "688ed586918d63e8f26c999392f5a8ac42d64094adaa22a541b6e559b5a94846",
+      "hermes-core/src/query/scoring/conjunction.rs": "fe299ba1fd3f405f67f4c0a524e94205a6e2bdbd9c47ac967c173391ebd95061"
+    },
+    "no-pilot": {
+      "hermes-core/src/query/collector.rs": "faa9726e1e7582704c254badb6fc2c47b12ee503de2612f9e646bd636461eb49",
+      "hermes-core/src/query/phrase/seed.rs": "5d2cf863e74adeaf81394f87d590174e69be8eefd8726c179e7abc2c5a56eabe",
+      "hermes-core/src/query/phrase.rs": "688ed586918d63e8f26c999392f5a8ac42d64094adaa22a541b6e559b5a94846",
+      "hermes-core/src/query/scoring/conjunction.rs": "fe299ba1fd3f405f67f4c0a524e94205a6e2bdbd9c47ac967c173391ebd95061"
+    },
+    "short-pilot": {
+      "hermes-core/src/query/collector.rs": "2ca0a9199a9fd044256257a483660c1749e8cf2929d1fcaeab1605623c60d39b",
+      "hermes-core/src/query/phrase/seed.rs": "9be55ff96524b5a7f02048368c39a377dcf699d1639af4a0b565c3be3e8938ee",
+      "hermes-core/src/query/phrase.rs": "688ed586918d63e8f26c999392f5a8ac42d64094adaa22a541b6e559b5a94846",
+      "hermes-core/src/query/scoring/conjunction.rs": "fe299ba1fd3f405f67f4c0a524e94205a6e2bdbd9c47ac967c173391ebd95061"
+    },
+    "bound-priority": {
+      "hermes-core/src/query/collector.rs": "2ca0a9199a9fd044256257a483660c1749e8cf2929d1fcaeab1605623c60d39b",
+      "hermes-core/src/query/phrase/seed.rs": "d1acc0586c507fc481fe476648b8392d45d0c3e373adf4e1e07ca40a33f193c9",
+      "hermes-core/src/query/phrase.rs": "688ed586918d63e8f26c999392f5a8ac42d64094adaa22a541b6e559b5a94846",
+      "hermes-core/src/query/scoring/conjunction.rs": "fe299ba1fd3f405f67f4c0a524e94205a6e2bdbd9c47ac967c173391ebd95061"
+    },
+    "single-block": {
+      "hermes-core/src/query/collector.rs": "2ca0a9199a9fd044256257a483660c1749e8cf2929d1fcaeab1605623c60d39b",
+      "hermes-core/src/query/phrase/seed.rs": "5d2cf863e74adeaf81394f87d590174e69be8eefd8726c179e7abc2c5a56eabe",
+      "hermes-core/src/query/phrase.rs": "16dd82c0d237ac33190a591e42da81cfce1c887acb3d14d10910622a7de35675",
+      "hermes-core/src/query/scoring/conjunction.rs": "fe299ba1fd3f405f67f4c0a524e94205a6e2bdbd9c47ac967c173391ebd95061"
+    },
+    "no-rare-seek": {
+      "hermes-core/src/query/collector.rs": "2ca0a9199a9fd044256257a483660c1749e8cf2929d1fcaeab1605623c60d39b",
+      "hermes-core/src/query/phrase/seed.rs": "5d2cf863e74adeaf81394f87d590174e69be8eefd8726c179e7abc2c5a56eabe",
+      "hermes-core/src/query/phrase.rs": "688ed586918d63e8f26c999392f5a8ac42d64094adaa22a541b6e559b5a94846",
+      "hermes-core/src/query/scoring/conjunction.rs": "b49aa24ee7492de5bc3f45608cfeebc760f63200a7fc45701ae20cec9032ee98"
+    }
+  },
+  "full_search_check": {
+    "status": "passed",
+    "format": "passed",
+    "contracts": "passed",
+    "clippy": "passed",
+    "native_without_sync": "passed",
+    "standalone_broker": "passed",
+    "tests": {
+      "passed": 2054,
+      "failed": 0,
+      "ignored": 25
+    }
+  },
+  "harness_regressions": {
+    "tests_passed": 4,
+    "failed_before_fixes": true,
+    "python_lint_and_format": "passed",
+    "documentation_links": "passed"
+  },
+  "full_corpus_count_probe_completed": true,
+  "control_exhaustive_audit_queries_per_layout": 344,
+  "control_http_ranked_id_checks_per_layout": 688,
+  "linux_control_serving_binary_sha256": "cb5f90a677d507d024bc1b86fca72a7382cc184b6955711cd0b1d417586c4156",
+  "linux_serving_binary_note": "Debug sections stripped identically for control and candidates; original control hash retained above.",
+  "linux_candidates": {
+    "compiler": "rustc 1.98.1 (48a229cea 2026-09-01), x86_64-unknown-linux-gnu, LLVM 22.1.8",
+    "rustflags": "-C target-cpu=native",
+    "published_lock_sha256": "36d35af2763714c9927d5ad4187e59ab7f8e629e085aeeb7a846b52bf1bc9154",
+    "tests_per_candidate": {
+      "phrase": 28,
+      "skewed_conjunction": 1
+    },
+    "candidate_count": 5,
+    "test_failures": 0,
+    "log": "linux-variants.log",
+    "binary_sha256": {
+      "no-pilot": "48f3248a3c01372c608bf88b137da1b61040be0e7f63aecebf443f43a8acbc80",
+      "short-pilot": "4b615e7eaab726ef500f7c4d2acc95e66045f9cba733c33a17ab071990d60a29",
+      "bound-priority": "0ce66c670d566ca8401c2006b5ccfb0fc9fb58110a79c88b67c199fb3ac4aa03",
+      "single-block": "6f9085e8fc910128a6a83a2ac741f902778b4a49c4a90b137ee76973b0d5ac90",
+      "no-rare-seek": "da232a5a50cb484693b49dfa707045c38a9e812d47607d4cf45b6dc565d1b517"
+    },
+    "build_log_exit_code": 0
+  },
+  "runtime_shared_input_harness_sha256": "4255f84806dc4dfe390c0f29cc349dca65a8b5c7f4bfc5ec7a3d7c43575b2427",
+  "portable_checks": {
+    "status": "passed",
+    "source_commit": "46f4e294b5c6a840fdae64f469c8d82ae9cb7d8f",
+    "lock_sha256": "36d35af2763714c9927d5ad4187e59ab7f8e629e085aeeb7a846b52bf1bc9154",
+    "variants": [
+      "current",
+      "no-pilot",
+      "short-pilot",
+      "bound-priority",
+      "single-block",
+      "no-rare-seek"
+    ],
+    "wasm_builds_passed": 6,
+    "javascript_tests_per_variant": [41, 41, 41, 41, 41, 41],
+    "log": "portable-checks.log"
+  },
+  "timing_cells": {
+    "skipping": 432,
+    "shared_input": 270,
+    "errors": 0,
+    "measured_requests": 36291066
+  },
+  "exhaustive_audit_queries_across_variants_and_layouts": 2558,
+  "http_response_checks": 15348,
+  "raw_archive_sha256": "98903e8a31d46a163c3f39960509bb93739b1ab6dcd70a93d862af622b9bbf0f",
+  "campaign_exit_code": 0,
+  "completed_at_utc": "2026-09-24T13:30:55+00:00",
+  "owned_machines_final_state": "both independently confirmed stopped"
+}

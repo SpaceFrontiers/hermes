@@ -56,6 +56,15 @@ def main():
     included = Counter(
         row["query"]["query_class"] for row in agreement if row["include"]
     )
+    shared_input = any(row.get("comparison") == "shared-input" for row in agreement)
+    coverage_text = (
+        f"Shared-input coverage: **{sum(included.values())}/{len(agreement)} queries**. "
+        f"Exact counts agree for **{sum(row.get('counts_agree', False) for row in agreement)}**. "
+        "Count differences remain in agreement.json; this does not establish equal work or ranking."
+        if shared_input
+        else f"Count agreement: **{sum(included.values())}/{len(agreement)} queries**. "
+        "This is a restricted workload, not the complete published benchmark."
+    )
     if args.worker_followup:
         variants = [
             ("current", "current/hermes", "Hermes current workers"),
@@ -173,8 +182,7 @@ def main():
     lines = [
         "# Same-host Searchbench throughput: " + title,
         "",
-        f"Count agreement: **{sum(included.values())}/{len(agreement)} queries**. "
-        "This is a restricted workload, not the complete published benchmark.",
+        coverage_text,
         "",
         "10M Wikipedia chunks; one merged segment; "
         + (
@@ -202,8 +210,13 @@ def main():
         "validation, one-second connection warmup, three ten-second repetitions per cell.",
         "",
         "Hermes uses a benchmark HTTP frontend over core, not its production gRPC service. "
-        "Text-analysis differences exclude many queries; equal corpus counts do not prove "
-        "general analyzer or relevance equivalence. "
+        + (
+            "Text-analysis differences remain visible in the shared inputs; "
+            "errors are excluded from successful-query throughput. "
+            if shared_input
+            else "Text-analysis differences exclude many queries; equal corpus counts do not prove "
+            "general analyzer or relevance equivalence. "
+        )
         + (
             ""
             if args.followup

@@ -1,0 +1,11 @@
+--- a/hermes-core/src/query/scoring/conjunction.rs
++++ b/hermes-core/src/query/scoring/conjunction.rs
+@@ -241,7 +241,7 @@
+             let mut b = right.pos;
+             // RGB can cluster a globally rare term into dense local runs.
+             // Compare the decoded spans too, retaining the SIMD merge there.
+-            let sparse_block = seek_driven
++            let sparse_block = false && seek_driven
+                 && left.doc_ids.last().unwrap() - left.doc_ids[0]
+                     > (right.doc_ids.last().unwrap() - right.doc_ids[0])
+                         .saturating_mul(crate::structures::postings::POSTING_BLOCK_SIZE as u32);

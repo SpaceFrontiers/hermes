@@ -3507,6 +3507,7 @@ dependencies = [
  "rand 0.9.5",
  "rayon",
  "regex",
+ "regex-syntax",
  "reqwest 0.13.5",
  "rust-stemmers",
  "rustc-hash 2.1.3",

@@ -1,9 +1,13 @@
 # Yonik Searchbench comparison and phrase optimization
 
-September 24 capability update: [regex and escaped literals](regex-query.md)
-raise acceptance to **826/826 expressions** on the four-document HTTP fixture.
-This closes the previous 25 syntax/query-type errors; it does not change the
-historical full-corpus count gate or expand the measured 15-query throughput set.
+September 24 expanded comparison: [all-query coverage and skipping experiments](benchmark-results/skipping-2026-09-24/README.md)
+retain all **826** original query attempts. Hermes executes **684** on the full
+10M corpus; 142 hit explicit resource limits. The new [shared-input mode](#shared-input-comparison-mode)
+allows count differences and exposes them alongside the completed 684-query timings. The older results
+below use the stricter 15-query exact-count subset and remain historical results.
+[Regex and escaped literals](regex-query.md) achieve 826/826 acceptance on the
+four-document HTTP fixture; fixture acceptance does not establish full-corpus
+execution within the same resource limits.
 
 Status: September 23, 2026. **The four-engine 10M campaign completed successfully**
 on September 22 at 21:06 UTC (September 23, 00:06 Moscow). All 108 measured cells
@@ -81,7 +85,7 @@ Unsupported wildcard/regex families remain excluded from all paired timings.
 The native string parser remains the owner for ordinary queries; the adapter
 translates only the declared sloppy-phrase shape to existing `PhraseQuery`.
 
-## Current Hermes compatibility
+## Initial compatibility (September 22)
 
 The native parser probe ran every selected query through the existing release
 `search_benchmark_game validate-queries` entry point, without modifying the parser.
@@ -788,3 +792,52 @@ unchanged. In-place dispatch loses 2.5% top-100 throughput and adds 7.8% CPU cos
 relative to updated blocking execution; some phrase workloads improve. Keep it
 opt-in and retain the CPU-derived HTTP-worker default. Coverage remains 15/826,
 and the report preserves prototype controls, repetition ranges and memory.
+
+## Shared-input comparison mode
+
+`campaign.py gate --comparison shared-input` admits a query when every engine
+executes it successfully, while retaining each engine's own count. The default
+`exact-count` mode still requires identical counts. Neither mode discards failed
+attempts from the gate report. A timing run validates counts and ranked hit
+cardinality against the selected engine's own probe, and records the gate mode
+in its context. Shared-input replay keeps a separate metrics bucket per query
+so selectivity outliers remain inspectable.
+
+After collecting all four `*-counts.json` files in the results directory:
+
+```sh
+python3 scripts/searchbench/campaign.py gate \
+  --searchbench "$SEARCHBENCH" --out "$RESULTS" --comparison shared-input
+```
+
+Use that same `agreement.json` for each engine's `measure` invocation; the
+measurement derives eligibility from the saved gate and validates against the
+selected engine's count. Keep the query source, topology, affinity, limits and
+timing settings identical across engines. The report labels shared-input
+coverage separately from exact-count agreement.
+
+This expands coverage without rewriting the query corpus, but different counts
+mean different logical work. Report per-family query counts and count differences
+alongside throughput; do not present this as a scoring-equivalence test. On the
+September 24 full 10M probe, all three reference engines agree on all 826 counts.
+Both Hermes layouts execute 684 queries; 619 are within 5% of the reference count,
+and the median relative difference is 0.34%. Only 15 match exactly. The other 142
+Hermes requests fail explicit dictionary-scan or term-expansion limits; they
+remain failures in the 826-query coverage table and have no successful-query QPS.
+
+A derived matched-workload suite could instead pair queries by operator shape,
+term frequencies and result selectivity. Such queries must be retained and
+labelled as a separate workload. Matching hit counts alone is insufficient for
+phrases and Boolean intersections, whose candidate work can differ greatly.
+Replacing query text cannot make a whole-field regex or leading-wildcard scan
+fit a dictionary-scan limit smaller than that field's vocabulary; complete
+successful coverage of those families also requires an execution improvement
+or an explicitly documented resource-budget configuration.
+
+The [September 25 closing-gap checkpoint](benchmark-results/closing-gap-2026-09-24/README.md)
+adds same-index execution ablations and an explicitly separate Unicode-word
+analyzer build. The latest full-corpus probe succeeds on 677/826 queries, with
+640 exact reference counts and all successful counts within 5%; the other 149
+remain visible resource-limit errors. Its 673-query timing matrix and four
+separately timed newly admitted regex queries must not be combined into a
+single throughput number. Final-source corpus retiming is still pending.

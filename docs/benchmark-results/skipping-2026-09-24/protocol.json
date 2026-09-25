@@ -1,0 +1,38 @@
+{
+  "source_commit": "46f4e294b5c6a840fdae64f469c8d82ae9cb7d8f",
+  "searchbench_commit": "81f67380ef2d1528b40b6770f5ea5d6b105bc88e",
+  "rustc": "1.98.1 (48a229cea 2026-09-01)",
+  "cpu": "Intel Xeon Cascade Lake, 32 logical CPUs",
+  "server_cpus": "0-14,16-30",
+  "driver_cpus": "15,31",
+  "clients": 32,
+  "search_workers": 30,
+  "http_workers": 4,
+  "documents": 10000000,
+  "repetitions_per_round": 3,
+  "seconds_per_repetition": 3,
+  "skipping_rounds": 2,
+  "skipping_session_warmup_seconds": 20,
+  "shared_input_rounds": 1,
+  "shared_input_session_warmup_seconds": 60,
+  "connection_warmup_seconds": 1,
+  "network": "isolated-loopback",
+  "query_cache": "off",
+  "request_cache": "off",
+  "engine_versions": {
+    "Hermes": "1.9.1",
+    "Elasticsearch": "9.5.4",
+    "OpenSearch": "3.8.0",
+    "Luxir": "0.1.0 x86-64-v4"
+  },
+  "jvm_heap_gib": 8,
+  "raw_archive_sha256": "98903e8a31d46a163c3f39960509bb93739b1ab6dcd70a93d862af622b9bbf0f",
+  "runtime_script_sha256": {
+    "expanded-broad-run.py": "0035ba59938f37bbe03b32d87a0bb652752dac8fbb024063e703794ef9353559",
+    "expanded-remaining.sh": "14e7b0d4be64fcdef647a3ae3021a1994df89bf5e3f5cab3c29f52b9f19feef8",
+    "expanded-campaign.py": "28d3b9618e430843872309e7b4942012ea4282545ae3b7b8706f1ff2ec25dce4",
+    "expanded-skip-run.py": "7c32d9ad7b6b7e8ce9380abd87a1b398eb8b7540a3c91a84ae01a376ecd84e2f",
+    "shared-input-campaign.py": "4255f84806dc4dfe390c0f29cc349dca65a8b5c7f4bfc5ec7a3d7c43575b2427"
+  },
+  "summary_script_sha256": "8a9d75d621867407d2d9b5227c1cb4f61b7bd9837be151030f3216f4ab4106b9"
+}

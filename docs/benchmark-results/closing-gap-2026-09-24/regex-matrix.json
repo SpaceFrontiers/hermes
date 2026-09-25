@@ -1,0 +1,122 @@
+[
+  {
+    "label": "luxir",
+    "engine": "luxir",
+    "query_count": 4,
+    "query_set_sha256": "9012c65613c5748e3c31d85cd623e03cf1f3fae837d662a59e81fb3dda1f5c47",
+    "cells": [
+      {
+        "family": "regex",
+        "operation": "COUNT",
+        "query_count": 4,
+        "median_qps": 13485.585285745083,
+        "min_qps": 13442.701471880013,
+        "max_qps": 13540.760314113697,
+        "server_cpu_us_per_request": 2206.9424147386744,
+        "driver_cpu_us_per_request": 26.210875026682643,
+        "mean_server_cores": 29.770957038472396,
+        "mean_driver_cores": 0.3535764364076245,
+        "peak_rss_mib": 110.53515625,
+        "peak_anonymous_rss_mib": 50.53125,
+        "requests": 121802,
+        "repetitions": 3,
+        "errors": 0
+      },
+      {
+        "family": "regex",
+        "operation": "TOP_10",
+        "query_count": 4,
+        "median_qps": 116994.45409467655,
+        "min_qps": 116669.82714619703,
+        "max_qps": 117099.38462396772,
+        "server_cpu_us_per_request": 217.398723916609,
+        "driver_cpu_us_per_request": 16.978032594165665,
+        "mean_server_cores": 25.41848124686506,
+        "mean_driver_cores": 1.9850889431577448,
+        "peak_rss_mib": 77.84765625,
+        "peak_anonymous_rss_mib": 17.84375,
+        "requests": 1054790,
+        "repetitions": 3,
+        "errors": 0
+      },
+      {
+        "family": "regex",
+        "operation": "TOP_100",
+        "query_count": 4,
+        "median_qps": 106677.72113117816,
+        "min_qps": 106288.16701537909,
+        "max_qps": 106730.97939784845,
+        "server_cpu_us_per_request": 252.91335835294265,
+        "driver_cpu_us_per_request": 17.43416152809306,
+        "mean_server_cores": 26.95184288082673,
+        "mean_driver_cores": 1.8578804430266314,
+        "peak_rss_mib": 79.65625,
+        "peak_anonymous_rss_mib": 19.65234375,
+        "requests": 962978,
+        "repetitions": 3,
+        "errors": 0
+      }
+    ]
+  },
+  {
+    "label": "patterns-unicode",
+    "engine": "hermes",
+    "query_count": 4,
+    "query_set_sha256": "9012c65613c5748e3c31d85cd623e03cf1f3fae837d662a59e81fb3dda1f5c47",
+    "cells": [
+      {
+        "family": "regex",
+        "operation": "COUNT",
+        "query_count": 4,
+        "median_qps": 1978.0054377589595,
+        "min_qps": 1946.8963838001434,
+        "max_qps": 1983.0391570196118,
+        "server_cpu_us_per_request": 14503.654412566817,
+        "driver_cpu_us_per_request": 24.184793280244353,
+        "mean_server_cores": 28.561256960427247,
+        "mean_driver_cores": 0.04762579662773601,
+        "peak_rss_mib": 1807.07421875,
+        "peak_anonymous_rss_mib": 603.0859375,
+        "requests": 18334,
+        "repetitions": 3,
+        "errors": 0
+      },
+      {
+        "family": "regex",
+        "operation": "TOP_10",
+        "query_count": 4,
+        "median_qps": 17499.046782149275,
+        "min_qps": 17202.182287640375,
+        "max_qps": 17629.104304599798,
+        "server_cpu_us_per_request": 1572.808833678399,
+        "driver_cpu_us_per_request": 14.01714034757513,
+        "mean_server_cores": 27.43336541170186,
+        "mean_driver_cores": 0.24449082745981496,
+        "peak_rss_mib": 1455.79296875,
+        "peak_anonymous_rss_mib": 251.8046875,
+        "requests": 159390,
+        "repetitions": 3,
+        "errors": 0
+      },
+      {
+        "family": "regex",
+        "operation": "TOP_100",
+        "query_count": 4,
+        "median_qps": 16610.099744140192,
+        "min_qps": 16309.447650654925,
+        "max_qps": 16682.43612331291,
+        "server_cpu_us_per_request": 1651.4684944207145,
+        "driver_cpu_us_per_request": 14.522909837422603,
+        "mean_server_cores": 27.30173917497729,
+        "mean_driver_cores": 0.24008977330330739,
+        "peak_rss_mib": 1464.8125,
+        "peak_anonymous_rss_mib": 260.82421875,
+        "requests": 151005,
+        "repetitions": 3,
+        "errors": 0
+      }
+    ],
+    "binary_sha256": "8aa8533dab18d9eaa29962ed7a3d21d7943fd13b04e2e3170e2e81ae7d1e7e95",
+    "audited_queries": 4
+  }
+]

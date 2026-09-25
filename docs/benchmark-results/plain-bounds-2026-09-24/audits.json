@@ -1,0 +1,26 @@
+[
+  {
+    "layout": "plain",
+    "variant": "current",
+    "exhaustive_queries": 334,
+    "http_checks": 2004
+  },
+  {
+    "layout": "plain",
+    "variant": "plain-bounds",
+    "exhaustive_queries": 334,
+    "http_checks": 2004
+  },
+  {
+    "layout": "rgb",
+    "variant": "current",
+    "exhaustive_queries": 334,
+    "http_checks": 2004
+  },
+  {
+    "layout": "rgb",
+    "variant": "plain-bounds",
+    "exhaustive_queries": 334,
+    "http_checks": 2004
+  }
+]

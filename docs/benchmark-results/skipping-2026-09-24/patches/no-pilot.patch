@@ -1,0 +1,11 @@
+--- a/hermes-core/src/query/collector.rs
++++ b/hermes-core/src/query/collector.rs
+@@ -1609,7 +1609,7 @@
+                 collector.collect(result_doc, score, &[]);
+             }
+         }
+-        if map.is_some() && confirmations >= 1024 && !seed_attempted {
++        if false && map.is_some() && confirmations >= 1024 && !seed_attempted {
+             seed_attempted = true;
+             if let Some(score) = scorer.seed_ranked_score(collector.k)
+                 && score.is_finite()

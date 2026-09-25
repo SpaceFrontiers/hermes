@@ -1,0 +1,11 @@
+--- a/hermes-core/src/query/phrase/seed.rs
++++ b/hermes-core/src/query/phrase/seed.rs
+@@ -12,7 +12,7 @@
+         }
+         // Small heaps benefit from wider coverage with few position checks;
+         // larger heaps need enough confirmed matches to prove any floor.
+-        let selective = limit <= 16;
++        let selective = false;
+         let block_limit = if selective { 64 } else { 8 };
+         self.prepared_bounds.as_ref()?;
+         let original = self.current_doc;
